@@ -25,6 +25,7 @@ from giskardpy.motion_statechart.tasks.task import WEIGHT_BELOW_CA
 from giskardpy.qp.constraint import EqualityConstraint, InequalityConstraint, DerivativeEqualityConstraint, \
     DerivativeInequalityConstraint
 from semantic_world.prefixed_name import PrefixedName
+from semantic_world.robots import AbstractRobot
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 from giskardpy.motion_statechart.monitors.monitors import EndMotion
 
@@ -241,9 +242,9 @@ class MotionGoalWrapper:
         :param weight: None = use default weight
         """
         if isinstance(root_link, str):
-            root_link = god_map.world.get_body_by_name(root_link).name
+            root_link = god_map.world.get_body_by_name(root_link)
         if isinstance(tip_link, str):
-            tip_link = god_map.world.get_body_by_name(tip_link).name
+            tip_link = god_map.world.get_body_by_name(tip_link)
         name = self._generate_default_name(CartesianPose, name)
         goal = CartesianPose(root_link=root_link,
                              tip_link=tip_link,
@@ -410,7 +411,7 @@ class GiskardWrapper:
         symbols = set()
         for c in chain(eq_constraints, neq_constraints, eq_derivative_constraints, derivative_constraints):
             symbols.update(str(s) for s in cas.free_symbols(c.expression))
-        free_variables = list(sorted([v for v in god_map.world.degrees_of_freedom if v.symbols.position in symbols],
+        free_variables = list(sorted([v for v in god_map.world.active_degrees_of_freedom if v.symbols.position in symbols],
                                      key=lambda x: x.symbols.position))
         if len(free_variables) == 0:
             raise EmptyProblemException('Goal parsing resulted in no free variables.')

@@ -13,6 +13,7 @@ from semantic_world.adapters.urdf import URDFParser
 from semantic_world.connections import Has1DOFState, Connection6DoF, OmniDrive
 from semantic_world.geometry import Color
 from semantic_world.prefixed_name import PrefixedName
+from semantic_world.robots import AbstractRobot, Manipulator
 from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.world import World
 from semantic_world.world_entity import Body
@@ -86,17 +87,6 @@ class WorldConfig(ABC):
         :param a: 0-1
         """
         self.world.default_link_color = color
-
-    def set_default_limits(self, new_limits: derivative_map):
-        """
-        The default values will be set automatically, even if this function is not called.
-        :param new_limits: e.g. {Derivatives.velocity: 1,
-                                 Derivatives.acceleration: np.inf,
-                                 Derivatives.jerk: 711}
-        """
-        for dof in self.world.degrees_of_freedom:
-            dof._lower_limits_overwrite = {k: -v if v is not None else None for k, v in new_limits.items()}
-            dof._upper_limits_overwrite = new_limits
 
     def add_robot_urdf(self,
                        urdf: str,
@@ -248,9 +238,9 @@ class WorldWithOmniDriveRobot(WorldConfig):
         self.world.merge_world(world_with_robot)
         self.world.add_connection(localization)
         self.world.add_connection(odom)
-        self.set_default_limits({Derivatives.velocity: 1,
-                                 Derivatives.acceleration: np.inf,
-                                 Derivatives.jerk: None})
+
+        robot = AbstractRobot(name=PrefixedName('robot'), _world=self.world)
+        self.world.add_view(robot)
 
 
 class WorldWithDiffDriveRobot(WorldConfig):

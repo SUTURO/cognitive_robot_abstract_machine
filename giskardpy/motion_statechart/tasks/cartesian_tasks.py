@@ -2,20 +2,22 @@ from typing import Optional
 
 from giskardpy.data_types.data_types import Derivatives
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import PrefixName, ColorRGBA
+from giskardpy.data_types.data_types import ColorRGBA
 from giskardpy.god_map import god_map
-from giskardpy.motion_statechart.monitors.cartesian_monitors import PositionReached, OrientationReached
 from giskardpy.motion_statechart.tasks.task import Task, WEIGHT_ABOVE_CA
+from semantic_world.prefixed_name import PrefixedName
 from semantic_world.spatial_types.symbol_manager import symbol_manager
 import numpy as np
+
+from semantic_world.world_entity import Body
 
 
 class CartesianPosition(Task):
     default_reference_velocity = 0.2
 
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  goal_point: cas.Point3,
                  threshold: float = 0.01,
                  reference_velocity: Optional[float] = None,
@@ -76,8 +78,8 @@ class CartesianPosition(Task):
 
 class CartesianPositionStraight(Task):
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  goal_point: cas.Point3,
                  threshold: float = 0.01,
                  reference_velocity: Optional[float] = None,
@@ -147,8 +149,8 @@ class CartesianOrientation(Task):
     default_reference_velocity = 0.2
 
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  goal_orientation: cas.RotationMatrix,
                  threshold: float = 0.01,
                  reference_velocity: Optional[float] = None,
@@ -208,8 +210,8 @@ class CartesianOrientation(Task):
 
 class CartesianPose(Task):
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: Body,
+                 tip_link: Body,
                  goal_pose: cas.TransformationMatrix,
                  reference_linear_velocity: Optional[float] = None,
                  reference_angular_velocity: Optional[float] = None,
@@ -232,9 +234,9 @@ class CartesianPose(Task):
         """
         if weight is None:
             weight = WEIGHT_ABOVE_CA
-        self.root = god_map.world.get_body_by_name(root_link)
-        self.tip = god_map.world.get_body_by_name(tip_link)
-        self.goal_ref = god_map.world.get_body_by_name(goal_pose.reference_frame)
+        self.root = root_link
+        self.tip = tip_link
+        self.goal_ref = goal_pose.reference_frame
         super().__init__(name=name)
         if reference_linear_velocity is None:
             reference_linear_velocity = CartesianOrientation.default_reference_velocity
@@ -264,15 +266,6 @@ class CartesianPose(Task):
                                         frame_P_current=r_P_c,
                                         reference_velocity=self.reference_linear_velocity,
                                         weight=self.weight)
-        if tip_link in ['rollin_justin/l_gripper_tool_frame', 'box/box']:
-            god_map.debug_expression_manager.add_debug_expression(f'{self.name}/l/current_point', r_P_c,
-                                                                  color=ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0))
-        if tip_link in ['rollin_justin/r_gripper_tool_frame']:
-            god_map.debug_expression_manager.add_debug_expression(f'{self.name}/r/current_point', r_P_c,
-                                                                  color=ColorRGBA(r=1.0, g=0.0, b=0.0, a=1.0))
-        if tip_link in ['Schnibbler/Schnibbler']:
-            god_map.debug_expression_manager.add_debug_expression(f'{self.name}/r_P_c', r_P_c,
-                                                                  color=ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0))
 
         distance_to_goal = cas.euclidean_distance(root_P_goal, r_P_c)
 
@@ -298,8 +291,8 @@ class CartesianPose(Task):
 
 class CartesianPositionVelocityLimit(Task):
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  name: str,
                  max_linear_velocity: float = 0.2,
                  weight: float = WEIGHT_ABOVE_CA):
@@ -325,8 +318,8 @@ class CartesianPositionVelocityLimit(Task):
 class CartesianRotationVelocityLimit(Task):
     def __init__(self,
                  name: str,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  weight=WEIGHT_ABOVE_CA,
                  max_velocity: Optional[float] = None):
         """
@@ -348,8 +341,8 @@ class CartesianRotationVelocityLimit(Task):
 class CartesianVelocityLimit(Task):
     def __init__(self,
                  name: str,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  max_linear_velocity: float = 0.1,
                  max_angular_velocity: float = 0.5,
                  weight: float = WEIGHT_ABOVE_CA):
@@ -378,8 +371,8 @@ class CartesianVelocityLimit(Task):
 
 class CartesianPositionVelocityTarget(Task):
     def __init__(self,
-                 root_link: PrefixName,
-                 tip_link: PrefixName,
+                 root_link: PrefixedName,
+                 tip_link: PrefixedName,
                  name: str,
                  x_vel: float,
                  y_vel: float,
@@ -430,7 +423,7 @@ class CartesianPositionVelocityTarget(Task):
 
 
 class JustinTorsoLimitCart(Task):
-    def __init__(self, *, root_link: PrefixName, tip_link: PrefixName,
+    def __init__(self, *, root_link: PrefixedName, tip_link: PrefixedName,
                  forward_distance: float, backward_distance: float, weight: float = WEIGHT_ABOVE_CA,
                  name: Optional[str] = None, plot: bool = True):
         super().__init__(name=name, plot=plot)

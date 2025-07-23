@@ -84,7 +84,7 @@ class QPController:
              eq_derivative_constraints: List[DerivativeEqualityConstraint] = None,
              quadratic_weight_gains: List[QuadraticWeightGain] = None,
              linear_weight_gains: List[LinearWeightGain] = None):
-        self.degrees_of_freedoms = list(sorted(degrees_of_freedom, key=lambda dof: god_map.world.state.keys().index(dof.name)))
+        self.degrees_of_freedoms = list(sorted(degrees_of_freedom, key=lambda dof: str(dof.name)))
         self.dof_filter = np.array([god_map.world.state.keys().index(dof.name) for dof in self.degrees_of_freedoms])
         self.qp_adapter = self.qp_solver.required_adapter_type(
             world_state_symbols=god_map.world.get_world_state_symbols(),

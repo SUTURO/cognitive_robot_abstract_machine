@@ -10,6 +10,7 @@ from giskardpy.motion_statechart.monitors.monitors import PayloadMonitor
 from giskardpy.utils.math import axis_angle_from_quaternion
 from semantic_world.connections import Has1DOFState, OmniDrive
 from semantic_world.prefixed_name import PrefixedName
+from semantic_world.world_entity import Connection
 
 
 class SetSeedConfiguration(PayloadMonitor):
@@ -37,6 +38,7 @@ class SetSeedConfiguration(PayloadMonitor):
 
 class SetOdometry(PayloadMonitor):
     odom_joints = (OmniDrive,)
+    brumbrum_joint: Connection
 
     def __init__(self,
                  base_pose: cas.TransformationMatrix,
@@ -62,10 +64,10 @@ class SetOdometry(PayloadMonitor):
                 raise GoalInitalizationException(f'Group {self.group_name} has no odometry joint.')
 
     def __call__(self):
-        self.brumbrum_joint
-        base_pose = god_map.world.transform(self.brumbrum_joint.parent_link_name, self.base_pose)
-        position = base_pose.to_position().to_np()
-        orientation = base_pose.to_rotation().to_quaternion().to_np()
+        parent_T_pose_ref = cas.TransformationMatrix(god_map.world.compute_forward_kinematics_np(self.brumbrum_joint.parent, self.base_pose.reference_frame))
+        parent_T_pose = parent_T_pose_ref @ self.base_pose
+        position = parent_T_pose.to_position().to_np()
+        orientation = parent_T_pose.to_rotation().to_quaternion().to_np()
         god_map.world.state[self.brumbrum_joint.x.name].position = position[0]
         god_map.world.state[self.brumbrum_joint.y.name].position = position[1]
         axis, angle = axis_angle_from_quaternion(orientation[0],

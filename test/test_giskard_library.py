@@ -195,24 +195,8 @@ def pr2_world() -> World:
     config = WorldWithOmniDriveRobot(urdf=urdf)
     with config.world.modify_world():
         config.setup()
-    # config.world.register_controlled_joints([PrefixedName('torso_lift_joint', 'pr2'),
-    #                                          PrefixedName('head_pan_joint', 'pr2'),
-    #                                          PrefixedName('head_tilt_joint', 'pr2'),
-    #                                          PrefixedName('r_shoulder_pan_joint', 'pr2'),
-    #                                          PrefixedName('r_shoulder_lift_joint', 'pr2'),
-    #                                          PrefixedName('r_upper_arm_roll_joint', 'pr2'),
-    #                                          PrefixedName('r_forearm_roll_joint', 'pr2'),
-    #                                          PrefixedName('r_elbow_flex_joint', 'pr2'),
-    #                                          PrefixedName('r_wrist_flex_joint', 'pr2'),
-    #                                          PrefixedName('r_wrist_roll_joint', 'pr2'),
-    #                                          PrefixedName('l_shoulder_pan_joint', 'pr2'),
-    #                                          PrefixedName('l_shoulder_lift_joint', 'pr2'),
-    #                                          PrefixedName('l_upper_arm_roll_joint', 'pr2'),
-    #                                          PrefixedName('l_forearm_roll_joint', 'pr2'),
-    #                                          PrefixedName('l_elbow_flex_joint', 'pr2'),
-    #                                          PrefixedName('l_wrist_flex_joint', 'pr2'),
-    #                                          PrefixedName('l_wrist_roll_joint', 'pr2'),
-    #                                          PrefixedName('brumbrum', 'pr2')])
+    pr2: AbstractRobot = config.world.get_view_by_name('robot')
+    pr2.controlled_connections.connections = config.world.search_for_connections_of_type(ActiveConnection)
     return config.world
 
 
@@ -271,7 +255,7 @@ class TestWorld:
     def test_compute_chain_reduced_to_controlled_joints(self, simple_two_arm_world: World):
         root = simple_two_arm_world.get_body_by_name('r_eef')
         tip = simple_two_arm_world.get_body_by_name('l_eef')
-        controlled_joints: ControlledConnections = simple_two_arm_world.views[0]
+        controlled_joints: ControlledConnections = simple_two_arm_world.views[1]
         link_a, link_b = controlled_joints.compute_chain_reduced_to_controlled_joints(root, tip)
         assert link_a == simple_two_arm_world.get_body_by_name('r_eef')
         assert link_b == simple_two_arm_world.get_body_by_name('l_link_3')
@@ -282,12 +266,11 @@ class TestWorld:
         assert link_b == simple_two_arm_world.get_body_by_name('r_link_1')
 
     def test_group_pr2_hand(self, pr2_world: World):
-        pr2 = AbstractRobot(name=PrefixedName('pr2'),
-                            _world=pr2_world,
-                            manipulators=[Manipulator(root=pr2_world.get_body_by_name('r_wrist_roll_link'),
-                                                      name=PrefixedName('r_hand'),
-                                                      tool_frame=pr2_world.get_body_by_name('r_gripper_tool_frame'))])
-        pr2_world.add_view(pr2)
+        pr2: AbstractRobot = pr2_world.get_view_by_name('robot')
+        pr2.manipulators.append(Manipulator(root=pr2_world.get_body_by_name('r_wrist_roll_link'),
+                                            name=PrefixedName('r_hand'),
+                                            tool_frame=pr2_world.get_body_by_name('r_gripper_tool_frame'),
+                                            _world=pr2_world))
         view: AbstractRobot = pr2.manipulators[0]
         assert set(view.connections) == {
             pr2_world.get_connection_by_name('r_gripper_palm_joint'),
@@ -424,13 +407,14 @@ class TestController:
         init = 'init'
         g1 = 'g1'
         g2 = 'g2'
-        init_goal1 = cas.TransformationMatrix(reference_frame=PrefixedName('map'))
+        root = god_map.world.get_body_by_name('map')
+        init_goal1 = cas.TransformationMatrix(reference_frame=root)
         init_goal1.x = -0.5
 
-        base_goal1 = cas.TransformationMatrix(reference_frame=PrefixedName('map'))
+        base_goal1 = cas.TransformationMatrix(reference_frame=root)
         base_goal1.x = 1.0
 
-        base_goal2 = cas.TransformationMatrix(reference_frame=PrefixedName('map'))
+        base_goal2 = cas.TransformationMatrix(reference_frame=root)
         base_goal2.x = -1.0
 
         giskard_pr2.monitors.add_set_seed_odometry(base_pose=init_goal1, name=init)
