@@ -6,19 +6,19 @@ from itertools import product, combinations_with_replacement, combinations
 from typing import List, Dict, Optional, Tuple, Iterable, Set, DefaultDict, Callable
 
 import numpy as np
-
-from semantic_world.robots import AbstractRobot
-from semantic_world.spatial_types.symbol_manager import symbol_manager
+from line_profiler import profile
 from lxml import etree
 
-from giskardpy.data_types.data_types import Derivatives, PrefixedName
+import semantic_world.spatial_types.spatial_types as cas
 from giskardpy.data_types.exceptions import UnknownGroupException, UnknownLinkException
 from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware
 from giskardpy.model.world import WorldBranch
 from giskardpy.qp.free_variable import FreeVariable
-from line_profiler import profile
-import semantic_world.spatial_types.spatial_types as cas
+from semantic_world.prefixed_name import PrefixedName
+from semantic_world.robots import AbstractRobot
+from semantic_world.spatial_types.derivatives import Derivatives
+from semantic_world.spatial_types.symbol_manager import symbol_manager
 
 np.random.seed(1337)
 

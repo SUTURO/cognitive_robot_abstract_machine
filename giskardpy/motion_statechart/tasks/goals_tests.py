@@ -2,7 +2,7 @@ from typing import Optional
 
 import numpy as np
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import Derivatives
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.tasks.task import Task
 from semantic_world.spatial_types.symbol_manager import symbol_manager

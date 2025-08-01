@@ -1,7 +1,8 @@
 from __future__ import division
 
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import Derivatives, PrefixedName
+from semantic_world.prefixed_name import PrefixedName
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.motion_statechart.goals.goal import Goal
 from giskardpy.god_map import god_map
 from giskardpy.model.joints import OmniDrive, OmniDrivePR22

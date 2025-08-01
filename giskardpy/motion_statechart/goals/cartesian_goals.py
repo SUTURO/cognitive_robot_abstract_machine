@@ -5,7 +5,8 @@ from typing import Optional, List
 import numpy as np
 
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import Derivatives, ColorRGBA, PrefixedName
+from semantic_world.prefixed_name import PrefixedName
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.motion_statechart.goals.goal import Goal
 from giskardpy.god_map import god_map
 from giskardpy.model.joints import DiffDrive, OmniDrive

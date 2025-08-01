@@ -10,6 +10,7 @@ import semantic_world.spatial_types.spatial_types as cas
 from collections.abc import MutableMapping
 
 from semantic_world.prefixed_name import PrefixedName
+from semantic_world.spatial_types.derivatives import Derivatives
 
 
 class ColorRGBA:
@@ -53,19 +54,6 @@ class ColorRGBA:
     def a(self, value):
         self._a = float(value)
 
-
-class Derivatives(IntEnum):
-    position = 0
-    velocity = 1
-    acceleration = 2
-    jerk = 3
-
-    @classmethod
-    def range(cls, start: Union[Derivatives, int], stop: Union[Derivatives, int], step: int = 1):
-        """
-        Includes stop!
-        """
-        return [item for item in cls if start <= item <= stop][::step]
 
 
 my_string = Union[str, PrefixedName]

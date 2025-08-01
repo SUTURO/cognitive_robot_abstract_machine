@@ -4,7 +4,7 @@ from typing import Dict, Optional, List, Union
 import numpy as np
 
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import Derivatives
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.data_types.data_types import JointStates, ColorRGBA
 from semantic_world.prefixed_name import PrefixedName
 from giskardpy.middleware import get_middleware

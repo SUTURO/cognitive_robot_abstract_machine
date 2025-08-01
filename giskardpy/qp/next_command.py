@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, TYPE_CHECKING, Optional, Union
 import numpy as np
 
-
-from giskardpy.data_types.data_types import Derivatives, PrefixedName
+from semantic_world.prefixed_name import PrefixedName
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.qp.free_variable import FreeVariable
 import giskardpy.utils.math as giskard_math
 from giskardpy.utils.decorators import memoize

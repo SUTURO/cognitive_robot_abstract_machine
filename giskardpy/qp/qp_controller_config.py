@@ -6,7 +6,7 @@ from typing import Optional, Dict, Type
 
 import numpy as np
 
-from giskardpy.data_types.data_types import Derivatives
+from semantic_world.spatial_types.derivatives import Derivatives
 from giskardpy.data_types.exceptions import QPSolverException
 from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware

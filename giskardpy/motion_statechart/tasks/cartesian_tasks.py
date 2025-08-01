@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from giskardpy.data_types.data_types import Derivatives
+from semantic_world.spatial_types.derivatives import Derivatives
 import semantic_world.spatial_types.spatial_types as cas
 from giskardpy.data_types.data_types import ColorRGBA
 from giskardpy.god_map import god_map

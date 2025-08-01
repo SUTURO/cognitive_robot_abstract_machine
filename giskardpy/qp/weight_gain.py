@@ -1,6 +1,6 @@
 from typing import List, Dict, DefaultDict
 
-from giskardpy.data_types.data_types import Derivatives
+from semantic_world.spatial_types.derivatives import Derivatives
 from semantic_world.degree_of_freedom import DegreeOfFreedom
 
 

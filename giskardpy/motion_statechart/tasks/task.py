@@ -5,7 +5,9 @@ from typing import Optional, List, Union, Dict, DefaultDict, TypeVar
 import numpy as np
 
 import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.data_types import Derivatives, LifeCycleState
+from giskardpy.data_types.data_types import LifeCycleState
+from semantic_world.spatial_types.derivatives import Derivatives
+
 from giskardpy.data_types.exceptions import GoalInitalizationException, DuplicateNameException
 from giskardpy.god_map import god_map
 from giskardpy.motion_statechart.graph_node import MotionStatechartNode
