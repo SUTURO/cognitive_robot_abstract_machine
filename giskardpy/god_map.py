@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, List, Dict, Tuple
 
 from giskardpy.middleware import get_middleware
@@ -59,9 +58,6 @@ class GodMap:
         elif item == 'time_symbol':
             self.time_symbol = symbol_manager.register_symbol_provider('time', lambda: self.time)
         return super().__getattribute__(item)
-
-    def is_collision_checking_enabled(self):
-        return self.collision_scene.collision_checker_id != self.collision_scene.collision_checker_id.none
 
     def to_tmp_path(self, file_name: str) -> str:
         path = god_map.tmp_folder

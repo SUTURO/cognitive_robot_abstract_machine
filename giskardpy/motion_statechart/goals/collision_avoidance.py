@@ -2,8 +2,8 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import Dict, Optional, List
 import semantic_world.spatial_types.spatial_types as cas
+from giskardpy.model.collision_matrix_manager import CollisionViewRequest
 from giskardpy.motion_statechart.goals.goal import Goal
-from giskardpy.model.collision_world_syncer import CollisionEntry, Collision
 from giskardpy.motion_statechart.monitors.monitors import Monitor
 from giskardpy.motion_statechart.tasks.task import WEIGHT_ABOVE_CA, WEIGHT_COLLISION_AVOIDANCE, Task
 from giskardpy.god_map import god_map
@@ -329,7 +329,7 @@ class CollisionAvoidance(Goal):
     sub_goals = {}
 
     def __init__(self,
-                 collision_entries: List[CollisionEntry],
+                 collision_entries: List[CollisionViewRequest],
                  name: Optional[str] = None):
         if name is None:
             name = self.__class__.__name__
@@ -354,7 +354,7 @@ class CollisionAvoidance(Goal):
     @profile
     def add_external_collision_avoidance_constraints(self, soft_threshold_override=None):
         configs = god_map.collision_scene.collision_avoidance_configs
-        fixed_joints = god_map.collision_scene.fixed_joints
+        fixed_joints = god_map.collision_scene.frozen_connections
         joints = [j for j in god_map.world.controlled_joints if j not in fixed_joints]
         num_constrains = 0
         for joint_name in joints:
@@ -387,7 +387,7 @@ class CollisionAvoidance(Goal):
     @profile
     def add_self_collision_avoidance_constraints(self):
         counter = defaultdict(int)
-        fixed_joints = god_map.collision_scene.fixed_joints
+        fixed_joints = god_map.collision_scene.frozen_connections
         configs = god_map.collision_scene.collision_avoidance_configs
         num_constr = 0
         for robot_name in god_map.collision_scene.robot_names:

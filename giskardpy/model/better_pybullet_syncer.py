@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, DefaultDict, List, Set, Optional
+from typing import Dict, Tuple, DefaultDict, List, Set, Optional, Iterable
 
 import betterpybullet as bpb
 from line_profiler import profile
@@ -6,14 +6,14 @@ from line_profiler import profile
 from giskardpy.god_map import god_map
 from giskardpy.middleware import get_middleware
 from giskardpy.model.bpb_wrapper import create_shape_from_link, BPCollisionWrapper
-from giskardpy.model.collision_detector import CollisionDetector
+from giskardpy.model.collision_detector import CollisionDetector, Collisions
 from giskardpy.model.collision_matrix_manager import CollisionCheck
 from semantic_world.prefixed_name import PrefixedName
 from semantic_world.world_entity import Body
 
 
 class BulletCollisionDetector(CollisionDetector):
-    collision_list_sizes: float = 1000
+    collision_list_sizes: int = 1000
 
     def __init__(self, ):
         self.kw = bpb.KineverseWorld()
@@ -51,21 +51,24 @@ class BulletCollisionDetector(CollisionDetector):
         self.closest_points = self.bpb_result_to_collisions(result, self.collision_list_sizes)
         return self.closest_points
 
-    # @profile
-    # def find_colliding_combinations(self, link_combinations: Iterable[Tuple[PrefixedName, PrefixedName]],
-    #                                 distance: float,
-    #                                 update_query: bool) -> Set[Tuple[PrefixedName, PrefixedName, float]]:
-    #     if update_query:
-    #         self.query = None
-    #         self.collision_matrix = {link_combination: distance for link_combination in link_combinations}
-    #     else:
-    #         self.collision_matrix = {}
-    #     self.sync()
-    #     collisions = self.check_collisions(buffer=0.0)
-    #     colliding_combinations = {(c.original_link_a, c.original_link_b, c.contact_distance) for c in
-    #                               collisions.all_collisions
-    #                               if c.contact_distance <= distance}
-    #     return colliding_combinations
+    @profile
+    def find_colliding_combinations(self, body_combinations: Iterable[Tuple[Body, Body]],
+                                    distance: float,
+                                    update_query: bool) -> Set[CollisionCheck]:
+        if update_query:
+            self.query = None
+            self.collision_matrix = {CollisionCheck(body_a=body_a,
+                                                    body_b=body_b,
+                                                    distance=distance) for body_a, body_b in body_combinations}
+        else:
+            self.collision_matrix = set()
+        god_map.collision_scene.sync()
+        collisions = self.check_collisions(collision_matrix=self.collision_matrix, buffer=0.0)
+        colliding_combinations = {CollisionCheck(body_a=c.original_link_a,
+                                                 body_b=c.original_link_b,
+                                                 distance=c.contact_distance) for c in collisions.all_collisions
+                                  if c.contact_distance <= distance}
+        return colliding_combinations
 
     @profile
     def bpb_result_to_collisions(self, result: List[bpb.Collision],

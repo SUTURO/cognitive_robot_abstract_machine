@@ -35,33 +35,3 @@ class CollisionDataSynchronizer:
 
     closest_points: Collisions = field(default_factory=Collisions)
 
-    @profile
-    def get_external_collision_data(self) -> np.ndarray:
-        offset = 0
-        for link_name, max_idx in self.external_monitored_links.items():
-            collisions = self.closest_points.get_external_collisions(link_name)
-
-            for idx in range(max_idx + 1):
-                np.copyto(self.external_collision_data[offset:offset + 8], collisions[idx].external_data)
-                offset += 8
-
-            self.external_collision_data[offset] = self.closest_points.get_number_of_external_collisions(link_name)
-            offset += 1
-
-        return self.external_collision_data
-
-    @profile
-    def get_self_collision_data(self) -> np.ndarray:
-
-        offset = 0
-        for (link_a, link_b), max_idx in self.self_monitored_links.items():
-            collisions = self.closest_points.get_self_collisions(link_a, link_b)
-
-            for idx in range(max_idx + 1):
-                np.copyto(self.self_collision_data[offset:offset + 10], collisions[idx].self_data)
-                offset += 10
-
-            self.self_collision_data[offset] = self.closest_points.get_number_of_self_collisions(link_a, link_b)
-            offset += 1
-
-        return self.self_collision_data

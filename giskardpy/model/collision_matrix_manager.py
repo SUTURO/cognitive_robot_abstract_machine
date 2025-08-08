@@ -1,29 +1,22 @@
 from __future__ import annotations
 
-import os
+import copy
 from collections import defaultdict
-from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import product, combinations_with_replacement
-from typing import List, Dict, Optional, Tuple, Iterable, Set, DefaultDict, Callable, TYPE_CHECKING
+from typing import List, Dict, Optional, Tuple, Iterable, Set, DefaultDict, Callable
 
 import numpy as np
 from line_profiler import profile
-from lxml import etree
 
-import semantic_world.spatial_types.spatial_types as cas
-from giskardpy.data_types.exceptions import UnknownGroupException, UnknownLinkException
 from giskardpy.god_map import god_map
-from giskardpy.middleware import get_middleware
 from giskardpy.qp.free_variable import FreeVariable
 from semantic_world.connections import ActiveConnection
-from semantic_world.robots import AbstractRobot
-from semantic_world.spatial_types.derivatives import Derivatives
-from semantic_world.spatial_types.symbol_manager import symbol_manager
-from semantic_world.utils import copy_lru_cache
+from semantic_world.degree_of_freedom import DegreeOfFreedom
+from semantic_world.robots import AbstractRobot, CollisionConfig
 from semantic_world.world import World
-from semantic_world.world_entity import Body, Connection
+from semantic_world.world_entity import Body
 
 
 def sort_bodies(body_a: Body, body_b: Body) -> Tuple[Body, Body]:
@@ -35,8 +28,8 @@ def sort_bodies(body_a: Body, body_b: Body) -> Tuple[Body, Body]:
 
 @dataclass
 class CollisionViewRequest:
-    AVOID_COLLISION: int = 0
-    ALLOW_COLLISION: int = 1
+    AVOID_COLLISION: int = field(default=0, init=False)
+    ALLOW_COLLISION: int = field(default=1, init=False)
 
     type_: int = AVOID_COLLISION
     distance: Optional[float] = None
@@ -140,23 +133,11 @@ class DisableCollisionReason(Enum):
 
 @dataclass
 class SelfCollisionMatrix:
-    view: AbstractRobot
-    file_path: str = ''
-    disabled_pairs: Set[Tuple[Body, Body]] = field(default_factory=set)
-    disabled_bodies: Set[Body] = field(default_factory=set)
-
-    SRDF_DISABLE_ALL_COLLISIONS: str = 'disable_all_collisions'
-    SRDF_DISABLE_SELF_COLLISION: str = 'disable_self_collision'
-    SRDF_MOVEIT_DISABLE_COLLISIONS: str = 'disable_collisions'
-
-    def get_path_to_self_collision_matrix(self) -> str:
-        path_to_tmp = god_map.tmp_folder
-        return f'{path_to_tmp}{self.view.name}/{self.view.name}.srdf'
+    collision_config: CollisionConfig
 
     @profile
     def compute_self_collision_matrix(self,
-                                      robot: AbstractRobot,
-                                      link_combinations: Optional[Iterable[Tuple[Body, Body]]] = None,
+                                      body_combinations: Optional[Iterable[Tuple[Body, Body]]] = None,
                                       distance_threshold_zero: float = 0.0,
                                       distance_threshold_always: float = 0.005,
                                       distance_threshold_never_max: float = 0.05,
@@ -167,7 +148,7 @@ class SelfCollisionMatrix:
                                       almost_percentage: float = 0.95,
                                       number_of_tries_never: int = 10000,
                                       progress_callback: Optional[Callable[[int, str], None]] = None) \
-            -> SelfCollisionMatrix:
+            -> Set[Tuple[Body, Body]]:
         """
         :param progress_callback: a function that is used to display the progress. it's called with a value of 0-100 and
                                     a string representing the current action
@@ -176,89 +157,83 @@ class SelfCollisionMatrix:
             progress_callback = lambda value, text: None
         np.random.seed(1337)
         remaining_pairs = set()
-        self_collision_matrix = SelfCollisionMatrix(view=robot)
-        group = god_map.world.groups[self_collision_matrix.view.name]
+        disabled_pairs = copy.copy(self.collision_config.disabled_pairs)
+        robot = self.collision_config._robot
 
         # 0. GENERATE ALL POSSIBLE LINK PAIRS
-        if link_combinations is None:
-            link_combinations = set(combinations_with_replacement(group.link_names_with_collisions, 2))
-        for link_a, link_b in list(link_combinations):
-            remaining_pairs.add(god_map.world.sort_links(link_a, link_b))
+        if body_combinations is None:
+            body_combinations = set(combinations_with_replacement(robot.bodies_with_collisions, 2))
+        for body_a, body_b in list(body_combinations):
+            remaining_pairs.add(CollisionConfig.sort_bodies(body_a, body_b))
 
         # %%
-        remaining_pairs, matrix_updates = self.compute_self_collision_matrix_adjacent(remaining_pairs, group)
-        self_collision_matrix.disabled_pairs.update(matrix_updates)
+        remaining_pairs, matrix_updates = self.compute_self_collision_matrix_adjacent(remaining_pairs, robot)
+        disabled_pairs.update(matrix_updates)
 
         # %%
         remaining_pairs, matrix_updates = self.compute_self_collision_matrix_default(remaining_pairs,
-                                                                                     group,
+                                                                                     robot,
                                                                                      distance_threshold_zero)
-        self_collision_matrix.disabled_pairs.update(matrix_updates)
+        disabled_pairs.update(matrix_updates)
 
         # %%
         remaining_pairs, matrix_updates = self.compute_self_collision_matrix_always(
-            link_combinations=remaining_pairs,
-            group=group,
+            body_combinations=remaining_pairs,
+            robot=robot,
             distance_threshold_always=distance_threshold_always,
             number_of_tries=number_of_tries_always,
             almost_percentage=almost_percentage)
-        self_collision_matrix.disabled_pairs.update(matrix_updates)
+        disabled_pairs.update(matrix_updates)
 
         # %%
         remaining_pairs, matrix_updates = self.compute_self_collision_matrix_never(
-            link_combinations=remaining_pairs,
-            group=group,
+            body_combinations=remaining_pairs,
+            robot=robot,
             distance_threshold_never_initial=distance_threshold_never_max,
             distance_threshold_never_min=distance_threshold_never_min,
             distance_threshold_never_range=distance_threshold_never_range,
             distance_threshold_never_zero=distance_threshold_never_zero,
             number_of_tries=number_of_tries_never,
             progress_callback=progress_callback)
-        self_collision_matrix.disabled_pairs.update(matrix_updates)
+        disabled_pairs.update(matrix_updates)
 
-        return self_collision_matrix
+        return disabled_pairs
 
     def compute_self_collision_matrix_adjacent(self,
-                                               link_combinations: Set[Tuple[Body, Body]],
-                                               group: AbstractRobot) \
+                                               body_combinations: Set[Tuple[Body, Body]],
+                                               robot: AbstractRobot) \
             -> Tuple[Set[Tuple[Body, Body]], Dict[Tuple[Body, Body], DisableCollisionReason]]:
         """
         Find connecting links and disable all adjacent link collisions
         """
-        black_list = {}
-        remaining_pairs = deepcopy(link_combinations)
-        for link_a, link_b in list(link_combinations):
-            element = link_a, link_b
-            if link_a == link_b:
-                continue
-            if group.is_controlled_connection_in_chain(link_a, link_b):
-                continue
-            remaining_pairs.remove(element)
-            black_list[element] = DisableCollisionReason.Adjacent
+        disabled_pairs = self.collision_config.compute_uncontrolled_body_pairs()
+        black_list = {pair: DisableCollisionReason.Adjacent for pair in disabled_pairs}
+        remaining_pairs = body_combinations.difference(disabled_pairs)
         return remaining_pairs, black_list
 
     def compute_self_collision_matrix_default(self,
-                                              link_combinations: Set[Tuple[Body, Body]],
-                                              group: AbstractRobot,
+                                              body_combinations: Set[Tuple[Body, Body]],
+                                              robot: AbstractRobot,
                                               distance_threshold_zero: float) \
             -> Tuple[Set[Tuple[Body, Body]], Dict[
                 Tuple[Body, Body], DisableCollisionReason]]:
         """
         Disable link pairs that are in collision in default state
         """
-        with god_map.world.reset_joint_state_context():
-            self.set_default_joint_state(group)
+        with god_map.world.reset_state_context():
+            self.set_default_joint_state(robot)
             self_collision_matrix = {}
-            remaining_pairs = deepcopy(link_combinations)
-            for link_a, link_b, _ in self.find_colliding_combinations(remaining_pairs, distance_threshold_zero, True):
+            remaining_pairs = copy.copy(body_combinations)
+            for link_a, link_b, _ in god_map.collision_scene.collision_detector.find_colliding_combinations(
+                    remaining_pairs, distance_threshold_zero, True):
                 link_combination = god_map.world.sort_links(link_a, link_b)
                 remaining_pairs.remove(link_combination)
                 self_collision_matrix[link_combination] = DisableCollisionReason.Default
         return remaining_pairs, self_collision_matrix
 
     def compute_self_collision_matrix_always(self,
-                                             link_combinations: Set[Tuple[Body, Body]],
-                                             group: AbstractRobot,
+                                             body_combinations: Set[Tuple[Body, Body]],
+                                             robot: AbstractRobot,
                                              distance_threshold_always: float,
                                              number_of_tries: int = 200,
                                              almost_percentage: float = 0.95) \
@@ -268,14 +243,14 @@ class SelfCollisionMatrix:
         Disable link pairs that are (almost) always in collision.
         """
         if number_of_tries == 0:
-            return link_combinations, {}
-        with god_map.world.reset_joint_state_context():
+            return body_combinations, {}
+        with god_map.world.reset_state_context():
             self_collision_matrix = {}
-            remaining_pairs = deepcopy(link_combinations)
+            remaining_pairs = copy.copy(body_combinations)
             counts: DefaultDict[Tuple[Body, Body], int] = defaultdict(int)
             for try_id in range(int(number_of_tries)):
-                self.set_rnd_joint_state(group)
-                for link_a, link_b, _ in self.find_colliding_combinations(remaining_pairs, distance_threshold_always,
+                self.set_rnd_joint_state(robot)
+                for link_a, link_b, _ in god_map.collision_scene.collision_detector.find_colliding_combinations(remaining_pairs, distance_threshold_always,
                                                                           True):
                     link_combination = sort_bodies(link_a, link_b)
                     counts[link_combination] += 1
@@ -286,8 +261,8 @@ class SelfCollisionMatrix:
         return remaining_pairs, self_collision_matrix
 
     def compute_self_collision_matrix_never(self,
-                                            link_combinations: Set[Tuple[Body, Body]],
-                                            group: AbstractRobot,
+                                            body_combinations: Set[Tuple[Body, Body]],
+                                            robot: AbstractRobot,
                                             distance_threshold_never_initial: float,
                                             distance_threshold_never_min: float,
                                             distance_threshold_never_range: float,
@@ -300,17 +275,17 @@ class SelfCollisionMatrix:
         Disable link pairs that are never in collision.
         """
         if number_of_tries == 0:
-            return link_combinations, {}
-        with god_map.world.reset_joint_state_context():
+            return body_combinations, {}
+        with god_map.world.reset_state_context():
             one_percent = number_of_tries // 100
             self_collision_matrix = {}
-            remaining_pairs = deepcopy(link_combinations)
+            remaining_pairs = copy.copy(body_combinations)
             update_query = True
             distance_ranges: Dict[Tuple[Body, Body], Tuple[float, float]] = {}
             once_without_contact = set()
             for try_id in range(int(number_of_tries)):
-                self.set_rnd_joint_state(group)
-                contacts = self.find_colliding_combinations(remaining_pairs, distance_threshold_never_initial,
+                self.set_rnd_joint_state(robot)
+                contacts = god_map.collision_scene.collision_detector.find_colliding_combinations(remaining_pairs, distance_threshold_never_initial,
                                                             update_query)
                 update_query = False
                 contact_keys = set()
@@ -348,34 +323,34 @@ class SelfCollisionMatrix:
             god_map.world.state[free_variable].position = 0
         god_map.world.notify_state_change()
 
-    def set_default_joint_state(self, group: AbstractRobot):
-        for connection in group.connections:
+    def set_default_joint_state(self, robot: AbstractRobot):
+        for connection in robot.connections:
             if not isinstance(connection, ActiveConnection):
                 continue
-            free_variable: FreeVariable
-            for free_variable in connection.active_dofs:
-                if free_variable.has_position_limits():
-                    lower_limit = free_variable.get_lower_limit(Derivatives.position)
-                    upper_limit = free_variable.get_upper_limit(Derivatives.position)
-                    god_map.world.state[free_variable.name].position = (upper_limit + lower_limit) / 2
+            dof: DegreeOfFreedom
+            for dof in connection.active_dofs:
+                if dof.has_position_limits():
+                    lower_limit = dof.lower_limits.position
+                    upper_limit = dof.upper_limits.position
+                    god_map.world.state[dof.name].position = (upper_limit + lower_limit) / 2
                 else:
-                    god_map.world.state[free_variable.name].position = 0
+                    god_map.world.state[dof.name].position = 0
         god_map.world.notify_state_change()
 
     @profile
-    def set_rnd_joint_state(self, group: AbstractRobot):
-        for connection in group.connections:
+    def set_rnd_joint_state(self, robot: AbstractRobot):
+        for connection in robot.connections:
             if not isinstance(connection, ActiveConnection):
                 continue
-            free_variable: FreeVariable
-            for free_variable in connection.active_dofs:
-                if free_variable.has_position_limits():
-                    lower_limit = free_variable.get_lower_limit(Derivatives.position)
-                    upper_limit = free_variable.get_upper_limit(Derivatives.position)
+            dof: FreeVariable
+            for dof in connection.active_dofs:
+                if dof.has_position_limits():
+                    lower_limit = dof.lower_limits.position
+                    upper_limit = dof.upper_limits.position
                     rnd_position = (np.random.random() * (upper_limit - lower_limit)) + lower_limit
                 else:
                     rnd_position = np.random.random() * np.pi * 2
-                god_map.world.state[free_variable.name].position = rnd_position
+                god_map.world.state[dof.name].position = rnd_position
         god_map.world.notify_state_change()
 
 
@@ -384,6 +359,8 @@ class CollisionMatrixManager:
     """
     Handles all matrix related operations for multiple robots.
     """
+    world: World
+    robots: Set[AbstractRobot]
 
     # self_collision_matrices: List[SelfCollisionMatrix] = field(default_factory=list)
     added_checks: Set[CollisionCheck] = field(default_factory=set)
@@ -394,20 +371,6 @@ class CollisionMatrixManager:
     collision_requests: List[CollisionViewRequest] = field(default_factory=list)
     disabled_bodies: Set[Body] = field(default_factory=set)
     disabled_pairs: Set[Tuple[Body, Body]] = field(default_factory=set)
-
-    # def load_self_collision_matrix_from_srdf(self, path: str, robot: AbstractRobot) -> None:
-    #     get_middleware().loginfo(f'loading self collision matrix: {path}')
-    #
-    #     self_collision_matrix = SelfCollisionMatrix.from_srdf(path, robot)
-    #
-    #     link_combinations = set(combinations_with_replacement(robot.bodies_with_collisions, 2))
-    #     link_combinations = {god_map.world.sort_links(*x) for x in link_combinations}
-    #     _, matrix_updates = self.compute_self_collision_matrix_adjacent(link_combinations, robot)
-    #     self_collision_matrix.disabled_pairs.update(matrix_updates)
-    #
-    #     self.self_collision_matrices.append(self_collision_matrix)
-    #
-    #     get_middleware().loginfo(f'Loaded self collision matrix: {self_collision_matrix.file_path}')
 
     def compute_collision_matrix(self) -> Set[CollisionCheck]:
         """
@@ -513,16 +476,44 @@ class CollisionMatrixManager:
         self.collision_requests = collision_goals
 
     def apply_world_model_updates(self) -> None:
+        if not god_map.collision_scene.is_collision_checking_enabled():
+            return
         self.self_collision_matrices = []
-        self.config.setup()
         for robot in self.robots:
-            self_collision_matrix = self.get_self_collision_matrix(robot)
             attached_links = [link for link in robot.bodies_with_collisions
-                              if (link, link) not in self_collision_matrix.disabled_pairs]
-            link_combinations = set(product(attached_links, robot.bodies_with_collisions))
-            if link_combinations:
-                sc_matrix_for_attached_bodies = self.compute_self_collision_matrix(robot,
-                                                                                   link_combinations=link_combinations,
-                                                                                   use_collision_checker=True)
-                self_collision_matrix.disabled_pairs.update(sc_matrix_for_attached_bodies.disabled_pairs)
+                              if (link, link) not in robot.collision_config.disabled_pairs]
+            body_combinations = set(product(attached_links, robot.bodies_with_collisions))
+            scm = SelfCollisionMatrix(collision_config=robot.collision_config)
+            if body_combinations:
+                disabled_pairs = scm.compute_self_collision_matrix(body_combinations=body_combinations)
+                robot.collision_config.disabled_pairs.update(disabled_pairs)
         # self.blacklist_inter_group_collisions()
+
+    # def blacklist_inter_group_collisions(self) -> None:
+    #     for group_a_name, group_b_name in combinations(god_map.world.minimal_group_names, 2):
+    #         one_group_is_robot = group_a_name in self.robot_names or group_b_name in self.robot_names
+    #         if one_group_is_robot:
+    #             if group_a_name in self.robot_names:
+    #                 robot_group = god_map.world.groups[group_a_name]
+    #                 other_group = god_map.world.groups[group_b_name]
+    #             else:
+    #                 robot_group = god_map.world.groups[group_b_name]
+    #                 other_group = god_map.world.groups[group_a_name]
+    #             unmovable_links = robot_group.get_unmovable_links()
+    #             if len(unmovable_links) > 0:  # ignore collisions between unmovable links of the robot and the env
+    #                 for link_a, link_b in product(unmovable_links,
+    #                                               other_group.link_names_with_collisions):
+    #                     self.self_collision_matrix[
+    #                         god_map.world.sort_links(link_a, link_b)] = DisableCollisionReason.Unknown
+    #             continue
+    #         # disable all collisions of groups that aren't a robot
+    #         group_a: AbstractRobot = god_map.world.get_view_by_name(group_a_name)
+    #         group_b: AbstractRobot = god_map.world.get_view_by_name(group_b_name)
+    #         for link_a, link_b in product(group_a.bodies_with_collisions, group_b.bodies_with_collisions):
+    #             self.self_collision_matrix[god_map.world.sort_links(link_a, link_b)] = DisableCollisionReason.Unknown
+    #     # disable non actuated groups
+    #     for group in god_map.world.groups.values():
+    #         if group.name not in self.robot_names:
+    #             for link_a, link_b in set(combinations_with_replacement(group.link_names_with_collisions, 2)):
+    #                 key = god_map.world.sort_links(link_a, link_b)
+    #                 self.self_collision_matrix[key] = DisableCollisionReason.Unknown

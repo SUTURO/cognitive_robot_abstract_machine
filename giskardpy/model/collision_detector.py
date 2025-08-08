@@ -29,7 +29,7 @@ from semantic_world.world_entity import Body, Connection
 
 @dataclass
 class Collision:
-    contact_distance: float
+    contact_distance_input: float = 0.0
     link_a: Body = field(default=None)
     link_b: Body = field(default=None)
     original_link_a: Body = field(init=False)
@@ -67,7 +67,7 @@ class Collision:
             self.link_b.__hash__(),  # hash
             0, 0, 1,  # map_V_n
 
-            self.contact_distance,
+            self.contact_distance_input,
             0, 0, 0,  # new_a_P_pa
 
             0, 0, 1,  # new_b_V_n
@@ -151,13 +151,13 @@ class Collision:
                          map_V_n_input=-self.map_V_n,
                          a_P_pa=self.b_P_pb,
                          b_P_pb=self.a_P_pa,
-                         contact_distance=self.contact_distance)
+                         contact_distance_input=self.contact_distance)
 
 
 @dataclass
 class SortedCollisionResults:
     data: List[Collision] = field(default_factory=list)
-    default_result: Collision = Collision(contact_distance=100)
+    default_result: Collision = field(default_factory=lambda : Collision(contact_distance_input=100))
 
     def _sort(self, x: Collision):
         return x.contact_distance
@@ -177,7 +177,7 @@ class SortedCollisionResults:
 class Collisions:
     collision_list_size: int
     all_collisions: Set[Collision]
-    fixed_joints: List[Connection] = field(default_factory=list)
+    frozen_connections: List[Connection] = field(default_factory=list)
     self_collisions: Dict[Tuple[Body, Body], SortedCollisionResults] = field(
         default_factory=lambda: defaultdict(SortedCollisionResults))
     external_collisions: Dict[Body, SortedCollisionResults] = field(
@@ -190,7 +190,10 @@ class Collisions:
 
     @profile
     def __post_init__(self):
-        self.fixed_joints = god_map.collision_scene.fixed_joints
+        self.frozen_connections = []
+        robot: AbstractRobot
+        for robot in god_map.world.search_for_views_of_type(AbstractRobot):
+            self.frozen_connections.extend(robot.collision_config.frozen_connections)
 
     def get_robot_from_self_collision(self, collision):
         link_a, link_b = collision.link_a, collision.link_b
@@ -230,7 +233,7 @@ class Collisions:
         link_a = collision.original_link_a
         link_b = collision.original_link_b
         new_link_a, new_link_b = god_map.world.compute_chain_reduced_to_controlled_joints(link_a, link_b,
-                                                                                          self.fixed_joints)
+                                                                                          self.frozen_connections)
         if not god_map.world.link_order(new_link_a, new_link_b):
             collision = collision.reverse()
             new_link_a, new_link_b = new_link_b, new_link_a
@@ -259,7 +262,7 @@ class Collisions:
         joint = god_map.world.links[link_name].parent_joint_name
 
         def stopper(joint_name):
-            return god_map.world.is_joint_controlled(joint_name) and joint_name not in self.fixed_joints
+            return god_map.world.is_joint_controlled(joint_name) and joint_name not in self.frozen_connections
 
         try:
             movable_joint = god_map.world.search_for_parent_joint(joint, stopper)
@@ -330,6 +333,11 @@ class CollisionDetector(abc.ABC):
                          buffer: float = 0.05) -> Collisions:
         pass
 
+    def find_colliding_combinations(self, body_combinations: Iterable[Tuple[Body, Body]],
+                                    distance: float,
+                                    update_query: bool) -> Set[Tuple[Body, Body]]:
+        raise NotImplementedError('Collision checking is turned off.')
+
 
 class NullCollisionDetector(CollisionDetector):
     def sync_world_model(self) -> None:
@@ -340,3 +348,9 @@ class NullCollisionDetector(CollisionDetector):
 
     def check_collisions(self, collision_matrix: Set[CollisionCheck], buffer: float = 0.05) -> Collisions:
         return Collisions()
+
+    def find_colliding_combinations(self, body_combinations: Iterable[Tuple[Body, Body]], distance: float,
+                                    update_query: bool) -> Set[Tuple[Body, Body]]:
+        pass
+
+
