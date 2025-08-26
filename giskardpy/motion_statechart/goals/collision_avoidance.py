@@ -30,6 +30,8 @@ class ExternalCA(Goal):
     world: World = field(kw_only=True)
     idx: int = field(default=0, kw_only=True)
     max_avoided_bodies: int = field(default=1, kw_only=True)
+    buffer_zone_distance: float = field(init=False)
+    violated_distance: float = field(init=False)
 
     def __post_init__(self):
         """
@@ -65,35 +67,37 @@ class ExternalCA(Goal):
         actual_link_b_hash = self.get_link_b_hash()
         direct_children = self.world.get_direct_child_bodies_with_collision(self.connection)
 
-        buffer_zone = max(b.collision_config.buffer_zone_distance for b in direct_children if
-                          b.collision_config.buffer_zone_distance is not None)
-        violated_distance = max(b.collision_config.violated_distance for b in direct_children)
+        self.buffer_zone_distance = max(b.collision_config.buffer_zone_distance for b in direct_children if
+                                        b.collision_config.buffer_zone_distance is not None)
+        self.violated_distance = max(b.collision_config.violated_distance for b in direct_children)
         b_result_cases = []
         for body in self.world.bodies_with_enabled_collision:
             if body.collision_config.buffer_zone_distance is None:
                 continue
             if body.collision_config.disabled:
                 continue
-            if body.collision_config.buffer_zone_distance > buffer_zone:
+            if body.collision_config.buffer_zone_distance > self.buffer_zone_distance:
                 b_result_cases.append((body.__hash__(), body.collision_config.buffer_zone_distance))
 
         if len(b_result_cases) > 0:
             buffer_zone_expr = cas.if_eq_cases(a=actual_link_b_hash,
                                                b_result_cases=b_result_cases,
-                                               else_result=buffer_zone)
+                                               else_result=self.buffer_zone_distance)
         else:
-            buffer_zone_expr = buffer_zone
+            buffer_zone_expr = self.buffer_zone_distance
 
-        hard_threshold = cas.min(violated_distance, buffer_zone_expr / 2)
+        hard_threshold = cas.min(self.violated_distance, buffer_zone_expr / 2)
         lower_limit = buffer_zone_expr - actual_distance
 
         lower_limit_limited = cas.limit(lower_limit,
                                         -qp_limits_for_lba,
                                         qp_limits_for_lba)
 
+        self.actual_distance = actual_distance
+        self.hard_threshold = hard_threshold
         upper_slack = cas.if_greater(actual_distance, hard_threshold,
-                                     lower_limit_limited + cas.max(0, actual_distance - (hard_threshold)),
-                                     lower_limit_limited)
+                                     lower_limit_limited + cas.max(0, actual_distance - hard_threshold),
+                                     lower_limit_limited - 1e-4)
         # undo factor in A
         upper_slack /= sample_period
 
@@ -156,19 +160,20 @@ class SelfCA(Goal):
     world: World = field(kw_only=True)
     idx: int = field(default=0, kw_only=True)
     max_avoided_bodies: int = field(default=1, kw_only=True)
+    buffer_zone_distance: float = field(default=None, kw_only=True)
 
     def __post_init__(self):
         self._plot = False
         self.name = f'{self.name_prefix}/{self.__class__.__name__}/{self.body_a.name}/{self.body_b.name}/{self.idx}'
         self.root = self.world.root
         self.control_horizon = god_map.qp_controller.config.prediction_horizon - (
-                    god_map.qp_controller.config.max_derivative - 1)
+                god_map.qp_controller.config.max_derivative - 1)
         self.control_horizon = max(1, self.control_horizon)
-        buffer_zone_distance = max(self.body_a.collision_config.buffer_zone_distance,
-                                   self.body_b.collision_config.buffer_zone_distance)
+        # buffer_zone_distance = max(self.body_a.collision_config.buffer_zone_distance,
+        #                            self.body_b.collision_config.buffer_zone_distance)
         violated_distance = max(self.body_a.collision_config.violated_distance,
                                 self.body_b.collision_config.violated_distance)
-        violated_distance = cas.min(violated_distance, buffer_zone_distance / 2)
+        violated_distance = cas.min(violated_distance, self.buffer_zone_distance / 2)
         actual_distance = self.get_actual_distance()
         number_of_self_collisions = self.get_number_of_self_collisions()
         sample_period = god_map.qp_controller.config.mpc_dt
@@ -185,7 +190,7 @@ class SelfCA(Goal):
 
         qp_limits_for_lba = self.max_velocity * sample_period * self.control_horizon
 
-        lower_limit = buffer_zone_distance - actual_distance
+        lower_limit = self.buffer_zone_distance - actual_distance
 
         lower_limit_limited = cas.limit(lower_limit,
                                         -qp_limits_for_lba,
@@ -387,7 +392,7 @@ class CollisionAvoidance(Goal):
 
     @profile
     def add_self_collision_avoidance_constraints(self):
-        counter: Dict[Tuple[Body, Body], int] = defaultdict(int)
+        counter: Dict[Tuple[Body, Body], float] = defaultdict(float)
         num_constr = 0
         robot: AbstractRobot
         # collect bodies from the same connection to the main body pair
@@ -401,19 +406,22 @@ class CollisionAvoidance(Goal):
                                                                                               body_b_original)
                     if body_b.name < body_a.name:
                         body_a, body_b = body_b, body_a
-                    counter[body_a, body_b] += 1
+                    counter[body_a, body_b] = max([counter[body_a, body_b],
+                                                   body_a_original.collision_config.buffer_zone_distance,
+                                                   body_b_original.collision_config.buffer_zone_distance])
 
         for link_a, link_b in counter:
-            num_of_constraints = min(1, counter[link_a, link_b])
-            for i in range(num_of_constraints):
-                number_of_repeller = min(link_a.collision_config.max_avoided_bodies,
-                                         link_b.collision_config.max_avoided_bodies)
-                ca_goal = SelfCA(body_a=link_a,
-                                 body_b=link_b,
-                                 world=god_map.world,
-                                 name_prefix=self.name,
-                                 idx=i,
-                                 max_avoided_bodies=number_of_repeller)
-                self.add_goal(ca_goal)
-                num_constr += 1
+            # num_of_constraints = min(1, counter[link_a, link_b])
+            # for i in range(num_of_constraints):
+            #     number_of_repeller = min(link_a.collision_config.max_avoided_bodies,
+            #                              link_b.collision_config.max_avoided_bodies)
+            ca_goal = SelfCA(body_a=link_a,
+                             body_b=link_b,
+                             world=god_map.world,
+                             name_prefix=self.name,
+                             idx=0,
+                             max_avoided_bodies=1,
+                             buffer_zone_distance=counter[link_a, link_b])
+            self.add_goal(ca_goal)
+            num_constr += 1
         get_middleware().loginfo(f'Adding {num_constr} self collision avoidance constraints.')
