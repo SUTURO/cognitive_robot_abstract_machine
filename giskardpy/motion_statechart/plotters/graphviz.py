@@ -10,7 +10,7 @@ from giskardpy.motion_statechart.data_types import LifeCycleValues, ObservationS
 from giskardpy.motion_statechart.graph_node import (
     Goal,
     TransitionKind,
-    StateTransitionCondition,
+    TrinaryCondition,
 )
 
 from giskardpy.motion_statechart.graph_node import (
@@ -303,7 +303,7 @@ class MotionStatechartGraphviz:
         return goal_cluster
 
     def add_edges(self):
-        transition: StateTransitionCondition
+        transition: TrinaryCondition
         for edge_index, (
             parent_node_index,
             child_node_index,

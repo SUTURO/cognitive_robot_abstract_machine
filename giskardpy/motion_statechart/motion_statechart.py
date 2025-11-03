@@ -10,7 +10,7 @@ import semantic_digital_twin.spatial_types.spatial_types as cas
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
-    StateTransitionCondition,
+    TrinaryCondition,
     Goal,
     EndMotion,
     CancelMotion,
@@ -278,7 +278,7 @@ class MotionStatechart:
         return list(self.rx_graph.nodes())
 
     @property
-    def edges(self) -> List[StateTransitionCondition]:
+    def edges(self) -> List[TrinaryCondition]:
         return self.rx_graph.edges()
 
     def add_node(self, node: MotionStatechartNode):
@@ -292,18 +292,29 @@ class MotionStatechart:
     def get_node_by_name(self, name: PrefixedName) -> List[MotionStatechartNode]:
         return [node for node in self.nodes if node.name == name]
 
-    def add_transition(
-        self,
-        condition: StateTransitionCondition,
-    ):
-        for parent in condition._parents:
-            self.rx_graph.add_edge(condition._child.index, parent.index, condition)
+    def _add_transitions(self):
+        for node in self.nodes:
+            self._create_edge_for_condition(node._start_condition)
+            self._create_edge_for_condition(node._pause_condition)
+            self._create_edge_for_condition(node._end_condition)
+            self._create_edge_for_condition(node._reset_condition)
 
-    def compile(self):
-        for goal in self.get_nodes_by_type(Goal):
-            goal.apply_goal_conditions_to_children()
+    def _create_edge_for_condition(self, condition: TrinaryCondition):
+        for parent_node in condition.parents:
+            self.rx_graph.add_edge(condition.child.index, parent_node.index, condition)
+
+    def _build_commons_of_nodes(self):
         for node in self.nodes:
             node.build_common()
+
+    def _apply_goal_conditions_to_their_children(self):
+        for goal in self.get_nodes_by_type(Goal):
+            goal.apply_goal_conditions_to_children()
+
+    def compile(self):
+        self._apply_goal_conditions_to_their_children()
+        self._build_commons_of_nodes()
+        self._add_transitions()
         self.observation_state.compile()
         self.life_cycle_state.compile()
 

@@ -72,10 +72,11 @@ def test_motion_statechart():
         node3.observation_symbol, node2.observation_symbol
     )
     end.start_condition = node1.observation_symbol
+    msg.compile()
+
     assert len(msg.nodes) == 4
     assert len(msg.edges) == 3
 
-    msg.compile()
     assert node1.observation_state == msg.observation_state.TrinaryUnknown
     assert node2.observation_state == msg.observation_state.TrinaryUnknown
     assert node3.observation_state == msg.observation_state.TrinaryUnknown
@@ -146,10 +147,11 @@ def test_print():
     print_node2.start_condition = node1.observation_symbol
     end = EndMotion(name=PrefixedName("done"), motion_statechart=msg)
     end.start_condition = print_node2.observation_symbol
+    msg.compile()
+
     assert len(msg.nodes) == 4
     assert len(msg.edges) == 3
 
-    msg.compile()
     assert print_node1.observation_state == msg.observation_state.TrinaryUnknown
     assert node1.observation_state == msg.observation_state.TrinaryUnknown
     assert print_node2.observation_state == msg.observation_state.TrinaryUnknown

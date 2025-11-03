@@ -37,38 +37,45 @@ class TransitionKind(Enum):
 
 
 @dataclass
-class StateTransitionCondition:
-    """Encapsulates both string and expression representations of a condition."""
+class TrinaryCondition:
+    """
+    Represents a trinary condition used to define transitions in a motion statechart model.
 
-    motion_statechart: MotionStatechart
+    This class serves as a representation of a logical trinary condition with three possible states: true, false, and
+    unknown. It is used as part of a motion statechart system to define transitions between nodes. The condition is
+    evaluated using a logical expression and connects nodes via parent-child relationships. It includes methods to
+    create predefined trinary values, update the expression of the condition, and format the condition for display.
+    """
+
     kind: TransitionKind
+    """
+    The type of transition associated with this condition.
+    """
     expression: cas.Expression = cas.TrinaryUnknown
-    _parents: List[MotionStatechartNode] = field(default_factory=list, init=False)
-    _child: MotionStatechartNode = field(default=None, init=False)
+    """
+    The logical trinary condition to be evaluated.
+    """
+    parents: List[MotionStatechartNode] = field(default_factory=list, init=False)
+    """
+    List of parent nodes involved in the condition, derived from the free symbols in the expression.
+    """
+    child: MotionStatechartNode = field(default=None, init=False)
+    """
+    The child node involved in the condition.
+    """
 
     @classmethod
-    def create_true(
-        cls, motion_statechart: MotionStatechart, kind: TransitionKind
-    ) -> Self:
-        return cls(
-            expression=cas.TrinaryTrue, motion_statechart=motion_statechart, kind=kind
-        )
+    def create_true(cls, kind: TransitionKind) -> Self:
+        return cls(expression=cas.TrinaryTrue, kind=kind)
 
     @classmethod
-    def create_false(
-        cls, motion_statechart: MotionStatechart, kind: TransitionKind
-    ) -> Self:
-        return cls(
-            expression=cas.TrinaryFalse, motion_statechart=motion_statechart, kind=kind
-        )
+    def create_false(cls, kind: TransitionKind) -> Self:
+        return cls(expression=cas.TrinaryFalse, kind=kind)
 
     @classmethod
-    def create_unknown(
-        cls, motion_statechart: MotionStatechart, kind: TransitionKind
-    ) -> Self:
+    def create_unknown(cls, kind: TransitionKind) -> Self:
         return cls(
             expression=cas.TrinaryUnknown,
-            motion_statechart=motion_statechart,
             kind=kind,
         )
 
@@ -76,20 +83,16 @@ class StateTransitionCondition:
         self, new_expression: cas.Expression, child: MotionStatechartNode
     ) -> None:
         self.expression = new_expression
-        self._parents = [
+        self.parents = [
             x.motion_statechart_node
             for x in new_expression.free_symbols()
             if isinstance(x, ObservationSymbol)
         ]
-        self._child = child
-        self.apply_to_motion_state_chart()
-
-    def apply_to_motion_state_chart(self):
-        self.motion_statechart.add_transition(self)
+        self.child = child
 
     def __str__(self):
         """
-        Takes a logical expression, replaces the state symbols with monitor names and formats it nicely.
+        Replaces the state symbols with motion statechart node names and formats it nicely.
         """
         free_symbols = self.expression.free_symbols()
         if not free_symbols:
@@ -136,15 +139,15 @@ class MotionStatechartNode(SubclassJSONSerializer):
     life_cycle_symbol: LifeCycleSymbol = field(init=False)
     observation_symbol: ObservationSymbol = field(init=False)
 
+    _start_condition: TrinaryCondition = field(init=False)
+    _pause_condition: TrinaryCondition = field(init=False)
+    _end_condition: TrinaryCondition = field(init=False)
+    _reset_condition: TrinaryCondition = field(init=False)
+
     _plot: bool = field(default=True, kw_only=True)
     _plot_style: str = field(default="filled, rounded", kw_only=True)
     _plot_shape: str = field(default="rectangle", kw_only=True)
     _plot_extra_boarder_styles: List[str] = field(default_factory=list, kw_only=True)
-
-    _start_condition: StateTransitionCondition = field(init=False)
-    _pause_condition: StateTransitionCondition = field(init=False)
-    _end_condition: StateTransitionCondition = field(init=False)
-    _reset_condition: StateTransitionCondition = field(init=False)
 
     def __post_init__(self):
         self.observation_symbol = ObservationSymbol(
@@ -155,18 +158,10 @@ class MotionStatechartNode(SubclassJSONSerializer):
             name=str(PrefixedName("life_cycle", str(self.name))),
             motion_statechart_node=self,
         )
-        self._start_condition = StateTransitionCondition.create_true(
-            motion_statechart=self.motion_statechart, kind=TransitionKind.START
-        )
-        self._pause_condition = StateTransitionCondition.create_false(
-            motion_statechart=self.motion_statechart, kind=TransitionKind.PAUSE
-        )
-        self._end_condition = StateTransitionCondition.create_false(
-            motion_statechart=self.motion_statechart, kind=TransitionKind.END
-        )
-        self._reset_condition = StateTransitionCondition.create_false(
-            motion_statechart=self.motion_statechart, kind=TransitionKind.RESET
-        )
+        self._start_condition = TrinaryCondition.create_true(kind=TransitionKind.START)
+        self._pause_condition = TrinaryCondition.create_false(kind=TransitionKind.PAUSE)
+        self._end_condition = TrinaryCondition.create_false(kind=TransitionKind.END)
+        self._reset_condition = TrinaryCondition.create_false(kind=TransitionKind.RESET)
         self.motion_statechart.add_node(self)
 
     def build_common(self):
