@@ -53,6 +53,16 @@ class ConstraintCollection:
 
     def merge(self, other: ConstraintCollection):
         self.constraints.extend(other.constraints)
+        self._are_names_unique()
+
+    def _are_names_unique(self):
+        names = set()
+        for c in self.constraints:
+            if c.name in names:
+                raise DuplicateNameException(
+                    f"Constraint named {c.name} already exists."
+                )
+            names.add(c.name)
 
     def get_all_float_variable_names(self) -> Set[PrefixedName]:
         return {v.name for c in self.constraints for v in c.expression.free_variables()}

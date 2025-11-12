@@ -24,7 +24,6 @@ class SetSeedConfiguration(MotionStatechartNode):
     CAUTION! don't use this to overwrite the robot's state outside standalone mode!
     :param seed_configuration: maps joint name to float
     :param group_name: if joint names are not unique, it will search in this group for matches.
-    # TODO does notify state change too often
     """
 
     seed_configuration: JointState = field(kw_only=True)
@@ -33,6 +32,7 @@ class SetSeedConfiguration(MotionStatechartNode):
         return NodeArtifacts(observation=cas.TrinaryTrue)
 
     def on_start(self, context: ExecutionContext):
+        # TODO does notify state change too often
         for connection, value in self.seed_configuration.items():
             connection.position = value
 
@@ -57,9 +57,8 @@ class SetOdometry(MotionStatechartNode):
         return NodeArtifacts(observation=cas.TrinaryTrue)
 
     def on_start(self, context: ExecutionContext):
-        # TODO can we get rid of world reference?
         parent_T_pose_ref = cas.TransformationMatrix(
-            self.motion_statechart.context.world.compute_forward_kinematics_np(
+            context.world.compute_forward_kinematics_np(
                 self.odom_connection.parent, self.base_pose.reference_frame
             )
         )

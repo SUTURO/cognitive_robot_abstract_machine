@@ -4,13 +4,18 @@ from typing import Optional, ClassVar
 import numpy as np
 
 import semantic_digital_twin.spatial_types.spatial_types as cas
-from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.binding_policy import (
+    GoalBindingPolicy,
+    ForwardKinematicsBinding,
+)
+from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.graph_node import (
     NodeArtifacts,
     DebugExpression,
 )
 from giskardpy.motion_statechart.tasks.task import Task
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.derivatives import Derivatives
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import (
@@ -235,38 +240,36 @@ class CartesianPose(Task):
     Units are m and rad.
     """
 
-    absolute: bool = False
-    """If False, the goal is updated when start_condition turns True."""
+    binding_policy: GoalBindingPolicy = field(
+        default=GoalBindingPolicy.Bind_on_start, kw_only=True
+    )
+    """Describes when the goal is computed. See GoalBindingPolicy for more information."""
+    _fk_binding: ForwardKinematicsBinding = field(kw_only=True, init=False)
 
     weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_CA)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = NodeArtifacts()
 
-        goal_ref = self.goal_pose.reference_frame
+        self._fk_binding = ForwardKinematicsBinding(
+            name=PrefixedName("root_T_ref", str(self.name)),
+            root=self.root_link,
+            tip=self.goal_pose.reference_frame,
+            build_context=context,
+        )
+
         goal_orientation = self.goal_pose.to_rotation_matrix()
         goal_point = self.goal_pose.to_position()
 
-        # if self.absolute:
-        root_T_goal_ref = context.world.compute_forward_kinematics(
-            self.root_link, goal_ref
-        )
-        root_P_goal = root_T_goal_ref @ goal_point
-        root_R_goal = root_T_goal_ref @ goal_orientation
-        # else:
-        #     root_T_x = god_map.world.compose_forward_kinematics_expression(
-        #         self.root_link, goal_ref
-        #     )
-        #     root_P_goal = root_T_x @ goal_point
-        #     root_P_goal = self.update_expression_on_starting(root_P_goal)
-        #     root_R_goal = root_T_x @ goal_orientation
-        #     root_R_goal = self.update_expression_on_starting(root_R_goal)
+        root_P_goal = self._fk_binding.root_T_tip @ goal_point
+        root_R_goal = self._fk_binding.root_T_tip @ goal_orientation
 
         r_T_c = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
         )
         r_P_c = r_T_c.to_position()
         artifacts.constraints.add_point_goal_constraints(
+            name=PrefixedName("position", str(self.name)),
             frame_P_goal=root_P_goal,
             frame_P_current=r_P_c,
             reference_velocity=self.reference_linear_velocity,
@@ -278,36 +281,13 @@ class CartesianPose(Task):
         r_R_c = r_T_c.to_rotation_matrix()
 
         artifacts.constraints.add_rotation_goal_constraints(
+            name=PrefixedName("rotation", str(self.name)),
             frame_R_current=r_R_c,
             frame_R_goal=root_R_goal,
             reference_velocity=self.reference_angular_velocity,
             weight=self.weight,
         )
 
-        # artifacts.debug_expressions.append(
-        #     DebugExpression("error", expression=r_T_c.inverse() @ (root_P_goal - r_P_c))
-        # )
-        # artifacts.debug_expressions.append(
-        #     DebugExpression(
-        #         "current", expression=cas.Point3(reference_frame=self.tip_link)
-        #     )
-        # )
-        # artifacts.debug_expressions.append(
-        #     DebugExpression(
-        #         "target",
-        #         expression=r_T_c.inverse() @ root_P_goal,
-        #         color=Color(0, 1, 0, 1),
-        #     )
-        # )
-        # artifacts.debug_expressions.append(
-        #     DebugExpression(
-        #         "current_rot",
-        #         expression=cas.RotationMatrix(reference_frame=self.tip_link),
-        #     )
-        # )
-        # artifacts.debug_expressions.append(
-        #     DebugExpression("goal_rot", expression=r_T_c.inverse() @ root_R_goal)
-        # )
         artifacts.debug_expressions.append(
             DebugExpression(
                 "current_pose",
@@ -315,7 +295,10 @@ class CartesianPose(Task):
             )
         )
         artifacts.debug_expressions.append(
-            DebugExpression("goal_pose", expression=root_T_goal_ref @ self.goal_pose)
+            DebugExpression(
+                "goal_pose",
+                expression=self._fk_binding.root_T_tip @ self.goal_pose,
+            )
         )
 
         rotation_error = r_R_c.rotational_error(root_R_goal)
@@ -325,6 +308,10 @@ class CartesianPose(Task):
         )
 
         return artifacts
+
+    def on_start(self, context: ExecutionContext):
+        if self.binding_policy == GoalBindingPolicy.Bind_on_start:
+            self._fk_binding.bind(context.world)
 
 
 @dataclass
