@@ -84,6 +84,7 @@ jobs:
       - name: build semdt
         run: |
           cd semantic_digital_twin
+          source /usr/share/virtualenvwrapper/virtualenvwrapper.sh
           pip install -r requirements.txt -U
           pip install .
       - name: move pr2.urdf to temp folder from root folder
@@ -91,6 +92,7 @@ jobs:
       - name: test
         run: |
           cd giskardpy/test
+          source /usr/share/virtualenvwrapper/virtualenvwrapper.sh
           python3 -m pytest -s ${{ matrix.tests }}
 #      - name: Setup upterm session
 #  #      if: always()
