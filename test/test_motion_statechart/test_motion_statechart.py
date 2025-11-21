@@ -1165,6 +1165,7 @@ def test_pointing(pr2_world: World):
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()
 
+
 def test_align_planes(pr2_world: World):
     tip = pr2_world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
     root = pr2_world.get_kinematic_structure_entity_by_name("odom_combined")
@@ -1175,10 +1176,7 @@ def test_align_planes(pr2_world: World):
     tip_normal = cas.Vector3.Y(reference_frame=tip)
 
     align_planes = AlignPlanes(
-        root_link=root,
-        tip_link=tip,
-        goal_normal=goal_normal,
-        tip_normal=tip_normal
+        root_link=root, tip_link=tip, goal_normal=goal_normal, tip_normal=tip_normal
     )
     msc.add_node(align_planes)
 
@@ -1211,9 +1209,10 @@ def test_align_planes(pr2_world: World):
 
     angle = angle_between_vector(v_tip, v_goal)
 
-    assert angle <= align_planes.threshold, (
-        f"AlignPlanes failed: final angle {angle:.6f} rad > threshold {align_planes.threshold:.6f} rad"
-    )
+    assert (
+        angle <= align_planes.threshold
+    ), f"AlignPlanes failed: final angle {angle:.6f} rad > threshold {align_planes.threshold:.6f} rad"
+
 
 def test_transition_triggers():
     msc = MotionStatechart()

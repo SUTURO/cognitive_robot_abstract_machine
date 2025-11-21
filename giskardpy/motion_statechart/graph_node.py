@@ -799,12 +799,18 @@ class EndMotion(MotionStatechartNode):
 
     @classmethod
     def when_true(cls, node: MotionStatechartNode) -> Self:
+        """
+        Factory method for creating an EndMotion node that activates when the given node has a true observation state.
+        """
         end = cls()
         end.start_condition = node.observation_variable
         return end
 
     @classmethod
     def when_all_true(cls, nodes: List[MotionStatechartNode]) -> Self:
+        """
+        Factory method for creating an EndMotion node that activates when ALL of the given nodes have a true observation state.
+        """
         end = cls()
         end.start_condition = cas.trinary_logic_and(
             *[node.observation_variable for node in nodes]
@@ -813,6 +819,9 @@ class EndMotion(MotionStatechartNode):
 
     @classmethod
     def when_any_true(cls, nodes: List[MotionStatechartNode]) -> Self:
+        """
+        Factory method for creating an EndMotion node that activates when ANY of the given nodes have a true observation state.
+        """
         end = cls()
         end.start_condition = cas.trinary_logic_or(
             *[node.observation_variable for node in nodes]
