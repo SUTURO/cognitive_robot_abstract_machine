@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field, InitVar
 
-import numpy as np
 from typing_extensions import Optional
 
 from giskardpy.data_types.exceptions import (

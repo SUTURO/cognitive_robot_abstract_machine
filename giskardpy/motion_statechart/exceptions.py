@@ -7,6 +7,11 @@ class MotionStatechartError(Exception):
     pass
 
 
+class EmptyMotionStatechartError(MotionStatechartError):
+    def __init__(self):
+        super().__init__("MotionStatechart is empty.")
+
+
 @dataclass
 class NodeNotFoundError(MotionStatechartError):
     name: str

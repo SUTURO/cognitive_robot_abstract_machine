@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+
+
 class DontPrintStackTrace:
     pass
 
@@ -36,7 +39,8 @@ class HardConstraintsViolatedException(InfeasibleException):
 
 
 class EmptyProblemException(InfeasibleException, DontPrintStackTrace):
-    pass
+    def __init__(self):
+        super().__init__("Empty QP problem.")
 
 
 # %% world exceptions
@@ -163,8 +167,13 @@ class FollowJointTrajectory_GOAL_TOLERANCE_VIOLATED(ExecutionException):
     pass
 
 
-class PreemptedException(ExecutionException):
-    pass
+@dataclass
+class ExecutionCanceledException(ExecutionException):
+    action_server_name: str
+    goal_id: int
+
+    def __post_init__(self):
+        super().__init__(f"'{self.action_server_name}' goal #{self.goal_id} canceled")
 
 
 class ExecutionPreemptedException(ExecutionException):
@@ -173,6 +182,11 @@ class ExecutionPreemptedException(ExecutionException):
 
 class ExecutionTimeoutException(ExecutionException):
     pass
+
+
+class ExecutionAbortedException(ExecutionException):
+    def __init__(self):
+        super().__init__("Execution aborted by Giskard.")
 
 
 class ExecutionSucceededPrematurely(ExecutionException):
