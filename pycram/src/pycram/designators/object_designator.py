@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 
-import owlready2
-from owlready2.triplelite import _SearchList
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import TYPE_CHECKING, Iterable, Iterator, Union
 
