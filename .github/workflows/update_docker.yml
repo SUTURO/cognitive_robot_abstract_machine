@@ -15,8 +15,8 @@ on:
     branches:
       - main
     paths:
-      - '../docker/Dockerfile'
-      - '../docker/entrypoint.sh'
+      - '.github/docker/Dockerfile'
+      - '.github/docker/entrypoint.sh'
 
 jobs:
   build_and_push_docker_image:
@@ -36,6 +36,6 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./docker
+          context: ./.github/docker
           push: true
           tags: pycram/semantic_world:jazzy

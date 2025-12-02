@@ -1,0 +1,12 @@
+name: CI (after update_docker)
+
+on:
+  workflow_run:
+    workflows: [ "update_docker" ]
+    types: [ completed ]
+    branches: [ main ]
+
+jobs:
+  run-ci-after-docker:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    uses: ./.github/workflows/ci_reusable.yml

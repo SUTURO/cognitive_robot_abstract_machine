@@ -1,0 +1,40 @@
+name: CI reusable
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: "pycram/semantic_world:jazzy"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: "ros/src/cognitive_robot_abstract_machine"
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          submodules: 'false'
+
+      - name: Update cognitive_robot_abstract_machine source files
+        run: |
+          rm -rf /opt/ros/cognitive_robot_abstract_machine/* 
+          cd /opt/ros/cognitive_robot_abstract_machine
+          rm -rf .git .github .gitignore .gitmodules .readthedocs.yaml
+          cp -r /__w/${{ github.event.repository.name }}/${{ github.event.repository.name }}/ros/src/cognitive_robot_abstract_machine /opt/ros/
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          cd /opt/ros/cognitive_robot_abstract_machine
+          source /opt/ros/cram-venv/bin/activate
+          git submodule init
+          git submodule update
+          poetry update
+
+      - name: Run tests
+        run: |
+          source /opt/ros/overlay_ws/install/setup.bash
+          source /opt/ros/cram-venv/bin/activate
+          cd /opt/ros/cognitive_robot_abstract_machine
+          python -m pytest -v test/
