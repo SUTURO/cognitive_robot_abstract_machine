@@ -14,8 +14,12 @@ from krrood.entity_query_language.entity import (
     or_,
     exists,
     flatten,
+    count,
+    max_,
+    min_,
+    sum_,
 )
-from krrood.entity_query_language.quantify_entity import an, a, the, count
+from krrood.entity_query_language.quantify_entity import an, a, the
 from krrood.entity_query_language.failures import (
     MultipleSolutionFound,
     UnsupportedNegation,
@@ -748,9 +752,8 @@ def test_quantified_query(handles_and_containers_world):
 def test_count(handles_and_containers_world):
     world = handles_and_containers_world
     query = count(
-        entity(
-            body := let(type_=Body, domain=world.bodies),
-            contains(body.name, "Handle"),
+        entity(body:=let(type_=Body, domain=world.bodies),
+               contains(body.name, "Handle"),
         )
     )
     assert query.evaluate() == len([b for b in world.bodies if "Handle" in b.name])
@@ -766,19 +769,15 @@ def test_order_by(handles_and_containers_world):
 def test_sum(handles_and_containers_world):
     heights = [1, 2, 3, 4, 5]
     heights_var = let(int, domain=heights)
-    query = an(entity(heights_var).sum())
-    results = list(query.evaluate())
-    assert len(results) == 1
-    assert results[0] == sum(heights)
+    query = sum_(entity(heights_var))
+    assert query.evaluate() == sum(heights)
 
 
 def test_sum_on_empty_list(handles_and_containers_world):
     empty_list = []
     empty_var = let(int, domain=empty_list)
-    query = an(entity(empty_var).sum())
-    results = list(query.evaluate())
-    assert len(results) == 1
-    assert results[0] is None
+    query = sum_(entity(empty_var))
+    assert query.evaluate() is None
 
 
 def test_limit(handles_and_containers_world):
@@ -855,30 +854,22 @@ def test_max_min_no_variable():
     values = [2, 1, 3, 5, 4]
     value = let(int, domain=values)
 
-    max_query = an(entity(value).max())
-    max_query_result = list(max_query.evaluate())
-    assert len(max_query_result) == 1
-    assert max_query_result[0] == max(values)
+    max_query = max_(entity(value))
+    assert max_query.evaluate() == max(values)
 
-    min_query = an(entity(value).min())
-    min_query_result = list(min_query.evaluate())
-    assert len(min_query_result) == 1
-    assert min_query_result[0] == min(values)
+    min_query = min_(entity(value))
+    assert min_query.evaluate() == min(values)
 
 
 def test_max_min_with_empty_list():
     empty_list = []
     value = let(int, domain=empty_list)
 
-    max_query = an(entity(value).max())
-    max_query_result = list(max_query.evaluate())
-    assert len(max_query_result) == 1
-    assert max_query_result[0] is None
+    max_query = max_(entity(value))
+    assert max_query.evaluate() is None
 
-    min_query = an(entity(value).min())
-    min_query_result = list(min_query.evaluate())
-    assert len(min_query_result) == 1
-    assert min_query_result[0] is None
+    min_query = min_(entity(value))
+    assert min_query.evaluate() is None
 
 
 def test_order_by_key():

@@ -44,19 +44,6 @@ def the(
     return _quantify_entity(The, entity_)
 
 
-def count(
-    entity_: EntityType,
-) -> Union[Count[T], T]:
-    """
-    Count the number of elements satisfying the given entity description.
-
-    :param entity_: An entity or a set expression to quantify over.
-    :return: A quantifier representing the count of elements, or an integer.
-    :rtype: Count[T]
-    """
-    return _quantify_entity(Count, entity_)
-
-
 def _quantify_entity(
     quantifier: Type[ResultQuantifier], entity_: EntityType, **quantifier_kwargs
 ) -> Union[ResultQuantifier[T], T]:
