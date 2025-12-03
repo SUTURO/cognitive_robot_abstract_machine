@@ -4,6 +4,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from types import NoneType
 from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union, Self
 
@@ -68,6 +69,42 @@ def cas_pose_to_list(pose: TransformationMatrix) -> List[float]:
     px, py, pz, _ = pos.evaluate().tolist()
     qx, qy, qz, qw = quat.evaluate().tolist()
     return [px, py, pz, qw, qx, qy, qz]
+
+
+class GeomVisibilityAndCollisionType(Enum):
+    """
+    Enum values representing different types of geometric visibility and collision properties.
+    """
+
+    VISIBLE_AND_COLLIDABLE_1 = 0
+    """
+    Geometry is both visible and collidable (variant 1).
+    """
+
+    VISIBLE_AND_COLLIDABLE_2 = 1
+    """
+    Geometry is both visible and collidable (variant 2).
+    """
+
+    ONLY_VISIBLE = 2
+    """
+    Geometry is only visible, not collidable.
+    """
+
+    ONLY_COLLIDABLE = 3
+    """
+    Geometry is only collidable, not visible.
+    """
+
+    UNDEFINED_1 = 4
+    """
+    Undefined geometry type (variant 1).
+    """
+
+    UNDEFINED_2 = 5
+    """
+    Undefined geometry type (variant 2).
+    """
 
 
 class MultiSimError(Exception):
@@ -522,7 +559,7 @@ class ConnectionPrismaticConverter(Connection1DOFConverter, ABC):
     """
 
 
-class Connection6DOFConverter(ConnectionConverter):
+class Connection6DOFConverter(ConnectionConverter, ABC):
     """
     Converts a Connection6DoF object to a dictionary of 6DoF joint properties for Multiverse simulator.
     """
@@ -789,13 +826,15 @@ class MujocoGeomConverter(MujocoConverter, ShapeConverter, ABC):
         is_visible = kwargs.get("visible", True)
         is_collidable = kwargs.get("collidable", True)
         if is_visible and is_collidable:
-            shape_props["group"] = 1
+            shape_props["group"] = (
+                GeomVisibilityAndCollisionType.VISIBLE_AND_COLLIDABLE_1
+            )
         elif is_visible and not is_collidable:
             shape_props["contype"] = 0
             shape_props["conaffinity"] = 0
-            shape_props["group"] = 2
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_VISIBLE
         elif not is_visible and is_collidable:
-            shape_props["group"] = 3
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_COLLIDABLE
         return shape_props
 
 
