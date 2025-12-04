@@ -121,7 +121,7 @@ class MultiSimError(Exception):
 
 @dataclass(eq=False)
 class MultiSimCamera(SemanticAnnotation):
-    """Semantic annotation declaring that a Body is a Camera."""
+    """Semantic annotation declaring that a Body is a MultiSimCamera."""
 
     body: Body
     """
