@@ -1,9 +1,12 @@
 import unittest
 from time import sleep
 
+import rclpy
+
+from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types.spatial_types import TransformationMatrix
+from semantic_digital_twin.spatial_types.spatial_types import TransformationMatrix, Vector3
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
@@ -165,7 +168,7 @@ class TestFactories(unittest.TestCase):
         door_factory = DoorFactory(
             name=PrefixedName("door"),
             handle_factory=HandleFactory(name=PrefixedName("door_handle")),
-            scale=Scale(1.0, 1.0, 1.0),
+            scale=Scale(0.03, 1, 1.0),
             semantic_position=SemanticPositionDescription(
                 horizontal_direction_chain=[
                     HorizontalSemanticDirection.RIGHT,
@@ -175,20 +178,29 @@ class TestFactories(unittest.TestCase):
             ),
         )
 
-        door_transform = TransformationMatrix()
+        door_transform = TransformationMatrix.from_xyz_rpy(x=0.5)
 
         container_factory = ContainerFactory(name=PrefixedName("dresser_container"))
 
         dresser_factory = DresserFactory(
             name=PrefixedName("dresser"),
-            parent_T_drawers=[drawer_transform],
-            drawers_factories=[drawer_factory],
+            # parent_T_drawers=[drawer_transform],
+            # drawers_factories=[drawer_factory],
             door_transforms=[door_transform],
             door_factories=[door_factory],
+            door_opening_axes=[Vector3.Y()],
             container_factory=container_factory,
         )
 
         world = dresser_factory.create()
+        world.state.positions[0] = 1
+        world.notify_state_change()
+
+        rclpy.init()
+        node = rclpy.create_node("semantic_digital_twin")
+
+        viz = VizMarkerPublisher(world=world, node=node)
+
         semantic_dresser_annotations = world.get_semantic_annotations_by_type(Dresser)
         semantic_drawer_annotations = world.get_semantic_annotations_by_type(Drawer)
         semantic_door_annotations = world.get_semantic_annotations_by_type(Door)

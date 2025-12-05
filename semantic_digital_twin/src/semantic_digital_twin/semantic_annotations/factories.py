@@ -88,24 +88,29 @@ class HasDoorLikeFactories(ABC):
     The transformations for the doors relative their parent container.
     """
 
+    door_opening_axes: List[Vector3] = field(default_factory=list, hash=False)
+    """
+    The axes around which the doors open.
+    """
+
     def _create_door_upper_lower_limits(
-        self, semantic_door_annotation: Door
+        self, parent_T_hinge: TransformationMatrix
     ) -> Tuple[DerivativeMap[float], DerivativeMap[float]]:
         """
         Return the upper and lower limits for the door's degree of freedom.
+
+        :param parent_T_hinge: The transformation matrix defining the door's pivot point relative to the parent world.
         """
+        sign = np.sign(parent_T_hinge.to_position().to_np()[1])
+
+        # upper and lower limit need to be chosen based on the pivot point of the door
+        lower_limit_position, upper_limit_position =  (-np.pi / 2, 0) if sign < 0 else (0, np.pi / 2)
+
         lower_limits = DerivativeMap[float]()
         upper_limits = DerivativeMap[float]()
-        lower_limits.position = -np.pi / 2
-        upper_limits.position = 0.0
+        lower_limits.position = lower_limit_position
+        upper_limits.position = upper_limit_position
 
-        parent_connection = semantic_door_annotation.handle.body.parent_connection
-        door_P_handle: ndarray[float] = (
-            parent_connection.origin_expression.to_position().to_np()
-        )
-        if np.sign(door_P_handle[1]) < 0:
-            lower_limits.position = 0.0
-            upper_limits.position = np.pi / 2
         return upper_limits, lower_limits
 
     def _add_hinge_to_door(
@@ -142,6 +147,7 @@ class HasDoorLikeFactories(ABC):
         self,
         door_factory: DoorFactory,
         parent_T_door: TransformationMatrix,
+        opening_axis: Vector3,
         parent_world: World,
     ):
         """
@@ -156,11 +162,9 @@ class HasDoorLikeFactories(ABC):
             door_world, parent_T_hinge = self._add_hinge_to_door(
                 door_factory, parent_T_door
             )
-            semantic_door_annotation: Door = (
-                door_world.get_semantic_annotations_by_type(Door)[0]
-            )
+
             upper_limits, lower_limits = self._create_door_upper_lower_limits(
-                semantic_door_annotation
+                parent_T_hinge
             )
 
             root = door_world.root
@@ -177,7 +181,7 @@ class HasDoorLikeFactories(ABC):
                     parent_T_connection_expression=parent_T_hinge,
                     multiplier=1.0,
                     offset=0.0,
-                    axis=Vector3.Z(),
+                    axis=opening_axis,
                     dof_id=dof.id,
                 )
 
@@ -190,14 +194,15 @@ class HasDoorLikeFactories(ABC):
         """
         Adds door-like semantic annotations to the parent world.
         """
-        for door_factory, door_transform in zip(
-            self.door_factories, self.door_transforms
+        for door_factory, door_transform, door_opening_axis in zip(
+            self.door_factories, self.door_transforms, self.door_opening_axes
         ):
             if isinstance(door_factory, DoorFactory):
                 self._add_door_to_world(
                     door_factory=door_factory,
                     parent_T_door=door_transform,
                     parent_world=parent_world,
+                    opening_axis=door_opening_axis,
                 )
             elif isinstance(door_factory, DoubleDoorFactory):
                 self._add_double_door_to_world(
@@ -227,7 +232,7 @@ class HasDoorLikeFactories(ABC):
             connection.origin_expression.to_position().to_np()
         )
 
-        sign = np.sign(door_P_handle[1]) if door_P_handle[1] != 0 else 1
+        sign = np.sign(-1*door_P_handle[1]) if door_P_handle[1] != 0 else 1
         offset = sign * (scale.y / 2)
         parent_P_hinge = parent_T_door.to_np()[:3, 3] + np.array([0, offset, 0])
 
