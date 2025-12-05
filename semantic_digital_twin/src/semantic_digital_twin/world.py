@@ -1175,9 +1175,7 @@ class World:
     def is_semantic_annotation_in_world(
         self, semantic_annotation: SemanticAnnotation
     ) -> bool:
-        return self._is_world_entity_with_hash_in_world_from_iterable(
-            hash(semantic_annotation)
-        )
+        return semantic_annotation._world == self and semantic_annotation in self.semantic_annotations
 
     def is_body_in_world(self, body: Body) -> bool:
         return self._is_world_entity_with_hash_in_world_from_iterable(hash(body))
