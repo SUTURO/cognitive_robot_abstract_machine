@@ -19,7 +19,8 @@ from .world_entity import (
     KinematicStructureEntity,
     SemanticAnnotation,
     Connection,
-    WorldEntity, Actuator,
+    WorldEntity,
+    Actuator,
 )
 from ..adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
@@ -243,9 +244,7 @@ class RemoveDegreeOfFreedomModification(WorldModelModification):
         return cls(dof_id=kwargs["dof"].id)
 
     def apply(self, world: World):
-        world.remove_degree_of_freedom(
-            world.get_degree_of_freedom_by_id(self.dof_id)
-        )
+        world.remove_degree_of_freedom(world.get_degree_of_freedom_by_id(self.dof_id))
 
     def to_json(self):
         return {
@@ -341,9 +340,7 @@ class RemoveActuatorModification(WorldModelModification):
         return cls(actuator_id=kwargs["actuator"].id)
 
     def apply(self, world: World):
-        world.remove_actuator(
-            world.get_actuator_by_id(self.actuator_id)
-        )
+        world.remove_actuator(world.get_actuator_by_id(self.actuator_id))
 
     def to_json(self):
         return {
@@ -354,6 +351,7 @@ class RemoveActuatorModification(WorldModelModification):
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         return cls(actuator_id=from_json(data["actuator"]))
+
 
 @dataclass
 class WorldModelModificationBlock(SubclassJSONSerializer):
@@ -414,9 +412,7 @@ class SetDofHasHardwareInterface(WorldModelModification):
     def from_kwargs(cls, kwargs: Dict[str, Any]) -> Self:
         dofs = kwargs["dofs"]
         degree_of_freedom_ids = [dof.id for dof in dofs]
-        return cls(
-            degree_of_freedom_ids=degree_of_freedom_ids, value=kwargs["value"]
-        )
+        return cls(degree_of_freedom_ids=degree_of_freedom_ids, value=kwargs["value"])
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -431,8 +427,7 @@ class SetDofHasHardwareInterface(WorldModelModification):
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         return cls(
             degree_of_freedom_ids=[
-                from_json(_id)
-                for _id in data["degree_of_freedom_ids"]
+                from_json(_id) for _id in data["degree_of_freedom_ids"]
             ],
             value=data["value"],
         )

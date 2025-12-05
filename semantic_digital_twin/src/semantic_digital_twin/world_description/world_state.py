@@ -129,9 +129,7 @@ class WorldState(MutableMapping):
         idx = self._index[dof_id]
         return WorldStateView(self.data[:, idx])
 
-    def __setitem__(
-        self, dof_id: UUID, value: np.ndarray | WorldStateView
-    ) -> None:
+    def __setitem__(self, dof_id: UUID, value: np.ndarray | WorldStateView) -> None:
         if dof_id not in self._index:
             raise DofNotInWorldStateError(dof_id)
         if isinstance(value, WorldStateView):
@@ -181,13 +179,17 @@ class WorldState(MutableMapping):
         return self._ids
 
     def items(self) -> List[tuple[UUID, np.ndarray]]:
-        return [(dof_id, self.data[:, self._index[dof_id]].copy()) for dof_id in self._ids]
+        return [
+            (dof_id, self.data[:, self._index[dof_id]].copy()) for dof_id in self._ids
+        ]
 
     def values(self) -> List[np.ndarray]:
         return [self.data[:, self._index[dof_id]].copy() for dof_id in self._ids]
 
     def __contains__(self, dof_or_uuid: Union[DegreeOfFreedom, UUID]) -> bool:
-        dof_id = dof_or_uuid.id if isinstance(dof_or_uuid, DegreeOfFreedom) else dof_or_uuid
+        dof_id = (
+            dof_or_uuid.id if isinstance(dof_or_uuid, DegreeOfFreedom) else dof_or_uuid
+        )
         return dof_id in self._index
 
     def __repr__(self) -> str:
@@ -200,7 +202,10 @@ class WorldState(MutableMapping):
         )
 
     def to_position_dict(self) -> Dict[PrefixedName, float]:
-        return {self._world.get_degree_of_freedom_by_id(dof_id).name: self[dof_id].position for dof_id in self._ids}
+        return {
+            self._world.get_degree_of_freedom_by_id(dof_id).name: self[dof_id].position
+            for dof_id in self._ids
+        }
 
     @property
     def positions(self) -> np.ndarray:

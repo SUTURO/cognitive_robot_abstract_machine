@@ -89,8 +89,12 @@ class SpecifiesLeftRightArm(HasArms, ABC):
         first_arm_chain = list(first_arm.bodies)
         second_arm_chain = list(second_arm.bodies)
 
-        return first_arm if relation(
+        return (
+            first_arm
+            if relation(
                 first_arm_chain[1],
                 second_arm_chain[1],
                 pov,
-            )() else second_arm
+            )()
+            else second_arm
+        )

@@ -171,7 +171,11 @@ class TestPartialActions(ApartmentWorldTestCase):
                 ),
             )
             move1.perform()
-            np.testing.assert_almost_equal(list(self.robot_view.root.global_pose.to_np()[:3, 3]), [1, 0, 0], decimal=1)
+            np.testing.assert_almost_equal(
+                list(self.robot_view.root.global_pose.to_np()[:3, 3]),
+                [1, 0, 0],
+                decimal=1,
+            )
 
     def test_partial_navigate_action_multiple(self):
         nav = NavigateActionDescription(
@@ -184,8 +188,12 @@ class TestPartialActions(ApartmentWorldTestCase):
         nav_goals = [[1, 0, 0], [2, 0, 0], [3, 0, 0]]
         for i, action in enumerate(nav):
             with simulated_robot:
-                SequentialPlan(self.context,  action).perform()
-                np.testing.assert_almost_equal(self.robot_view.root.global_pose.to_np()[:3, 3], nav_goals[i], decimal=2)
+                SequentialPlan(self.context, action).perform()
+                np.testing.assert_almost_equal(
+                    self.robot_view.root.global_pose.to_np()[:3, 3],
+                    nav_goals[i],
+                    decimal=2,
+                )
                 # self.assertEqual(nav_goals[i], list(self.robot_view.root.global_pose.to_np()[:3, 3]) )
 
     def test_partial_pickup_action(self):

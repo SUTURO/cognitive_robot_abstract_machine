@@ -24,6 +24,7 @@ package-mode = false
 pycram-robotics = { path = "pycram", develop = true }
 giskardpy = { path = "giskardpy", develop = true }
 semantic_digital_twin = { path = "semantic_digital_twin", develop = true }
+krrood = { path = "krrood", develop = true }
 
 
 [tool.setuptools]

@@ -14,7 +14,9 @@ import logging
 
 from giskardpy.motion_statechart.graph_node import Task
 from semantic_digital_twin.world_description.world_entity import Body
-from semantic_digital_twin.world_description.world_modification import WorldModelModificationBlock
+from semantic_digital_twin.world_description.world_modification import (
+    WorldModelModificationBlock,
+)
 from typing_extensions import (
     Optional,
     Callable,
@@ -820,11 +822,13 @@ class ResolvedActionNode(DesignatorNode):
         return id(self)
 
     def collect_motions(self) -> List[Task]:
-        motion_desigs =  list(filter(lambda x: x.is_leaf, self.recursive_children))
+        motion_desigs = list(filter(lambda x: x.is_leaf, self.recursive_children))
         return [m.designator_ref.motion_chart for m in motion_desigs]
 
     def construct_msc(self):
-        self.motion_executor = MotionExecutor(self.collect_motions(), self.plan.world, ros_node=self.plan.context.ros_node)
+        self.motion_executor = MotionExecutor(
+            self.collect_motions(), self.plan.world, ros_node=self.plan.context.ros_node
+        )
         self.motion_executor.construct_msc()
 
     def execute_msc(self):
@@ -856,7 +860,10 @@ class ResolvedActionNode(DesignatorNode):
         self.execution_data.execution_end_world_state = self.plan.world.state.data
         new_modifications = []
         for i in range(len(self.plan.world._model_manager.model_modification_blocks)):
-            if self.plan.world._model_manager.model_modification_blocks[-i] is self._last_mod:
+            if (
+                self.plan.world._model_manager.model_modification_blocks[-i]
+                is self._last_mod
+            ):
                 break
             new_modifications.append(
                 self.plan.world._model_manager.model_modification_blocks[-i]
@@ -865,7 +872,9 @@ class ResolvedActionNode(DesignatorNode):
 
         if self.execution_data.manipulated_body:
             self.execution_data.manipulated_body_pose_end = (
-                PoseStamped.from_spatial_type(self.execution_data.manipulated_body.global_pose)
+                PoseStamped.from_spatial_type(
+                    self.execution_data.manipulated_body.global_pose
+                )
             )
 
     @managed_node

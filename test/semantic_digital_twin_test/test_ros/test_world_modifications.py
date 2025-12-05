@@ -178,11 +178,14 @@ class ConnectionModificationTestCase(unittest.TestCase):
             b3 = Body(name=PrefixedName("b3"))
             w.add_kinematic_structure_entity(b3)
 
-            c1 = Connection6DoF.create_with_dofs(name=PrefixedName("name1"),parent=b1, child=b2, world=w)
+            c1 = Connection6DoF.create_with_dofs(
+                name=PrefixedName("name1"), parent=b1, child=b2, world=w
+            )
             w.add_connection(c1)
-            c2 = Connection6DoF.create_with_dofs(name=PrefixedName("name1"),parent=b1, child=b3, world=w)
+            c2 = Connection6DoF.create_with_dofs(
+                name=PrefixedName("name1"), parent=b1, child=b3, world=w
+            )
             w.add_connection(c2)
-
 
         modifications = w.get_world_model_manager().model_modification_blocks[-1]
         tracker = KinematicStructureEntityKwargsTracker()
@@ -225,6 +228,7 @@ class ConnectionModificationTestCase(unittest.TestCase):
 
         self.assertEqual(len(w2.actuators), 1)
         self.assertEqual(w2.actuators[0].id, actuator.id)
+
 
 if __name__ == "__main__":
     unittest.main()

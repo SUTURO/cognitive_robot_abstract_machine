@@ -7,7 +7,13 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 
 class URDFParserTestCase(unittest.TestCase):
     urdf_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "semantic_digital_twin", "resources", "urdf"
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "..",
+        "..",
+        "semantic_digital_twin",
+        "resources",
+        "urdf",
     )
     table = os.path.join(urdf_dir, "table.urdf")
     kitchen = os.path.join(urdf_dir, "kitchen-small.urdf")

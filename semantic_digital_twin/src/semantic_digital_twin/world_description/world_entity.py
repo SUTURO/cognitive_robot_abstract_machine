@@ -97,6 +97,7 @@ class WorldEntity(Symbol):
     def remove_from_world(self):
         self._world = None
 
+
 @dataclass(eq=False)
 class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
     """
@@ -454,7 +455,8 @@ class Body(KinematicStructureEntity, SubclassJSONSerializer):
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         result = cls(
             name=PrefixedName.from_json(data["name"], **kwargs),
-            id=from_json(data["id"]))
+            id=from_json(data["id"]),
+        )
         # add the new body so that the transformation matrices in the shapes can use it as reference frame.
         tracker = KinematicStructureEntityKwargsTracker.from_kwargs(kwargs)
         if not tracker.has_kinematic_structure_entity(result.id):
@@ -593,7 +595,9 @@ class Region(KinematicStructureEntity):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        result = cls(name=PrefixedName.from_json(data["name"], id=from_json(data["id"])))
+        result = cls(
+            name=PrefixedName.from_json(data["name"], id=from_json(data["id"]))
+        )
         area = ShapeCollection.from_json(data["area"])
         for shape in area:
             shape.origin.reference_frame = result
@@ -820,6 +824,31 @@ class RootedSemanticAnnotation(SemanticAnnotation):
             if body.has_collision() and not body.get_collision_config().disabled
         )
 
+@dataclass(eq=False)
+class Agent(RootedSemanticAnnotation):
+    """
+    Represents an entity in the world that can act, move, or be controlled.
+
+    Agents are dynamic bodies with semantic meaning — they may have intent,
+    behavior, or be controlled by external or internal logic. Examples include
+    robots, humans, or other autonomous actors.
+
+    """
+
+    ...
+
+@dataclass(eq=False)
+class Human(Agent):
+    """
+    Represents a human agent in the environment.
+
+    A Person is an Agent that is not robotically actuated and does not provide
+    kinematic chains, manipulators, or robot-specific components.
+
+    This class exists primarily for semantic distinction, so that algorithms
+    can treat human agents differently from robots if needed.
+    """
+    ...
 
 @dataclass(eq=False)
 class SemanticEnvironmentAnnotation(RootedSemanticAnnotation):
@@ -835,6 +864,8 @@ class SemanticEnvironmentAnnotation(RootedSemanticAnnotation):
         return set(
             self._world.get_kinematic_structure_entities_of_branch(self.root)
         ) | {self.root}
+
+
 
 
 @dataclass(eq=False)
@@ -859,7 +890,7 @@ class Connection(WorldEntity, SubclassJSONSerializer):
     """
 
     parent_T_connection_expression: TransformationMatrix = field(default=None)
-    kinematics: TransformationMatrix = field(
+    _kinematics: TransformationMatrix = field(
         default_factory=TransformationMatrix, init=False
     )
     connection_T_child_expression: TransformationMatrix = field(default=None)
@@ -927,12 +958,8 @@ class Connection(WorldEntity, SubclassJSONSerializer):
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         tracker = KinematicStructureEntityKwargsTracker.from_kwargs(kwargs)
-        parent = tracker.get_kinematic_structure_entity(
-            id=from_json(data["parent_id"])
-        )
-        child = tracker.get_kinematic_structure_entity(
-            id=from_json(data["child_id"])
-        )
+        parent = tracker.get_kinematic_structure_entity(id=from_json(data["parent_id"]))
+        child = tracker.get_kinematic_structure_entity(id=from_json(data["child_id"]))
         return cls(
             name=PrefixedName.from_json(data["name"]),
             parent=parent,
@@ -946,7 +973,7 @@ class Connection(WorldEntity, SubclassJSONSerializer):
     def origin_expression(self) -> TransformationMatrix:
         return (
             self.parent_T_connection_expression
-            @ self.kinematics
+            @ self._kinematics
             @ self.connection_T_child_expression
         )
 
@@ -1178,3 +1205,4 @@ class Actuator(WorldEntityWithID, SubclassJSONSerializer):
         :param dof: The degree of freedom to add.
         """
         self._dofs.append(dof)
+

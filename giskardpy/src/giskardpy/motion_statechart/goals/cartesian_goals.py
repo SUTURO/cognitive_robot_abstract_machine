@@ -27,7 +27,8 @@ class DiffDriveBaseGoal(Goal):
     always_forward: bool = False
 
     def build(self, context: BuildContext) -> NodeArtifacts:
-        raise NotImplementedError('not implemented yet')
+        raise NotImplementedError("not implemented yet")
+
 
 @dataclass
 class CartesianPoseStraight(Goal):

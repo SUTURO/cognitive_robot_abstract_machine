@@ -59,14 +59,25 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
             joint_states_right.joint_names, joint_states_right.joint_positions
         ):
             dof = self.world.get_degree_of_freedom_by_name(joint_name)
-            compare_axis_angle(self.world.state[dof.id].position, np.array([1, 0, 0]), joint_state,
-                               np.array([1, 0, 0]), decimal=1)
+            compare_axis_angle(
+                self.world.state[dof.id].position,
+                np.array([1, 0, 0]),
+                joint_state,
+                np.array([1, 0, 0]),
+                decimal=1,
+            )
             # self.assertAlmostEqual(self.world.state[dof.id].position, joint_state % (2 * np.pi), places=1)
         for joint_name, joint_state in zip(
             joint_states_left.joint_names, joint_states_left.joint_positions
         ):
             dof = self.world.get_degree_of_freedom_by_name(joint_name)
-            compare_axis_angle(self.world.state[dof.id].position, [1, 0, 0], joint_state, [1, 0, 0], decimal=1)
+            compare_axis_angle(
+                self.world.state[dof.id].position,
+                [1, 0, 0],
+                joint_state,
+                [1, 0, 0],
+                decimal=1,
+            )
             # self.assertAlmostEqual(self.world.state[dof.id].position, joint_state % (2 * np.pi), places=1)
 
     def test_navigate(self):
@@ -111,8 +122,12 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
         )
         with simulated_robot:
             plan.perform()
-        gripper_pose = self.world.get_body_by_name("l_gripper_tool_frame").global_pose.to_np()[:3, 3]
-        np.testing.assert_almost_equal(gripper_pose, np.array([2.37, 2, 1.05]), decimal=2)
+        gripper_pose = self.world.get_body_by_name(
+            "l_gripper_tool_frame"
+        ).global_pose.to_np()[:3, 3]
+        np.testing.assert_almost_equal(
+            gripper_pose, np.array([2.37, 2, 1.05]), decimal=2
+        )
 
     def test_pick_up(self):
         test_world = deepcopy(self.world)
@@ -314,7 +329,7 @@ class TestActionDesignatorGrounding(ApartmentWorldTestCase):
                 self.robot_view.root,
             )
             milk_in_robot_frame = PoseStamped.from_spatial_type(milk_in_robot_frame)
-            self.assertAlmostEqual(milk_in_robot_frame.position.y, 0., places=2)
+            self.assertAlmostEqual(milk_in_robot_frame.position.y, 0.0, places=2)
 
     def test_move_tcp_waypoints(self):
         gripper_pose = PoseStamped.from_spatial_type(

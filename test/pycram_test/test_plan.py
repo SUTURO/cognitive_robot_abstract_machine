@@ -21,7 +21,13 @@ class TestPlan(unittest.TestCase):
         Plan.current_plan = None
         self.world = URDFParser.from_file(
             os.path.join(
-                os.path.dirname(__file__), "..", "..", "pycram", "resources", "robots", "pr2.urdf"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "pycram",
+                "resources",
+                "robots",
+                "pr2.urdf",
             )
         ).parse()
         self.context = Context(self.world, None, None)
@@ -100,7 +106,13 @@ class TestPlanNode(unittest.TestCase):
     def setUp(self):
         self.world = URDFParser.from_file(
             os.path.join(
-                os.path.dirname(__file__), "..", "..", "pycram", "resources", "robots", "pr2.urdf"
+                os.path.dirname(__file__),
+                "..",
+                "..",
+                "pycram",
+                "resources",
+                "robots",
+                "pr2.urdf",
             )
         ).parse()
         self.context = Context(self.world, None, None)
@@ -201,7 +213,13 @@ class TestPlanInterrupt(ApartmentWorldTestCase):
                 MoveTorsoActionDescription([TorsoState.LOW]),
             ).perform()
 
-            self.assertAlmostEqual(0.3, self.world.state[self.world.get_degree_of_freedom_by_name("torso_lift_joint").id].position, places=1)
+            self.assertAlmostEqual(
+                0.3,
+                self.world.state[
+                    self.world.get_degree_of_freedom_by_name("torso_lift_joint").id
+                ].position,
+                places=1,
+            )
 
     @unittest.skip(
         "There is some weird error here that causes the interpreter to abort with exit code 134, something with thread handling. Needs more investigation"

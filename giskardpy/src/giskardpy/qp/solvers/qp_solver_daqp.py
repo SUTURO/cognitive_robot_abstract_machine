@@ -25,40 +25,55 @@ class QPSolverDAQP(QPSolverQPalm):
     sparse = True
     compute_nI_I = False
 
-    
     def update_filters(self):
         self.weight_filter = self.weights != 0
-        self.weight_filter[:-self.num_slack_variables] = True
-        self.slack_part = self.weight_filter[-(self.num_eq_slack_variables + self.num_neq_slack_variables):]
-        self.bE_part = self.slack_part[:self.num_eq_slack_variables]
-        self.bA_part = self.slack_part[self.num_eq_slack_variables:]
+        self.weight_filter[: -self.num_slack_variables] = True
+        self.slack_part = self.weight_filter[
+            -(self.num_eq_slack_variables + self.num_neq_slack_variables) :
+        ]
+        self.bE_part = self.slack_part[: self.num_eq_slack_variables]
+        self.bA_part = self.slack_part[self.num_eq_slack_variables :]
 
-        self.b_bE_bA_filter = np.ones(self.lb.shape[0] + self.bE.shape[0] + self.lbA.shape[0], dtype=bool)
-        self.b_zero_inf_filter_view = self.b_bE_bA_filter[:self.lb.shape[0]]
-        self.bE_filter_view = self.b_bE_bA_filter[self.lb.shape[0]:self.lb.shape[0] + self.bE.shape[0]]
-        self.bA_filter_view = self.b_bE_bA_filter[self.lb.shape[0] + self.bE.shape[0]:]
-        self.bE_bA_filter = self.b_bE_bA_filter[self.lb.shape[0]:]
+        self.b_bE_bA_filter = np.ones(
+            self.lb.shape[0] + self.bE.shape[0] + self.lbA.shape[0], dtype=bool
+        )
+        self.b_zero_inf_filter_view = self.b_bE_bA_filter[: self.lb.shape[0]]
+        self.bE_filter_view = self.b_bE_bA_filter[
+            self.lb.shape[0] : self.lb.shape[0] + self.bE.shape[0]
+        ]
+        self.bA_filter_view = self.b_bE_bA_filter[self.lb.shape[0] + self.bE.shape[0] :]
+        self.bE_bA_filter = self.b_bE_bA_filter[self.lb.shape[0] :]
 
         self.b_zero_filter = self.weight_filter.copy()
         self.b_zero_inf_filter_view[::] = self.b_zero_filter
 
         if len(self.bE_part) > 0:
-            self.bE_filter_view[-len(self.bE_part):] = self.bE_part
+            self.bE_filter_view[-len(self.bE_part) :] = self.bE_part
 
         if len(self.bA_part) > 0:
-            self.bA_filter_view[-len(self.bA_part):] = self.bA_part
+            self.bA_filter_view[-len(self.bA_part) :] = self.bA_part
 
-    
-    def problem_data_to_qp_format(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def problem_data_to_qp_format(
+        self,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         H = np.diag(self.weights + self.regularization_value)
         A = self.A.toarray()
         return H, self.g, A, self.lb_bE_lbA, self.ub_bE_ubA
 
-    
-    def solver_call(self, H: np.ndarray, g: np.ndarray, A: sp.csc_matrix, lbA: np.ndarray, ubA: np.ndarray) -> np.ndarray:
+    def solver_call(
+        self,
+        H: np.ndarray,
+        g: np.ndarray,
+        A: sp.csc_matrix,
+        lbA: np.ndarray,
+        ubA: np.ndarray,
+    ) -> np.ndarray:
         sense = np.zeros(lbA.shape, dtype=c_int)
-        sense[len(self.b_zero_inf_filter_view):len(self.b_zero_inf_filter_view)+len(self.bE_filter_view)] = 5
+        sense[
+            len(self.b_zero_inf_filter_view) : len(self.b_zero_inf_filter_view)
+            + len(self.bE_filter_view)
+        ] = 5
         (xstar, fval, exitflag, info) = daqp.solve(H, g, A, ubA, lbA, sense)
         if exitflag != 1:
-            raise InfeasibleException(f'failed to solve qp {exitflag}')
+            raise InfeasibleException(f"failed to solve qp {exitflag}")
         return xstar

@@ -12,6 +12,7 @@ import uuid
 from dataclasses import is_dataclass
 
 import sqlalchemy
+import trimesh
 from krrood.class_diagrams import ClassDiagram
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.utils import classes_of_module
@@ -75,7 +76,9 @@ all_classes |= set(
         semantic_digital_twin.adapters.procthor.procthor_semantic_annotations
     )
 )
-all_classes |= set(classes_of_module(semantic_digital_twin.world_description.world_modification))
+all_classes |= set(
+    classes_of_module(semantic_digital_twin.world_description.world_modification)
+)
 all_classes |= set(classes_of_module(semantic_digital_twin.callbacks.callback))
 
 
@@ -112,8 +115,10 @@ def generate_orm():
 
     instance = ORMatic(
         class_dependency_graph=class_diagram,
-        type_mappings={trimesh.Trimesh: semantic_digital_twin.orm.model.TrimeshType,
-                       uuid.UUID: sqlalchemy.UUID},
+        type_mappings={
+            trimesh.Trimesh: semantic_digital_twin.orm.model.TrimeshType,
+            uuid.UUID: sqlalchemy.UUID,
+        },
         alternative_mappings=alternative_mappings,
     )
 

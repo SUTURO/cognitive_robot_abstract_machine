@@ -68,9 +68,7 @@ def test_construction(world_setup):
     assert len(world.connections) == 5
     assert len(world.kinematic_structure_entities) == 6
     assert world.state.positions[0] == 0
-    assert (
-        world.get_connection(l1, l2).dof.id == world.get_connection(r1, r2).dof.id
-    )
+    assert world.get_connection(l1, l2).dof.id == world.get_connection(r1, r2).dof.id
 
 
 def test_chain_of_bodies(world_setup):
@@ -389,28 +387,25 @@ def test_duplicate_semantic_annotation(world_setup):
     with pytest.raises(DuplicateWorldEntityError):
         world.get_semantic_annotation_by_name(v.name)
 
+
 def test_all_kinematic_structure_entities_have_uuid(world_setup):
     world, _, _, _, _, _ = world_setup
-    uuids = {
-        kse.id for kse in world.kinematic_structure_entities
-    }
+    uuids = {kse.id for kse in world.kinematic_structure_entities}
 
     assert len(uuids) == len(world.kinematic_structure)
 
+
 def test_all_degree_of_freedom_have_uuid(world_setup):
     world, _, _, _, _, _ = world_setup
-    uuids = {
-        dof.id for dof in world.degrees_of_freedom
-    }
+    uuids = {dof.id for dof in world.degrees_of_freedom}
 
     assert len(uuids) == len(world.degrees_of_freedom)
+
 
 def test_merge_world(world_setup, pr2_world):
     world, l1, l2, bf, r1, r2 = world_setup
 
-    base_link = pr2_world.get_kinematic_structure_entity_by_name(
-        "base_link"
-    )
+    base_link = pr2_world.get_kinematic_structure_entity_by_name("base_link")
     r_gripper_tool_frame = pr2_world.get_kinematic_structure_entity_by_name(
         "r_gripper_tool_frame"
     )
@@ -419,16 +414,12 @@ def test_merge_world(world_setup, pr2_world):
     )
     r_shoulder_pan_joint = pr2_world.get_connection(
         torso_lift_link,
-        pr2_world.get_kinematic_structure_entity_by_name(
-            "r_shoulder_pan_link"
-        ),
+        pr2_world.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
 
     l_shoulder_pan_joint = pr2_world.get_connection(
         torso_lift_link,
-        pr2_world.get_kinematic_structure_entity_by_name(
-            "l_shoulder_pan_link"
-        ),
+        pr2_world.get_kinematic_structure_entity_by_name("l_shoulder_pan_link"),
     )
 
     world.merge_world(pr2_world)
@@ -443,9 +434,7 @@ def test_merge_world(world_setup, pr2_world):
 def test_merge_with_connection(world_setup, pr2_world):
     world, l1, l2, bf, r1, r2 = world_setup
 
-    base_link = pr2_world.get_kinematic_structure_entity_by_name(
-        "base_link"
-    )
+    base_link = pr2_world.get_kinematic_structure_entity_by_name("base_link")
     r_gripper_tool_frame = pr2_world.get_kinematic_structure_entity_by_name(
         "r_gripper_tool_frame"
     )
@@ -454,9 +443,7 @@ def test_merge_with_connection(world_setup, pr2_world):
     )
     r_shoulder_pan_joint = pr2_world.get_connection(
         torso_lift_link,
-        pr2_world.get_kinematic_structure_entity_by_name(
-            "r_shoulder_pan_link"
-        ),
+        pr2_world.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
 
     pose = np.eye(4)
@@ -496,9 +483,7 @@ def test_merge_with_connection(world_setup, pr2_world):
 def test_merge_with_pose(world_setup, pr2_world):
     world, l1, l2, bf, r1, r2 = world_setup
 
-    base_link = pr2_world.get_kinematic_structure_entity_by_name(
-        "base_link"
-    )
+    base_link = pr2_world.get_kinematic_structure_entity_by_name("base_link")
     r_gripper_tool_frame = pr2_world.get_kinematic_structure_entity_by_name(
         "r_gripper_tool_frame"
     )
@@ -507,9 +492,7 @@ def test_merge_with_pose(world_setup, pr2_world):
     )
     r_shoulder_pan_joint = pr2_world.get_connection(
         torso_lift_link,
-        pr2_world.get_kinematic_structure_entity_by_name(
-            "r_shoulder_pan_link"
-        ),
+        pr2_world.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
 
     pose = np.eye(4)
@@ -529,9 +512,7 @@ def test_merge_with_pose(world_setup, pr2_world):
 def test_merge_with_pose_rotation(world_setup, pr2_world):
     world, l1, l2, bf, r1, r2 = world_setup
 
-    base_link = pr2_world.get_kinematic_structure_entity_by_name(
-        "base_link"
-    )
+    base_link = pr2_world.get_kinematic_structure_entity_by_name("base_link")
     r_gripper_tool_frame = pr2_world.get_kinematic_structure_entity_by_name(
         "r_gripper_tool_frame"
     )
@@ -540,13 +521,9 @@ def test_merge_with_pose_rotation(world_setup, pr2_world):
     )
     r_shoulder_pan_joint = pr2_world.get_connection(
         torso_lift_link,
-        pr2_world.get_kinematic_structure_entity_by_name(
-            "r_shoulder_pan_link"
-        ),
+        pr2_world.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
-    base_footprint = pr2_world.get_kinematic_structure_entity_by_name(
-        "base_footprint"
-    )
+    base_footprint = pr2_world.get_kinematic_structure_entity_by_name("base_footprint")
 
     # Rotation is 90 degrees around z-axis, translation is 1 along x-axis
     pose = np.array(
@@ -606,9 +583,11 @@ def test_remove_connection(world_setup):
             # if you remove a connection, the child must be connected some other way or deleted
             world.remove_connection(world.get_connection(r1, r2))
 
+
 def test_kinematic_structure_entity_hash(world_setup):
     _, l1, _, _, _, _ = world_setup
     assert hash(l1) == hash(l1.id)
+
 
 def test_connection_hash(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
@@ -622,6 +601,7 @@ def test_degree_of_freedom_hash(world_setup):
     dof = world.degrees_of_freedom[0]
     assert hash(dof) == hash(dof.id)
 
+
 def test_copy_world(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
     world_copy = deepcopy(world)
@@ -630,7 +610,9 @@ def test_copy_world(world_setup):
     assert id(l2) != id(l2_copy)
     original_bf_con = bf.parent_connection
     assert original_bf_con in world_copy.connections
-    copy_connection = world_copy.get_connection(original_bf_con.parent, original_bf_con.child)
+    copy_connection = world_copy.get_connection(
+        original_bf_con.parent, original_bf_con.child
+    )
     assert id(copy_connection) != id(original_bf_con)
     bf.parent_connection.origin = np.array(
         [[1, 0, 0, 1.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
@@ -655,6 +637,7 @@ def test_copy_world_state(world_setup):
 
     assert world.get_connection(r1, r2).position == 1.0
     assert world_copy.get_connection(r1, r2).position == 1.0
+
 
 def test_world_state_item_not_set_yet(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
@@ -981,6 +964,7 @@ def test_set_static_collision_config():
         )
         connection.set_static_collision_config_for_direct_child_bodies(collision_config)
 
+
 def test_actuators(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
 
@@ -995,4 +979,3 @@ def test_actuators(world_setup):
 
     assert actuator in world.actuators
     assert world.get_actuator_by_id(actuator.id) == actuator
-

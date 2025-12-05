@@ -36,6 +36,3 @@ class MoveMotion(BaseMotion):
             tip_link=self.robot_view.root,
             goal_pose=self.target.to_spatial_type(),
         )
-
-
-

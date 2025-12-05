@@ -71,9 +71,7 @@ class WorldReasoner:
                 attr_value = list(attr_value)
             if attr_name == "semantic_annotations":
                 for semantic_annotation in attr_value:
-                    self.world.add_semantic_annotation(
-                        semantic_annotation
-                    )
+                    self.world.add_semantic_annotation(semantic_annotation)
             else:
                 setattr(self.world, attr_name, attr_value)
 

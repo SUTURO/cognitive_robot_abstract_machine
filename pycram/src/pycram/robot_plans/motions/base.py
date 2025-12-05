@@ -48,7 +48,9 @@ class BaseMotion(DesignatorDescription):
 
     @property
     def motion_chart(self) -> Task:
-        alternative = AlternativeMotionMapping.check_for_alternative(self.robot_view, self)
+        alternative = AlternativeMotionMapping.check_for_alternative(
+            self.robot_view, self
+        )
         if alternative is not None:
             return alternative
         else:

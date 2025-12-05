@@ -8,7 +8,13 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 
 class MjcfParserTestCase(unittest.TestCase):
     mjcf_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "semantic_digital_twin", "resources", "mjcf"
+        os.path.dirname(os.path.abspath(__file__)),
+        "..",
+        "..",
+        "..",
+        "semantic_digital_twin",
+        "resources",
+        "mjcf",
     )
     table_xml = os.path.join(mjcf_dir, "table.xml")
     kitchen_xml = os.path.join(mjcf_dir, "kitchen-small.xml")

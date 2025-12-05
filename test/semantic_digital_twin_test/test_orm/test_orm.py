@@ -22,7 +22,13 @@ from krrood.ormatic.dao import to_dao
 import pytest
 
 urdf_dir = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "semantic_digital_twin", "resources", "urdf"
+    os.path.dirname(os.path.abspath(__file__)),
+    "..",
+    "..",
+    "..",
+    "semantic_digital_twin",
+    "resources",
+    "urdf",
 )
 table_path = os.path.join(urdf_dir, "table.urdf")
 

@@ -59,7 +59,14 @@ def plot_rustworkx_interactive(
         import networkx as nx
         import importlib
         from bokeh.layouts import row
-        from bokeh.models import ColumnDataSource, Div, HoverTool, NodesAndLinkedEdges, TapTool, CustomJS
+        from bokeh.models import (
+            ColumnDataSource,
+            Div,
+            HoverTool,
+            NodesAndLinkedEdges,
+            TapTool,
+            CustomJS,
+        )
         from bokeh.plotting import figure, from_networkx, show
     except Exception as exc:  # pragma: no cover - informative error only if used
         raise RuntimeError(
@@ -93,7 +100,9 @@ def plot_rustworkx_interactive(
     g_renderer.inspection_policy = NodesAndLinkedEdges()
 
     # Prepare a side panel for parameters
-    info = Div(text="<b>Click a node to see its parameters</b>", width=400, height=height)
+    info = Div(
+        text="<b>Click a node to see its parameters</b>", width=400, height=height
+    )
 
     # Ensure param_text exists on data source
     # from_networkx created a CDS with 'index' only; merge our attrs
@@ -130,7 +139,9 @@ def plot_rustworkx_interactive(
     show(row(p, info))
 
 
-def calculate_layout_positions(layout: str, nx_g: nx.Graph, start: Optional[int] = None) -> Dict[int, Tuple[float, float]]:
+def calculate_layout_positions(
+    layout: str, nx_g: nx.Graph, start: Optional[int] = None
+) -> Dict[int, Tuple[float, float]]:
     """
     Calculates node positions based on the selected layout.
     :param layout: Layout name, e.g. "spring", "kamada_kawai", "bfs
@@ -193,10 +204,11 @@ def build_nx_graph(graph: "Any", node_params, attributes, node_label) -> nx.Grap
         )
 
     # Add edges
-    for (u, v) in graph.edge_list():
+    for u, v in graph.edge_list():
         nx_g.add_edge(u, v)
 
     return nx_g
+
 
 def _object_params_with_properties(payload: Any) -> Optional[Dict[str, Any]]:
     """
@@ -219,7 +231,9 @@ def _object_params_with_properties(payload: Any) -> Optional[Dict[str, Any]]:
 
     # Collect from __dict__ if available
     try:
-        if hasattr(payload, "__dict__") and isinstance(getattr(payload, "__dict__", None), dict):
+        if hasattr(payload, "__dict__") and isinstance(
+            getattr(payload, "__dict__", None), dict
+        ):
             for k, v in vars(payload).items():
                 if k.startswith("_") or k == "label":
                     continue
@@ -236,6 +250,7 @@ def _object_params_with_properties(payload: Any) -> Optional[Dict[str, Any]]:
     params.update(_collect_properties(payload))
 
     return params if params else None
+
 
 def _collect_properties(payload) -> Dict[str, Any]:
     params = {}
@@ -268,6 +283,7 @@ def _collect_properties(payload) -> Dict[str, Any]:
         pass
     return params
 
+
 def _format_params(params: Optional[Dict[str, Any]]) -> str:
     """Return HTML for parameter dict suitable for the side panel."""
     if not params:
@@ -275,7 +291,9 @@ def _format_params(params: Optional[Dict[str, Any]]) -> str:
     try:
         items = []
         for k, v in params.items():
-            items.append(f"<tr><td style='padding-right:8px; white-space:nowrap;'><b>{k}</b></td><td>{_escape_html(v)}</td></tr>")
+            items.append(
+                f"<tr><td style='padding-right:8px; white-space:nowrap;'><b>{k}</b></td><td>{_escape_html(v)}</td></tr>"
+            )
         return "<table>" + "".join(items) + "</table>"
     except Exception:
         return f"<pre>{_escape_html(params)}</pre>"

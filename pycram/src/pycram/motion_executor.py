@@ -35,7 +35,6 @@ class MotionExecutor:
     ROS node that should be used for communication. Only relevant for real execution.
     """
 
-
     def construct_msc(self):
         self.motion_state_chart = MotionStatechart()
         sequence_node = Sequence(nodes=self.motions)
@@ -43,13 +42,12 @@ class MotionExecutor:
 
         self.motion_state_chart.add_node(EndMotion.when_true(sequence_node))
 
-
     def execute(self):
         """
         Executes the constructed motion state chart in the given world.
         """
         if ProcessModuleManager.execution_type == ExecutionType.SIMULATED:
-           self._execute_for_simulation()
+            self._execute_for_simulation()
         elif ProcessModuleManager.execution_type == ExecutionType.REAL:
             self._execute_for_real()
 
@@ -57,7 +55,12 @@ class MotionExecutor:
         """
         Creates an executor and executes the motion state chart until it is done.
         """
-        executor = Executor(self.world, controller_config=QPControllerConfig(control_dt=0.02, mpc_dt=0.02, prediction_horizon=4))
+        executor = Executor(
+            self.world,
+            controller_config=QPControllerConfig(
+                control_dt=0.02, mpc_dt=0.02, prediction_horizon=4
+            ),
+        )
         executor.compile(self.motion_state_chart)
         executor.tick_until_end(timeout=2000)
 

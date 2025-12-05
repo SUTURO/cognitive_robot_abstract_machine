@@ -4,6 +4,7 @@ import shutil
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import IntEnum
 from types import NoneType
 from typing_extensions import Dict, List, Any, ClassVar, Type, Optional, Union, Self
 
@@ -46,10 +47,12 @@ from ..world_description.world_entity import (
     Body,
     KinematicStructureEntity,
     Connection,
-    WorldEntity, Actuator,
+    WorldEntity,
+    Actuator,
 )
 from ..world_description.world_modification import (
     AddKinematicStructureEntityModification,
+    AddActuatorModification,
 )
 
 
@@ -65,6 +68,50 @@ def cas_pose_to_list(pose: TransformationMatrix) -> List[float]:
     px, py, pz, _ = pos.evaluate().tolist()
     qx, qy, qz, qw = quat.evaluate().tolist()
     return [px, py, pz, qw, qx, qy, qz]
+
+
+class GeomVisibilityAndCollisionType(IntEnum):
+    """
+    Enumeration of geometric visibility and collision attributes.
+
+    - Use VISIBLE_AND_COLLIDABLE_1 or VISIBLE_AND_COLLIDABLE_2 for geometries that should be both visible and collidable. These two values are equivalent and can be used for grouping.
+    - Use ONLY_VISIBLE for geometries that are visible but not collidable (URDF: <visual>).
+    - Use ONLY_COLLIDABLE for geometries that are collidable but not visible (URDF: <collision>).
+    - UNDEFINED_1 and UNDEFINED_2 are placeholders used only when parsing from MuJoCo, and are treated as invisible by default.
+
+    For more information, see:
+    https://mujoco.readthedocs.io/en/stable/XMLreference.html#body-geom
+    """
+
+    VISIBLE_AND_COLLIDABLE_1 = 0
+    """
+    Geometry is both visible and collidable (variant 1).
+    """
+
+    VISIBLE_AND_COLLIDABLE_2 = 1
+    """
+    Geometry is both visible and collidable (variant 2).
+    """
+
+    ONLY_VISIBLE = 2
+    """
+    Geometry is only visible, not collidable.
+    """
+
+    ONLY_COLLIDABLE = 3
+    """
+    Geometry is only collidable, not visible.
+    """
+
+    UNDEFINED_1 = 4
+    """
+    Undefined geometry type (variant 1).
+    """
+
+    UNDEFINED_2 = 5
+    """
+    Undefined geometry type (variant 2).
+    """
 
 
 @dataclass
@@ -328,7 +375,7 @@ class ShapeConverter(EntityConverter, ABC):
         :param entity: The Shape object to convert.
         :return: A dictionary of shape properties, by default containing position, quaternion, and RGBA color.
         """
-        geom_props = EntityConverter._convert(self, entity)
+        geom_props = EntityConverter._convert(self, entity, **kwargs)
         px, py, pz, qw, qx, qy, qz = cas_pose_to_list(entity.origin)
         geom_pos = [px, py, pz]
         geom_quat = [qw, qx, qy, qz]
@@ -505,7 +552,7 @@ class ConnectionPrismaticConverter(Connection1DOFConverter, ABC):
     """
 
 
-class Connection6DOFConverter(ConnectionConverter):
+class Connection6DOFConverter(ConnectionConverter, ABC):
     """
     Converts a Connection6DoF object to a dictionary of 6DoF joint properties for Multiverse simulator.
     """
@@ -715,11 +762,18 @@ class MujocoGeomConverter(MujocoConverter, ShapeConverter, ABC):
                 "type": self.type,
             }
         )
-        if not kwargs.get("visible", True):
-            shape_props[self.rgba_str][3] = 0.0
-        if not kwargs.get("collidable", True):
+        is_visible = kwargs.get("visible", True)
+        is_collidable = kwargs.get("collidable", True)
+        if is_visible and is_collidable:
+            shape_props["group"] = (
+                GeomVisibilityAndCollisionType.VISIBLE_AND_COLLIDABLE_1
+            )
+        elif is_visible and not is_collidable:
             shape_props["contype"] = 0
             shape_props["conaffinity"] = 0
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_VISIBLE
+        elif not is_visible and is_collidable:
+            shape_props["group"] = GeomVisibilityAndCollisionType.ONLY_COLLIDABLE
         return shape_props
 
 
@@ -729,7 +783,9 @@ class MujocoBoxConverter(MujocoGeomConverter, BoxConverter):
     def _post_convert(
         self, entity: Box, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update(
             {"size": [entity.scale.x / 2, entity.scale.y / 2, entity.scale.z / 2]}
         )
@@ -742,7 +798,9 @@ class MujocoSphereConverter(MujocoGeomConverter, SphereConverter):
     def _post_convert(
         self, entity: Sphere, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"size": [entity.radius, entity.radius, entity.radius]})
         return shape_props
 
@@ -753,7 +811,9 @@ class MujocoCylinderConverter(MujocoGeomConverter, CylinderConverter):
     def _post_convert(
         self, entity: Cylinder, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"size": [entity.width / 2, entity.height, 0.0]})
         return shape_props
 
@@ -764,7 +824,9 @@ class MujocoMeshConverter(MujocoGeomConverter, MeshConverter):
     def _post_convert(
         self, entity: Mesh, shape_props: Dict[str, Any], **kwargs
     ) -> Dict[str, Any]:
-        shape_props.update(MujocoGeomConverter._post_convert(self, entity, shape_props))
+        shape_props.update(
+            MujocoGeomConverter._post_convert(self, entity, shape_props, **kwargs)
+        )
         shape_props.update({"mesh": entity})
         if isinstance(entity.mesh.visual, TextureVisuals) and isinstance(
             entity.mesh.visual.material.name, str
@@ -921,8 +983,8 @@ class MultiSimBuilder(ABC):
             self._build_shape(
                 parent=body,
                 shape=shape,
-                visible=shape in body.visual or not body.visual,
-                collidable=shape in body.collision,
+                is_visible=shape in body.visual,
+                is_collidable=shape in body.collision,
             )
 
     def build_region(self, region: Region):
@@ -934,7 +996,7 @@ class MultiSimBuilder(ABC):
         self._build_region(region=region)
         for shape in region.area:
             self._build_shape(
-                parent=region, shape=shape, visible=True, collidable=False
+                parent=region, shape=shape, is_visible=True, is_collidable=False
             )
 
     @abstractmethod
@@ -975,15 +1037,19 @@ class MultiSimBuilder(ABC):
 
     @abstractmethod
     def _build_shape(
-        self, parent: Union[Body, Region], shape: Shape, visible: bool, collidable: bool
+        self,
+        parent: Union[Body, Region],
+        shape: Shape,
+        is_visible: bool,
+        is_collidable: bool,
     ):
         """
         Builds a shape in the simulator and attaches it to its parent body or region.
 
         :param parent: The parent body or region to attach the shape to.
         :param shape: The shape to build.
-        :param visible: Whether the shape is visible.
-        :param collidable: Whether the shape is collidable.
+        :param is_visible: Whether the shape is visible.
+        :param is_collidable: Whether the shape is collidable.
         """
         raise NotImplementedError
 
@@ -1024,6 +1090,7 @@ class MujocoBuilder(MultiSimBuilder):
     def _start_build(self, file_path: str):
         self.spec = mujoco.MjSpec()
         self.spec.modelname = "scene"
+        self.spec.compiler.degree = 0
 
     def _end_build(self, file_path: str):
         self.spec.compile()
@@ -1057,10 +1124,14 @@ class MujocoBuilder(MultiSimBuilder):
         self._build_mujoco_body(body=region)
 
     def _build_shape(
-        self, parent: Union[Body, Region], shape: Shape, visible: bool, collidable: bool
+        self,
+        parent: Union[Body, Region],
+        shape: Shape,
+        is_visible: bool,
+        is_collidable: bool,
     ):
         geom_props = MujocoGeomConverter.convert(
-            shape, visible=visible, collidable=collidable
+            shape, visible=is_visible, collidable=is_collidable
         )
         assert geom_props is not None, f"Failed to convert shape {id(shape)}."
         parent_body_name = parent.name.name
@@ -1383,6 +1454,30 @@ class RegionSpawner(KinematicStructureEntitySpawner, ABC):
         )
 
 
+class ActuatorSpawner(EntitySpawner):
+    entity_type: ClassVar[Type[Actuator]] = Actuator
+    """
+    The type of the entity to spawn.
+    """
+
+    def _spawn(self, simulator: MultiverseSimulator, entity: Actuator) -> bool:
+        """
+        Spawns a Actuator object in the Multiverse simulator including its dofs.
+
+        :param simulator: The Multiverse simulator to spawn the entity in.
+        :param entity: The Actuator object to spawn.
+
+        :return: True if the entity is spawned successfully, False otherwise.
+        """
+        return self._spawn_actuator(simulator, entity)
+
+    @abstractmethod
+    def _spawn_actuator(
+        self, simulator: MultiverseSimulator, actuator: Actuator
+    ) -> bool:
+        raise NotImplementedError
+
+
 class MujocoEntitySpawner(EntitySpawner, ABC): ...
 
 
@@ -1423,8 +1518,7 @@ class MujocoKinematicStructureEntitySpawner(
             shape, visible=visible, collidable=collidable
         )
         assert shape_props is not None, f"Failed to convert shape {id(shape)}."
-        shape_name = shape_props["name"]
-        del shape_props["name"]
+        shape_name = shape_props.pop("name")
         result = simulator.add_entity(
             entity_name=shape_name,
             entity_type="geom",
@@ -1441,6 +1535,42 @@ class MujocoBodySpawner(MujocoKinematicStructureEntitySpawner, BodySpawner): ...
 
 
 class MujocoRegionSpawner(MujocoKinematicStructureEntitySpawner, RegionSpawner): ...
+
+
+class MujocoActuatorSpawner(MujocoEntitySpawner, ActuatorSpawner):
+    entity_type: ClassVar[Type[MujocoActuator]] = MujocoActuator
+
+    def _spawn_actuator(
+        self, simulator: MultiverseMujocoConnector, actuator: MujocoActuator
+    ) -> bool:
+        actuator_props = MujocoActuatorConverter.convert(actuator)
+        actuator_name = actuator_props.pop("name")
+        dof_names = actuator_props.pop("dof_names")
+        assert len(dof_names) == 1, "Actuator must be associated with exactly one DOF."
+        dof_name = dof_names[0]
+        connection = next(
+            (
+                conn
+                for conn in actuator._world.connections
+                if dof_name in [dof.name.name for dof in conn.dofs]
+            ),
+            None,
+        )
+        assert connection is not None, f"Connection for DOF {dof_name} not found."
+        connection_name = connection.name.name
+        joint_spec = simulator.get_joint(joint_name=connection_name).result
+        assert joint_spec is not None, f"Joint {connection_name} not found."
+        actuator_props["target"] = joint_spec.name
+        actuator_props["trntype"] = mujoco.mjtTrn.mjTRN_JOINT
+        result = simulator.add_entity(
+            entity_name=actuator_name,
+            entity_type="actuator",
+            entity_properties=actuator_props,
+        )
+        return (
+            result.type
+            == MultiverseCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL
+        )
 
 
 @dataclass
@@ -1474,6 +1604,9 @@ class MultiSimSynchronizer(ModelChangeCallback, ABC):
         for modification in self.world._model_manager.model_modification_blocks[-1]:
             if isinstance(modification, AddKinematicStructureEntityModification):
                 entity = modification.kinematic_structure_entity
+                self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
+            elif isinstance(modification, AddActuatorModification):
+                entity = modification.actuator
                 self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
 
     def stop(self):
@@ -1529,6 +1662,7 @@ class MultiSim(ABC):
         headless: bool = False,
         step_size: float = 1e-3,
         real_time_factor: float = 1.0,
+        **kwargs,
     ):
         """
         Initializes the MultiSim class.
@@ -1546,6 +1680,7 @@ class MultiSim(ABC):
             headless=headless,
             step_size=step_size,
             real_time_factor=real_time_factor,
+            **kwargs,
         )
         self.synchronizer = self.synchronizer_class(
             world=world,

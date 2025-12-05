@@ -100,9 +100,7 @@ class KinematicStructureEntityKwargsTracker:
         except KinematicStructureEntityNotInKwargs:
             return False
 
-    def get_kinematic_structure_entity(
-        self, id: UUID
-    ) -> KinematicStructureEntity:
+    def get_kinematic_structure_entity(self, id: UUID) -> KinematicStructureEntity:
         """
         Retrieve a kinematic structure entity by its UUID.
 

@@ -276,15 +276,6 @@ def rclpy_node():
         # Shut down the ROS client library
         rclpy.shutdown()
 
-
-@pytest.fixture(autouse=True, scope="function")
-def cleanup_after_test():
-    # Setup: runs before each test
-    yield
-    # Teardown: runs after each test
-    SymbolGraph().clear()
-
-
 @pytest.fixture()
 def kitchen_world():
     path = os.path.join(

@@ -64,15 +64,21 @@ class ReachMotion(BaseMotion):
             -self.object_designator.get_approach_offset(),
         )
 
-        pose = PoseStamped.from_spatial_type(self.world.transform(target_pre_pose.to_spatial_type(), self.world.root))
+        pose = PoseStamped.from_spatial_type(
+            self.world.transform(target_pre_pose.to_spatial_type(), self.world.root)
+        )
 
         return [target_pre_pose, pose]
 
     def perform(self):
         pose_sequence = self._calculate_pose_sequence()
 
-        MoveTCPMotion(pose_sequence[1], self.arm, allow_gripper_collision=False,
-                      movement_type=self.movement_type).perform()
+        MoveTCPMotion(
+            pose_sequence[1],
+            self.arm,
+            allow_gripper_collision=False,
+            movement_type=self.movement_type,
+        ).perform()
 
     @property
     def _motion_chart(self):
@@ -131,10 +137,19 @@ class MoveGripperMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        gripper_state = JointStateManager().get_gripper_state(self.gripper, self.motion, self.robot_view)
-        return JointPositionList(goal_state=JointState(
-            mapping={self.world.get_connection_by_name(joint_name): joint_position for joint_name, joint_position in
-                     zip(gripper_state.joint_names, gripper_state.joint_positions)}))
+        gripper_state = JointStateManager().get_gripper_state(
+            self.gripper, self.motion, self.robot_view
+        )
+        return JointPositionList(
+            goal_state=JointState(
+                mapping={
+                    self.world.get_connection_by_name(joint_name): joint_position
+                    for joint_name, joint_position in zip(
+                        gripper_state.joint_names, gripper_state.joint_positions
+                    )
+                }
+            )
+        )
 
 
 @dataclass

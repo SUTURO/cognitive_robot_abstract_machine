@@ -227,7 +227,10 @@ class DegreeOfFreedomMapping(AlternativeMapping[DegreeOfFreedom]):
         lower_limits = DerivativeMap(data=self.lower_limits)
         upper_limits = DerivativeMap(data=self.upper_limits)
         return DegreeOfFreedom(
-            name=self.name, lower_limits=lower_limits, upper_limits=upper_limits, id=self.id
+            name=self.name,
+            lower_limits=lower_limits,
+            upper_limits=upper_limits,
+            id=self.id,
         )
 
 

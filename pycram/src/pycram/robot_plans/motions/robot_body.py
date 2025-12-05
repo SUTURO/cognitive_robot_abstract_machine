@@ -62,6 +62,7 @@ class LookingMotion(BaseMotion):
     """
     Lets the robot look at a point
     """
+
     target: PoseStamped
 
     def perform(self):
@@ -73,4 +74,9 @@ class LookingMotion(BaseMotion):
     def _motion_chart(self):
         camera = list(self.robot_view.sensors)[0]
         camera.forward_facing_axis.reference_frame = camera.root
-        return Pointing(root_link=self.robot_view.torso.root, tip_link=camera.root, goal_point=self.target.to_spatial_type().to_position(), pointing_axis=camera.forward_facing_axis)
+        return Pointing(
+            root_link=self.robot_view.torso.root,
+            tip_link=camera.root,
+            goal_point=self.target.to_spatial_type().to_position(),
+            pointing_axis=camera.forward_facing_axis,
+        )

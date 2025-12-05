@@ -12,6 +12,7 @@ from ...has_parameters import HasParameters
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class ActionDescription(DesignatorDescription, HasParameters):
     _pre_perform_callbacks = []

@@ -16,7 +16,6 @@ def test_automatic_lru_clearing():
         def multiplier(self):
             return self.futures[self.current_contract]["multiplier"]
 
-
     CF = LRUCacheTestClass()
     assert CF.multiplier == 1000
 

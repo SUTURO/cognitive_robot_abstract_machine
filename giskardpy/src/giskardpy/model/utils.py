@@ -8,7 +8,9 @@ def robot_name_from_urdf_string(urdf_string):
     return urdf_string.split('robot name="')[1].split('"')[0]
 
 
-def hacky_urdf_parser_fix(urdf: str, blacklist: Tuple[str] = ('transmission', 'gazebo')) -> str:
+def hacky_urdf_parser_fix(
+    urdf: str, blacklist: Tuple[str] = ("transmission", "gazebo")
+) -> str:
     # Parse input string
     root = ET.fromstring(urdf)
 
@@ -21,7 +23,7 @@ def hacky_urdf_parser_fix(urdf: str, blacklist: Tuple[str] = ('transmission', 'g
                 parent.remove(elem)
 
     # Turn back to string
-    return ET.tostring(root, encoding='unicode')
+    return ET.tostring(root, encoding="unicode")
 
 
 def sphere_volume(radius):
@@ -29,7 +31,7 @@ def sphere_volume(radius):
     :type radius: float
     :rtype: float
     """
-    return (4 / 3.) * np.pi * radius ** 3
+    return (4 / 3.0) * np.pi * radius**3
 
 
 def sphere_surface(radius):
@@ -37,7 +39,7 @@ def sphere_surface(radius):
     :type radius: float
     :rtype: float
     """
-    return 4 * np.pi * radius ** 2
+    return 4 * np.pi * radius**2
 
 
 def cube_volume(length, width, height):
@@ -66,7 +68,7 @@ def cylinder_volume(r, h):
     :type h: float
     :rtype: float
     """
-    return np.pi * r ** 2 * h
+    return np.pi * r**2 * h
 
 
 def cylinder_surface(r, h):

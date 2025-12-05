@@ -24,7 +24,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 class GCSTestCase(unittest.TestCase):
     """
-    Testcase to test the navigation around a unit box.
+    Testcase to krrood_test the navigation around a unit box.
     """
 
     gcs: GraphOfConvexSets
@@ -81,7 +81,13 @@ class GCSFromWorldTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         urdf_dir = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "semantic_digital_twin", "resources", "urdf"
+            os.path.dirname(os.path.abspath(__file__)),
+            "..",
+            "..",
+            "..",
+            "semantic_digital_twin",
+            "resources",
+            "urdf",
         )
         apartment = os.path.join(urdf_dir, "table.urdf")
         apartment_parser = URDFParser.from_file(file_path=apartment)
