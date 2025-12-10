@@ -19,6 +19,8 @@ from pycram.robot_plans import MoveTorsoActionDescription, TransportActionDescri
 from pycram.robot_plans import ParkArmsActionDescription
 from pycram.testing import setup_world
 
+from suturo_resources import queries, suturo_map
+
 from pycram.datastructures.dataclasses import Color
 import tempfile
 
@@ -33,6 +35,7 @@ from src.pycram.external_interfaces import nav2_move
 
 #DEBUG
 test_response = ["take", "bowl", "food", "blue", "", "", "me", "kitchen"]
+milestone1_response =["Guide", "", "", "", "", "", "", "living room"]
 
 # positions
 kitchen_placeholder = PoseStamped.from_list([1,1,1], [0,0,0,1])
@@ -42,7 +45,8 @@ living_room_placeholder = PoseStamped.from_list([3.56,4.06,0], [0,0,0,1])
 global object_name_iteration
 
 # --------------------------------------------------------------------------------------
-world = setup_world()
+# world = setup_world()
+world2 = suturo_map.load_environment()
 
 # test objects
 spoon = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "objects", "spoon.stl")).parse()
@@ -98,6 +102,7 @@ def process_response(lst: list[Any]):
                 take_obj_from_plcmt(lst[7], lst[1]),
             # MILESTONE 1
             case "Guide":
+                print("case guide")
                 driveTo(lst[7])
             case _:
                 print("No function for this intent")  # Default case
@@ -169,7 +174,9 @@ def _location_from_string(location: String):
         case "kitchen":
             return kitchen_placeholder
         case "living room":
-            return living_room_placeholder
+            liv_room = queries.query_living_room_area(world2)
+            liv_pose = PoseStamped().from_list(position=liv_room)
+            return liv_pose #living_room_placeholder
         case _:
             exception("unknown location")
             # return PoseStamped.from_list([0,0,0], [0,0,0,1])
@@ -244,9 +251,11 @@ Main execution loop:
         - Processes received NLP responses
 """
 if __name__ == '__main__':
-    rclpy.init()
+    #rclpy.init() # rausgenommen weil das schon in knowledge existiert TODO: testen ob nlp noch klappt
 
-    start_nav(3, 3)
+    process_response(milestone1_response)
+
+    # start_nav(3, 3)
     """
     sleep(3)
 
