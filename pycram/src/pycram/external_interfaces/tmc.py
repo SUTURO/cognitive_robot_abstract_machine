@@ -16,7 +16,7 @@ from tmc_voice_msgs.msg import Voice
 from ..ros.ros2.publisher import create_publisher
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-class TextToSpeechPublisher:
+class TextToSpeechPublisher():
     # Surprise its' initializations
     is_init = False
 
