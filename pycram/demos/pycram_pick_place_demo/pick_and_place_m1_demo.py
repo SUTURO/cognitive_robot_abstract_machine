@@ -11,10 +11,6 @@ from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 
 class NavigatePositions(Enum):
-    START_DOOR = Pose.from_list(
-        position=[0.25574201345443726, 0.009331032633781433, 0.0],
-        orientation=[0.0, 0.0, 0.10044125411469684, 0.9949429905637142],
-    )
     IN_FRONT_DISHWASHER = Pose.from_list(
         position=[2.322282075881958, -1.2466719150543213, 0.0],
         orientation=[0.0, 0.0, -0.6304255522851391, 0.7762497169248935],
@@ -23,22 +19,14 @@ class NavigatePositions(Enum):
         position=[3.325042486190796, 2.6914186477661133, 0.0],
         orientation=[0.0, 0.0, -0.6548372471824481, 0.75576992511115],
     )
-    SOFA_BACK = Pose.from_list(
-        position=[3.390072822570801, 2.5000317096710205, 0.0],
-        orientation=[0.0, 0.0, 0.7573494640106083, 0.6530097927005722],
-    )
     CABINET = Pose.from_list(
         position=[3.8683114051818848, 5.459158897399902, 0.0],
         orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
     )
-    GROCERY_TABLE = Pose.from_list(
-        position=[3.276226282119751, 5.599549770355225, 0.0],
-        orientation=[0.0, 0.0, 0.978813109688997, 0.20475569906831742],
-    )
 
 
 def real_demo():
-    rclpy.init()
+    # rclpy.init()
     text_pub = TextToImagePublisher()
     for pos in NavigatePositions:
         goal = ROSPoseStamped()
@@ -46,7 +34,7 @@ def real_demo():
         goal.pose = pos.value.ros_message()
         text_pub.publish_text(f"Moving to: {pos.name}")
         nav2_move.start_nav_to_pose(goal)
-    rclpy.shutdown()
+    # rclpy.shutdown()
 
 
 real_demo()
