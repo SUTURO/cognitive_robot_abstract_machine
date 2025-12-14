@@ -41,8 +41,7 @@ def robot_in_collision(
 
     body = var(type_=Body, domain=robot._world.bodies_with_enabled_collision)
     possible_collisions_bodies = an(
-        entity(
-            body,
+        entity(body).where(
             and_(
                 not_(contains(robot.bodies, body)),
                 not_(contains(ignore_collision_with, body)),
@@ -73,8 +72,7 @@ def robot_holds_body(robot: AbstractRobot, body: Body) -> bool:
     :return: True if the robot is holding the object, False otherwise
     """
     grippers = an(
-        entity(
-            g := var(ParallelGripper, robot._world.semantic_annotations),
+        entity(g := var(ParallelGripper, robot._world.semantic_annotations)).where(
             g._robot == robot,
         )
     )
@@ -106,8 +104,7 @@ def blocking(
             root._world.state[dof.id].position = state
 
     robot = the(
-        entity(
-            r := var(AbstractRobot, root._world.semantic_annotations),
+        entity(r := var(AbstractRobot, root._world.semantic_annotations)).where(
             contains(r.bodies, tip),
         )
     )

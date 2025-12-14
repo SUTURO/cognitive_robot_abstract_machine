@@ -137,7 +137,9 @@ def test_aggregate_bodies(kitchen_world):
 def test_handle_semantic_annotation_eql(apartment_world):
     body = var(type_=Body, domain=apartment_world.bodies)
     query = an(
-        entity(inference(Handle)(body=body), in_("handle", body.name.name.lower()))
+        entity(inference(Handle)(body=body)).where(
+            in_("handle", body.name.name.lower())
+        )
     )
 
     handles = list(query.evaluate())

@@ -31,7 +31,8 @@ First, let's create a simple world that contains a couple of apples.
 from dataclasses import dataclass
 from typing import List
 
-from krrood.entity_query_language.entity import entity, an, let
+from krrood.entity_query_language.entity import entity, var
+from krrood.entity_query_language.entity_result_processors import an
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.spatial_types import TransformationMatrix

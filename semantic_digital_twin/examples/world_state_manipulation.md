@@ -29,7 +29,8 @@ import threading
 import time
 
 import numpy as np
-from krrood.entity_query_language.entity import the, entity, let, in_
+from krrood.entity_query_language.entity import, entity, var, in_
+from krrood.entity_query_language.entity_result_processors import the
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.spatial_types import TransformationMatrix
@@ -88,7 +89,7 @@ Let's get a reference to the drawer we built above.
 ```{code-cell} ipython3
 drawer = the(
     entity(
-        let(type_=Drawer, domain=world.semantic_annotations),
+        var(type_=Drawer, domain=world.semantic_annotations),
     )
 ).evaluate()
 ```
@@ -131,7 +132,7 @@ Now we can start moving the dresser everywhere and even rotate it.
 ```{code-cell} ipython3
 from semantic_digital_twin.world_description.world_entity import Connection
 
-free_connection = the(entity(connection := let(type_=Connection, domain=world.connections), connection.parent == world.root)).evaluate()
+free_connection = the(entity(connection := var(type_=Connection, domain=world.connections)).where(connection.parent == world.root)).evaluate()
 with world.modify_world():
     free_connection.origin = TransformationMatrix.from_xyz_rpy(1., 1., 0., 0., 0., 0.5 * np.pi)
 rt = RayTracer(world)

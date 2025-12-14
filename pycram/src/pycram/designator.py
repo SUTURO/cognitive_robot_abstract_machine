@@ -255,8 +255,7 @@ class NamedObject(ObjectDesignatorDescription, PartialDesignator):
         """
         for params in self.generate_permutations():
             query = an(
-                entity(
-                    body := var(type_=Body, domain=self.world.bodies),
+                entity(body := var(type_=Body, domain=self.world.bodies)).where(
                     contains(body.name.name, params["names"]),
                 )
             )

@@ -3,7 +3,6 @@ from krrood.entity_query_language.entity import (
     entity,
     contains,
 )
-from krrood.entity_query_language.match import matching, select
 from krrood.entity_query_language.entity_result_processors import the, a
 from semantic_digital_twin.spatial_types import Expression
 

@@ -157,5 +157,7 @@ class Wall(SemanticAnnotation):
     @property
     def doors(self) -> Iterable[Door]:
         door = var(Door, self._world.semantic_annotations)
-        query = an(entity(door), InsideOf(self.body, door.entry_way.region)() > 0.1)
+        query = an(
+            entity(door).where(InsideOf(self.body, door.entry_way.region)() > 0.1)
+        )
         return query.evaluate()

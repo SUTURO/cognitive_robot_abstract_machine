@@ -14,8 +14,7 @@ class TestObjectDesignator(ApartmentWorldTestCase):
     def test_eql_designator(self):
         milk_desig = EQLObjectDesignator(
             an(
-                entity(
-                    obj := var(type_=Body, domain=self.world.bodies),
+                entity(obj := var(type_=Body, domain=self.world.bodies)).where(
                     contains(obj.name.name, "milk"),
                 )
             )
