@@ -4,13 +4,11 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Iterable, Optional, Self
 
-from krrood.entity_query_language.quantify_entity import an
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List
 
 from krrood.entity_query_language.entity import entity, variable
-from krrood.entity_query_language.entity import let
 from krrood.entity_query_language.entity_result_processors import an
 from krrood.ormatic.utils import classproperty
 from .mixins import (
@@ -564,7 +562,7 @@ class Cereal(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Milk(HasRootBody, Food, IsPerceivable):
+class Milk(Food, IsPerceivable):
     """
     A container of milk.
     """
