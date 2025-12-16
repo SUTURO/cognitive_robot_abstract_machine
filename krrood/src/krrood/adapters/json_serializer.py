@@ -7,7 +7,6 @@ from abc import ABC
 from dataclasses import dataclass, field
 from types import NoneType
 
-from casadi import external
 from typing_extensions import Dict, Any, Self, Union, Callable, Type, ClassVar, TypeVar
 
 from ..ormatic.dao import HasGeneric
