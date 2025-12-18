@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import numpy as np
+from numpy.f2py.auxfuncs import throw_error
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from ..base import ActionDescription
@@ -95,6 +96,7 @@ class LookAtAction(ActionDescription):
     ) -> PartialDesignator[Type[LookAtAction]]:
         return PartialDesignator(LookAtAction, target=target)
 
-
 NavigateActionDescription = NavigateAction.description
 LookAtActionDescription = LookAtAction.description
+
+
