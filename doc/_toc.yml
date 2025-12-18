@@ -1,0 +1,29 @@
+# Table of contents
+# Learn more at https://jupyterbook.org/customize/toc.html
+
+format: jb-book
+root: intro
+parts:
+- caption: Entity Query Language
+  chapters:
+    - file: eql/intro
+      sections:
+        - file: eql/example_with_cached_symbols
+        - file: eql/example_with_the
+        - file: eql/example_with_and_or
+        - file: eql/example_with_not
+        - file: eql/example_with_joining_multiple_sources
+        - file: eql/example_with_nested_queries
+        - file: eql/example_with_rule_inference
+        - file: eql/example_with_rule_tree
+        - file: eql/example_with_predicate
+        - file: eql/example_with_predicate_style_query
+        - file: eql/example_with_indexing
+        - file: eql/example_with_flatten
+        - file: eql/example_with_concatenate
+        - file: eql/example_with_for_all
+        - file: eql/eql_for_sql_experts
+- caption: References
+  chapters:
+    - file: autoapi/index
+    - file: bibliography

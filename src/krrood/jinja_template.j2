@@ -1,0 +1,62 @@
+"""
+Auto-generated Python classes from OWL ontology
+Generated using custom converter
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import List, Optional, Union, Any
+
+from entity_query_language.property_descriptor import Thing, PropertyDescriptor
+
+
+# Property descriptor classes (object properties)
+{% for prop_name in properties_order %}
+{% set prop = properties[prop_name] %}
+{% if prop.type == 'ObjectProperty' %}
+@dataclass(frozen=True)
+class {{ prop.descriptor_name }}({{ ', '.join(prop.base_descriptors) }}):
+    {% if prop.label or prop.comment %}
+    """{{ prop.label if prop.label else '' }}{% if prop.label and prop.comment %}\n\n{% endif %}{{ prop.comment if prop.comment else '' }}"""
+    {% else %}
+    ...
+    {% endif %}
+    {% if prop.is_transitive %}
+    transitive = True
+    {% endif %}
+    {# Only emit a typed inverse if the target descriptor is already defined earlier #}
+    {% if prop.inverse_of and prop.inverse_target_is_prior %}
+    # Inverse of {{ prop.inverse_of }}
+    inverse_of = {{ properties[prop.inverse_of].descriptor_name }}
+    {% endif %}
+
+
+{% endif %}
+{% endfor %}
+
+# Generated classes
+{% for cls_name in classes_order %}
+{% set cls = classes[cls_name] %}
+@dataclass(eq=False)
+class {{ cls.name }}({% if cls.name == ontology_base_class_name %}Thing{% elif cls.base_classes %}{{ ', '.join(cls.base_classes) }}{% else %}{{ ontology_base_class_name }}{% endif %}):
+    {% if cls.label or cls.comment %}
+    """{{ cls.label if cls.label else '' }}{% if cls.label and cls.comment %}\n\n{% endif %}{{ cls.comment if cls.comment else '' }}"""
+    {% endif %}
+    {% if cls.declared_properties|length == 0 %}
+    ...
+    {% else %}
+    {% for prop_name in cls.declared_properties %}
+    {% set prop = properties[prop_name] %}
+    {% if prop.label or prop.comment %}    # {{ prop.label if prop.label else '' }}{% if prop.label and prop.comment %} - {% endif %}{{ prop.comment if prop.comment else '' }}
+    {% endif %}
+    {% if prop.type == 'ObjectProperty' %}
+    {{ prop.field_name }}: List[{{ prop.object_range_hint }}] = {{ prop.descriptor_name }}(default_factory=list)
+    {% else %}
+    {{ prop.field_name }}: Optional[{{ prop.data_type_hint_inner }}] = None
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+
+
+{% endfor %}
