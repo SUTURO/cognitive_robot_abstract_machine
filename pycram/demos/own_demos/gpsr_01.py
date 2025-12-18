@@ -21,7 +21,7 @@ from pycram.robot_plans import MoveTorsoActionDescription, TransportActionDescri
 from pycram.robot_plans import ParkArmsActionDescription
 from pycram.testing import setup_world
 
-from suturo_resources import queries_rody as queries, suturo_map_rody as suturo_map
+from suturo_resources import queries, suturo_map
 
 from pycram.datastructures.dataclasses import Color
 import tempfile
@@ -33,7 +33,7 @@ import rclpy
 from std_msgs.msg import String
 from geometry_msgs.msg import Pose, Point, PoseStamped as PoseSta
 import nlp_gpsr
-from src.pycram.external_interfaces import nav2_move
+from pycram.external_interfaces import nav2_move
 
 #DEBUG
 test_response = ["take", "bowl", "food", "blue", "", "", "me", "kitchen"]
