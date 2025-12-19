@@ -1887,12 +1887,14 @@ class World:
         with new_world.modify_world():
             for body in self.bodies:
                 new_body = Body(
-                    visual=body.visual,
-                    collision=body.collision,
+                    # visual=body.visual,
+                    # collision=body.collision.copy_for_world(new_world),
                     name=body.name,
                     id=body.id,
                 )
                 new_world.add_kinematic_structure_entity(new_body)
+                new_body.visual = body.visual.copy_for_world(new_world)
+                new_body.collision = body.collision.copy_for_world(new_world)
             for region in self.regions:
                 new_region = Region(
                     name=region.name,
