@@ -80,10 +80,10 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.semantic_annotations.mixins import (
-    SemanticPositionDescription,
+from semantic_digital_twin.semantic_annotations.position_descriptions import (
     HorizontalSemanticDirection,
     VerticalSemanticDirection,
+    SemanticPositionDescription,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,

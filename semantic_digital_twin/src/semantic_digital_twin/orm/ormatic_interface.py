@@ -23,6 +23,7 @@ import semantic_digital_twin.orm.model
 import semantic_digital_twin.reasoning.predicates
 import semantic_digital_twin.robots.abstract_robot
 import semantic_digital_twin.semantic_annotations.mixins
+import semantic_digital_twin.semantic_annotations.position_descriptions
 import semantic_digital_twin.semantic_annotations.semantic_annotations
 import semantic_digital_twin.world
 import semantic_digital_twin.world_description.connections
@@ -922,7 +923,7 @@ class HasSliderDAO(
 class SemanticPositionDescriptionDAO(
     Base,
     DataAccessObject[
-        semantic_digital_twin.semantic_annotations.mixins.SemanticPositionDescription
+        semantic_digital_twin.semantic_annotations.position_descriptions.SemanticPositionDescription
     ],
 ):
 
@@ -934,12 +935,12 @@ class SemanticPositionDescriptionDAO(
 
     horizontal_direction_chain: Mapped[
         typing.List[
-            semantic_digital_twin.semantic_annotations.mixins.HorizontalSemanticDirection
+            semantic_digital_twin.semantic_annotations.position_descriptions.HorizontalSemanticDirection
         ]
     ] = mapped_column(JSON, nullable=False, use_existing_column=True)
     vertical_direction_chain: Mapped[
         typing.List[
-            semantic_digital_twin.semantic_annotations.mixins.VerticalSemanticDirection
+            semantic_digital_twin.semantic_annotations.position_descriptions.VerticalSemanticDirection
         ]
     ] = mapped_column(JSON, nullable=False, use_existing_column=True)
 

@@ -32,6 +32,8 @@ from semantic_digital_twin.orm.model import *  # type: ignore
 from semantic_digital_twin.reasoning.predicates import ContainsType
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
+)
+from semantic_digital_twin.semantic_annotations.position_descriptions import (
     SemanticDirection,
 )
 from semantic_digital_twin.spatial_computations.forward_kinematics import (
