@@ -26,5 +26,33 @@ class CountAction(ActionDescription):
 @has_parameters
 @dataclass
 class DescribingAction(ActionDescription):
+
+    def queryParser(self, percievedQuery):
+        # depends on data-type
+        raise NotImplementedError("There hasnt been an implementation.")
+
+    def perceiveQuery(self, query):
+        # Here should be a query of perception, for what the object or person is
+        raise NotImplementedError("This feature is not implemented yet")
+
+    def filterByEntity(self, entity, unfilteredQuery : List[str] = "") -> List[str]:
+        raise NotImplementedError("This feature is not implemented yet")
+
+    def perceiveResult(self, entity) -> List[str]:
+        someQuery = ""
+        percievedQuery = self.perceiveQuery(someQuery)              # its just raw percieved data
+        parsedQuery = self.queryParser(percievedQuery)              # Parses the query and creates a better handleable data structure
+        filteredQuery = self.filterByEntity(entity, parsedQuery)    # filters the instances of the entity we are intrested in
+
+        # Here should be the processing of the Parsed query into an arra<
+        resultArray = []        # Later should be replaced with the processing or assigned properly
+        return resultArray
+
     raise NotImplementedError("This feature is not implemented yet")
 
+class GuidingAction(ActionDescription):
+
+    @has_parameters
+    @dataclass
+    def blabla(self):
+        pass

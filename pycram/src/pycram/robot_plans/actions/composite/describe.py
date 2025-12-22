@@ -30,7 +30,9 @@ from ....has_parameters import has_parameters
 from ....language import SequentialPlan
 from ....robot_description import RobotDescription
 from ....robot_plans.actions.base import ActionDescription
+from ....external_interfaces.nav2_move import start_nav_to_pose
 
+import percieving
 
 '''
  If there would be such class it would need parameters for:
@@ -50,30 +52,37 @@ class Describe(ActionDescription):
             - Size
         and then based on the info build a description.
         And talk back
-
-
         '''
 
         raise NotImplementedError("This feature is not implemented yet")
 
-def descriptionBuilder(self)-> str:
-    raise NotImplementedError("This feature is not implemented yet")
-    # Query something to perception and then see if it is sure its the percieved val.
-    # build to be spoken text, thats the return
+    def getCurrentDescribtion(self):
+        raise NotImplementedError("This feature is not implemented yet")
 
-    return "This is still under implementation"
+    def descriptionBuilder(self, entity)-> str:
+        # Query something to perception and then see if it is sure its the percieved val.
+        # build to be spoken text, thats the return
 
-'''
-Describes a Object of class x in place y and talks back to referee.
+        descriptions = self.percieveResult(entity)    # Should return what can be recieved and then filter and use the most important things
+        describtion = self.sentenceBuilder(descriptions)
+        return describtion
 
-    :param Object
-    :param Location, where it is found
+    '''
+    Describes a Object of class x in place y and talks back to referee.
+    
+        :param Object
+        :param Location, where it is found
+    
+    '''
+    def sentenceBuilder(self, describtion : Optional[str]="" )-> str:
+        sentence = ""
 
-'''
-def describe(self):
-    # Navigate2
-    self.descriptionBuilder()
+        if describtion == "":
+            sentence = "There was no description found, for the Object"
+        else:
+            for e in describtion:
+                sentence = sentence + "The object is" + e
+            sentence = sentence + "Those are the attributes of the object"
+        return sentence
 
-
-    raise NotImplementedError("This feature is not implemented yet")
 
