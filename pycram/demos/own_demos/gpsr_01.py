@@ -303,7 +303,7 @@ if __name__ == '__main__':
     node = nlp_gpsr.NLP_GPSR()
     while rclpy.ok():
         object_name_iteration = 0
-
+        wait = True
         resp = node.talk_nlp()
         print("Got response in gpsr_01.py: ", resp)
         process_response(resp)
