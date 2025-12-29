@@ -35,10 +35,10 @@ class DescribingAction(ActionDescription):
         # Here should be a query of perception, for what the object or person is
         raise NotImplementedError("This feature is not implemented yet")
 
-    def filterByEntity(self, entity, unfilteredQuery : List[str] = "") -> List[str]:
+    def filterByEntity(self, entity, unfilteredQuery : list[str] = "") -> list[str]:
         raise NotImplementedError("This feature is not implemented yet")
 
-    def perceiveResult(self, entity) -> List[str]:
+    def perceiveResult(self, entity) -> list[str]:
         someQuery = ""
         percievedQuery = self.perceiveQuery(someQuery)              # its just raw percieved data
         parsedQuery = self.queryParser(percievedQuery)              # Parses the query and creates a better handleable data structure
