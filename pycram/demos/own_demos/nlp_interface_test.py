@@ -1,15 +1,14 @@
-from abc import ABC
 from typing import Any
 
 import rclpy
 
-from nlp_interface import NlpInterface
+from pycram.external_interfaces.nlp_interface import NlpInterface
 
 class NlpInterfaceTest(NlpInterface):
     def __init__(self):
         super().__init__()
 
-    def filter_response(self, response : list[Any]):
+    def filter_response(self, response : list[Any], challenge : str):
         print("heehee")
 
 

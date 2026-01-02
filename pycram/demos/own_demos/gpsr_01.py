@@ -133,20 +133,37 @@ Task: Take an object from a specified location.
 
 """
 def take_obj_from_plcmt(location: String, obj: String):
-    global object_name_iteration
-    object_name_iteration += 1
     if location != "":
-        obj_pose = _location_from_string(location)
-        print(obj_pose)
+        # TODO: if location entity (oder so) == room
+        driveTo(location)
+
+        # TODO: find object
+        # object = findObject(location, obj) -> muss implementiert werden
+        pickup_motion(obj, location)
     else:
-        # TO-DO Ask for location
-        PoseStamped.from_list([0,0,0], [0,0,0,1]) # DEBUG
+        # TODO: find object über semantic annotations und wenn es da nicht ist selber suchen
+        pickup_motion(obj, location)
 
-    # creates object from class
-    finished_object = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", obj.__str__(), obj.__str__() + "spoon.stl")).parse()
-    # TODO einbindung der obj_pose
 
-    print("Finished Object: " + finished_object.__str__())
+def deliver_obj_to_plcmt(location: String, obj: String, person: String):
+    # TODO: check if object is in hand, if not: find and take_obj_from_plcmt
+
+    if person != "":
+        # TODO: find person, get person location, set location=person_location
+        print("Platzhalter")
+
+    driveTo(location)
+
+    if person != "":
+        # TODO: say "Take object from my gripper"
+        print("Platzhalter")
+    else:
+        place_object(location, obj)
+
+def guide(location: String):
+    # TODO: say "Follow me to {location}"
+
+    driveTo(location)
 
 """
 Navigates the robot to a specified location.
@@ -166,6 +183,15 @@ def driveTo(location: String):
 
 
 #----------------------------HELPER METHODS------------------------------------------------------------------
+
+def pickup_motion(obj: String, location: String):
+    NotImplemented()
+    # TODO: implement
+
+def place_object(location: String, obj: String):
+    NotImplemented()
+    # TODO: implement
+
 """
 Converts a location keyword into a PoseStamped placeholder.
 

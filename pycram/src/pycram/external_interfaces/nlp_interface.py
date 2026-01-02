@@ -1,6 +1,7 @@
 import ast
 import json
 import time
+from logging import exception
 from typing import List, Dict, Any
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -8,6 +9,8 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 from abc import ABC, abstractmethod
+
+from sympy import false
 
 from pycram.datastructures.enums import ImageEnum
 
@@ -22,8 +25,9 @@ class NlpInterface(ABC):
     last_output = []
     last_confirmation = []
     timeout : int = 15
+
     def __init__(self):
-        self.node = NLP_Node()
+        self.node = NlpNode()
 
     # TODO: für die anderen Gruppen functions vorschreiben zum Filtern
     @abstractmethod
@@ -34,27 +38,37 @@ class NlpInterface(ABC):
 
         NotImplemented()
 
+    def get_and_check_input(self, tries : int):
+        for i in range(0, tries):
+            self.start_nlp()
+            sleep(2)
+            if self.confirm_last_response():
+                return self.last_output
+
+        return None
 
     # TODO: Funktion, die bereits eine start_nlp/confirm_last_response Schleife erzeugt, nimmt parameter n für die Anzahl versuche entgegen
 
 
     # starts input and saves output to last_output
     def start_nlp(self):
-        self.last_output = NLP_Node.talk_nlp(self.node, timeout=self.timeout)
+        self.last_output = NlpNode.talk_nlp(self.node, timeout=self.timeout)
 
     def confirm_last_response(self):
-        # TODO: replace with talking function
-        for i in range (0, 3):
+        # TODO: replace print with talking function
+        for i in range (0, 10):
             print("Did I understand correctly, you want me to " + self.last_output[0])
-            self.last_confirmation = NLP_Node.talk_nlp(self.node, timeout=self.timeout)
+            self.last_confirmation = NlpNode.talk_nlp(self.node, timeout=self.timeout)
             # TODO: check mit nlp, ob affirm und deny für alle trainingsmodelle (alle challenges) gilt
-            if(self.last_confirmation[1] == "affirm"):
+            if self.last_confirmation[1] == "affirm":
                 return True
-            elif(self.last_confirmation[1] == "deny"):
+            elif self.last_confirmation[1] == "deny":
                 return False
             else:
                 # TODO: put in talking function
                 print("Sorry, I couldn't understand you, let's try again.")
+
+        return false
         
         
 """
@@ -69,7 +83,7 @@ Responsibilities:
 """
 
 
-class NLP_Node(Node):
+class NlpNode(Node):
     def __init__(self):
 
         # rclpy.init()
@@ -222,29 +236,4 @@ class NLP_Node(Node):
         print("speak now: ..................")
 
 
-        # kurze Pause, um sicherzugehen, dass Nachricht verschickt wird
-        # rclpy.spin_once(self.node, timeout_sec=0.5)
 
-
-# ======================================================================
-def main():
-    """
-    Entry point for standalone testing.
-
-    - Initializes ROS2
-    - Instantiates NLP node
-    - Requests NLP input once
-    - Prints parsed result
-    """
-    """
-    rclpy.init()
-    nlp = NLP_Node()
-    response = NLP_Node.talk_nlp(nlp)
-    print("Final response:", response)
-    nlp.destroy_node()
-    rclpy.shutdown()
-    """
-
-
-if __name__ == "__main__":
-    main()
