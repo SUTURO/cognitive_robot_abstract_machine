@@ -21,7 +21,6 @@ from giskardpy.utils.utils import create_path
 if TYPE_CHECKING:
     from giskardpy.motion_statechart.motion_statechart import (
         MotionStatechart,
-        StateHistoryItem,
     )
 
 
@@ -36,7 +35,6 @@ class HistoryGanttChartPlotter:
     """
 
     motion_statechart: MotionStatechart
-    indent_labels: bool = True
 
     def plot_gantt_chart(self, file_name: str) -> None:
         """
@@ -59,14 +57,12 @@ class HistoryGanttChartPlotter:
             return
 
         ordered = self._iter_hierarchy()
-        depths, names, _ = self._build_labels_and_indices(ordered)
 
         last_cycle = max(item.control_cycle for item in history)
-        num_bars = len(names)
+        num_bars = len(self.motion_statechart.history.history[0].life_cycle_state)
         figure_width, figure_height = self._compute_figure_size(num_bars, last_cycle)
 
         plt.figure(figsize=(figure_width, figure_height))
-        ax = plt.gca()
         plt.grid(True, axis="x", zorder=-1)
 
         self._iterate_history_and_draw(ordered_nodes=ordered)
@@ -92,74 +88,20 @@ class HistoryGanttChartPlotter:
             ordered_.extend(sub_list)
         return list(reversed(ordered_))
 
-    def _build_labels_and_indices(
-        self, ordered: List[Tuple[MotionStatechartNode, int]]
-    ) -> tuple[
-        Dict[MotionStatechartNode, int], List[str], Dict[MotionStatechartNode, int]
-    ]:
-        """
-        Build label strings and y-index mapping.
-
-        Labels reflect hierarchy using box-drawing glyphs instead of spaces.
-        """
-        depths: Dict[MotionStatechartNode, int] = {n: d for (n, d, _) in ordered}
-
-        # Build parent->children mapping in traversal order (roots have parent None)
-        parent_children: Dict[
-            MotionStatechartNode | None, List[MotionStatechartNode]
-        ] = {}
-        # Roots: top level nodes in traversal order
-        roots: List[MotionStatechartNode] = []
-        seen_roots: set[MotionStatechartNode] = set()
-        for n, d, _ in ordered:
-            if d == 0 and n.parent_node is None and n not in seen_roots:
-                roots.append(n)
-                seen_roots.add(n)
-        parent_children[None] = roots
-        for n, _, _ in ordered:
-            if isinstance(n, Goal):
-                parent_children[n] = list(n.nodes)
-
-        def is_last_sibling(node: MotionStatechartNode) -> bool:
-            parent = node.parent_node
-            siblings = parent_children.get(parent, [])
-            return siblings and siblings[-1] is node
-
-        def ancestor_chain(node: MotionStatechartNode) -> List[MotionStatechartNode]:
-            chain: List[MotionStatechartNode] = []
-            cur = node.parent_node
-            while cur is not None:
-                chain.append(cur)
-                cur = cur.parent_node
-            return list(reversed(chain))
-
-        def tree_prefix(node: MotionStatechartNode) -> str:
-            if not self.indent_labels or depths[node] == 0:
-                return ""
-            parts: List[str] = []
-            ancestors = ancestor_chain(node)
-            # For all ancestors except the direct parent, draw continuation if that ancestor is not last
-            for anc in ancestors[:-1]:
-                parts.append("│  " if not is_last_sibling(anc) else "   ")
-            # For the direct parent edge, decide branch glyph
-            parts.append("└─ " if is_last_sibling(node) else "├─ ")
-            return "".join(parts)
-
-        def label_for(node: MotionStatechartNode) -> str:
-            base = node.name[:50]
-            return f"{tree_prefix(node)}{base}" if self.indent_labels else base
-
-        nodes = [n for n, _, _ in ordered]
-        names = [label_for(n) for n in nodes]
-        y_index: Dict[MotionStatechartNode, int] = {n: i for i, n in enumerate(nodes)}
-        return depths, names, y_index
-
     def _compute_figure_size(
         self, num_bars: int, last_cycle: int
     ) -> tuple[float, float]:
         figure_height = 0.7 + num_bars * 0.25
         figure_width = max(4.0, 0.5 * float(last_cycle + 1))
         return figure_width, figure_height
+
+    def _iterate_history_and_draw(
+        self,
+        ordered_nodes: List[Tuple[MotionStatechartNode, int, bool]],
+    ) -> None:
+        for node_idx, (node, idx, final) in enumerate(ordered_nodes):
+            self._plot_lifecycle_bar(node=node, node_idx=node_idx)
+            self._plot_observation_bar(node=node, node_idx=node_idx)
 
     def _plot_lifecycle_bar(
         self,
@@ -243,14 +185,6 @@ class HistoryGanttChartPlotter:
             color=color,
             zorder=2,
         )
-
-    def _iterate_history_and_draw(
-        self,
-        ordered_nodes: List[Tuple[MotionStatechartNode, int, bool]],
-    ) -> None:
-        for node_idx, (node, idx, final) in enumerate(ordered_nodes):
-            self._plot_lifecycle_bar(node=node, node_idx=node_idx)
-            self._plot_observation_bar(node=node, node_idx=node_idx)
 
     def _format_axes(
         self,
