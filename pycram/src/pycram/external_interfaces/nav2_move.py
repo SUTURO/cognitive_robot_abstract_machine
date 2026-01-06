@@ -13,6 +13,9 @@ from geometry_msgs.msg import PoseStamped
 
 from pycram.ros import create_action_client
 
+from pycram.tf_transformations import quaternion_from_euler, quaternion_multiply
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # Global variables for shared resources
@@ -188,3 +191,39 @@ def shutdown_nav_interface():
 
     is_init = False
     logger.info("Navigation interface shut down")
+
+
+def change_orientation(start_pose: PoseStamped) -> PoseStamped:
+    """
+    Rotate a pose by 180 degrees around the z-axis using quaternion multiplication.
+
+    This is a pure mathematical function that does not require Nav2 initialization.
+    It works in unknown environments without a loaded world model.
+
+    :param start_pose: The pose to rotate around (geometry_msgs.msg.PoseStamped).
+    :return: A new pose with the same position but rotated 180 degrees.
+    """
+    quat_orientation = (
+        start_pose.pose.orientation.x,
+        start_pose.pose.orientation.y,
+        start_pose.pose.orientation.z,
+        start_pose.pose.orientation.w,
+    )
+
+    # 180-degree rotation around z-axis
+    quat_add = quaternion_from_euler(0.0, 0.0, np.pi)
+    q_new = quaternion_multiply(quat_orientation, quat_add)
+
+    new_pose = PoseStamped()
+    new_pose.header = start_pose.header
+    new_pose.pose.position = start_pose.pose.position
+    new_pose.pose.orientation.x = q_new[0]
+    new_pose.pose.orientation.y = q_new[1]
+    new_pose.pose.orientation.z = q_new[2]
+    new_pose.pose.orientation.w = q_new[3]
+
+    logger.info(
+        f"Rotated pose 180 degrees: original quat={quat_orientation}, new quat={tuple(q_new)}"
+    )
+
+    return new_pose
