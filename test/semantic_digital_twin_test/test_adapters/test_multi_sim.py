@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import unittest
@@ -8,7 +9,9 @@ import numpy
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import ParsingError
-from semantic_digital_twin.spatial_types.spatial_types import TransformationMatrix
+from semantic_digital_twin.spatial_types.spatial_types import (
+    HomogeneousTransformationMatrix,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     Connection6DoF,
@@ -46,12 +49,21 @@ mjcf_dir = os.path.join(
     "resources",
     "mjcf",
 )
-# headless = os.environ.get("CI", "false").lower() == "true"
-headless = True
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG)
+headless = os.environ.get("CI", "false").lower() == "true"
+# headless = True
+only_run_test_in_CI = os.environ.get("CI", "false").lower() == "false"
 
 
-@unittest.skipIf(not multi_sim_found, "multisim could not be imported.")
-class MultiverseMujocoConnectorTestCase(unittest.TestCase):
+@unittest.skipIf(
+    only_run_test_in_CI or not multi_sim_found,
+    "Only run test in CI or multisim could not be imported.",
+)
+class MujocoSimReadWriteTestCase(unittest.TestCase):
     file_path = os.path.normpath(os.path.join(mjcf_dir, "mjx_single_cube_no_mesh.xml"))
     Simulator = MultiverseMujocoConnector
     step_size = 5e-4
@@ -212,18 +224,25 @@ class MultiverseMujocoConnectorTestCase(unittest.TestCase):
         self.assertIs(simulator.state, MultiverseSimulatorState.STOPPED)
 
 
-@unittest.skipIf(not multi_sim_found, "multisim could not be imported.")
+@unittest.skipIf(
+    only_run_test_in_CI or not multi_sim_found,
+    "Only run test in CI or multisim could not be imported.",
+)
 class MujocoSimTestCase(unittest.TestCase):
     test_urdf_1 = os.path.normpath(os.path.join(urdf_dir, "simple_two_arm_robot.urdf"))
     test_urdf_2 = os.path.normpath(os.path.join(urdf_dir, "hsrb.urdf"))
-    test_mjcf = os.path.normpath(os.path.join(mjcf_dir, "mjx_single_cube_no_mesh.xml"))
+    test_mjcf_1 = os.path.normpath(
+        os.path.join(mjcf_dir, "mjx_single_cube_no_mesh.xml")
+    )
+    test_mjcf_2 = os.path.normpath(os.path.join(mjcf_dir, "jeroen_cups.xml"))
     step_size = 1e-3
 
     def setUp(self):
         self.test_urdf_1_world = URDFParser.from_file(
             file_path=self.test_urdf_1
         ).parse()
-        self.test_mjcf_world = MJCFParser(self.test_mjcf).parse()
+        self.test_mjcf_1_world = MJCFParser(self.test_mjcf_1).parse()
+        self.test_mjcf_2_world = MJCFParser(self.test_mjcf_2).parse()
 
     def test_empty_multi_sim_in_5s(self):
         world = World()
@@ -287,9 +306,9 @@ class MujocoSimTestCase(unittest.TestCase):
         multi_sim.start_simulation()
         time.sleep(1.0)
 
-        current_time = time.time()
+        start_time = time.time()
         new_body = Body(name=PrefixedName("test_body"))
-        box_origin = TransformationMatrix.from_xyz_rpy(
+        box_origin = HomogeneousTransformationMatrix.from_xyz_rpy(
             x=0.2, y=0.4, z=-0.3, roll=0, pitch=0.5, yaw=0, reference_frame=new_body
         )
         box = Box(
@@ -304,6 +323,7 @@ class MujocoSimTestCase(unittest.TestCase):
         )
         new_body.collision = ShapeCollection([box], reference_frame=new_body)
 
+        logger.debug(f"Time before adding new body: {time.time() - start_time}s")
         with self.test_urdf_1_world.modify_world():
             self.test_urdf_1_world.add_connection(
                 Connection6DoF.create_with_dofs(
@@ -312,18 +332,17 @@ class MujocoSimTestCase(unittest.TestCase):
                     child=new_body,
                 )
             )
-        print(f"Time to add new body: {time.time() - current_time}s")
+        logger.debug(f"Time after adding new body: {time.time() - start_time}s")
         self.assertIn(
             new_body.name.name, multi_sim.simulator.get_all_body_names().result
         )
 
         time.sleep(0.5)
 
-        current_time = time.time()
         region = Region(name=PrefixedName("test_region"))
         region_box = Box(
             scale=Scale(0.1, 0.5, 0.2),
-            origin=TransformationMatrix.from_xyz_rpy(reference_frame=region),
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=region),
             color=Color(
                 0.0,
                 1.0,
@@ -333,17 +352,18 @@ class MujocoSimTestCase(unittest.TestCase):
         )
         region.area = ShapeCollection([region_box], reference_frame=region)
 
+        logger.debug(f"Time before add adding region: {time.time() - start_time}s")
         with self.test_urdf_1_world.modify_world():
             self.test_urdf_1_world.add_connection(
                 FixedConnection(
                     parent=self.test_urdf_1_world.root,
                     child=region,
-                    parent_T_connection_expression=TransformationMatrix.from_xyz_rpy(
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                         z=0.5
                     ),
                 )
             )
-        print(f"Time to add new region: {time.time() - current_time}s")
+        logger.debug(f"Time after add adding region: {time.time() - start_time}s")
         self.assertIn(region.name.name, multi_sim.simulator.get_all_body_names().result)
 
         time.sleep(0.5)
@@ -363,10 +383,10 @@ class MujocoSimTestCase(unittest.TestCase):
         dof = self.test_urdf_1_world.get_degree_of_freedom_by_name(name="r_joint_1")
         actuator.add_dof(dof=dof)
 
-        current_time = time.time()
+        logger.debug(f"Time before adding new actuator: {time.time() - start_time}s")
         with self.test_urdf_1_world.modify_world():
             self.test_urdf_1_world.add_actuator(actuator=actuator)
-        print(f"Time to add new actuator: {time.time() - current_time}s")
+        logger.debug(f"Time after adding new actuator: {time.time() - start_time}s")
         self.assertIn(
             actuator.name.name, multi_sim.simulator.get_all_actuator_names().result
         )
@@ -378,7 +398,7 @@ class MujocoSimTestCase(unittest.TestCase):
     def test_multi_sim_in_5s(self):
         viewer = MultiverseViewer()
         multi_sim = MujocoSim(
-            world=self.test_mjcf_world,
+            world=self.test_mjcf_1_world,
             viewer=viewer,
             headless=headless,
             step_size=self.step_size,
@@ -409,7 +429,7 @@ class MujocoSimTestCase(unittest.TestCase):
         }
         viewer = MultiverseViewer(read_objects=read_objects)
         multi_sim = MujocoSim(
-            world=self.test_mjcf_world,
+            world=self.test_mjcf_1_world,
             viewer=viewer,
             headless=headless,
             step_size=self.step_size,
@@ -420,7 +440,7 @@ class MujocoSimTestCase(unittest.TestCase):
         multi_sim.start_simulation()
         start_time = time.time()
         for _ in range(5):
-            print(
+            logger.debug(
                 f"Time: {multi_sim.simulator.current_simulation_time} - Objects: {multi_sim.get_read_objects()}"
             )
             time.sleep(1)
@@ -431,7 +451,7 @@ class MujocoSimTestCase(unittest.TestCase):
         write_objects = {"box": {"position": [0.0, 0.0, 0.0]}}
         viewer = MultiverseViewer(write_objects=write_objects)
         multi_sim = MujocoSim(
-            world=self.test_mjcf_world,
+            world=self.test_mjcf_1_world,
             viewer=viewer,
             headless=headless,
             step_size=self.step_size,
@@ -462,7 +482,7 @@ class MujocoSimTestCase(unittest.TestCase):
         }
         viewer = MultiverseViewer()
         multi_sim = MujocoSim(
-            world=self.test_mjcf_world,
+            world=self.test_mjcf_1_world,
             viewer=viewer,
             headless=headless,
             step_size=self.step_size,
@@ -497,7 +517,7 @@ class MujocoSimTestCase(unittest.TestCase):
         }
         viewer = MultiverseViewer()
         multi_sim = MujocoSim(
-            world=self.test_mjcf_world,
+            world=self.test_mjcf_1_world,
             viewer=viewer,
             headless=headless,
             step_size=self.step_size,
@@ -511,7 +531,7 @@ class MujocoSimTestCase(unittest.TestCase):
             [[1.0, 1.0, 0.02], [0.5, 0.5, 0.5, 0.5]],
             [[0.0, 1.0, 0.03], [0.0, 0.707, 0.707, 0.0]],
         ]
-        fail_count = 0
+        stable_fail_count = 0
         for _ in range(100):
             for stable_box_pose in stable_box_poses:
                 write_objects["box"]["position"] = stable_box_pose[0]
@@ -521,10 +541,9 @@ class MujocoSimTestCase(unittest.TestCase):
                 multi_sim.set_write_objects(write_objects={})
                 multi_sim.unpause_simulation()
 
-                fail_count += not multi_sim.is_stable(
+                stable_fail_count += not multi_sim.is_stable(
                     body_names=["box"], max_simulation_steps=1000, atol=1e-3
                 )
-        self.assertLess(fail_count, 10)  # Allow less than 10% failure
 
         unstable_box_poses = [
             [[0.0, 0.0, 1.03], [1.0, 0.0, 0.0, 0.0]],
@@ -533,7 +552,7 @@ class MujocoSimTestCase(unittest.TestCase):
             [[0.0, 1.0, 1.03], [0.0, 0.707, 0.707, 0.0]],
             [[0.0, 0.0, 1.03], [1.0, 0.0, 0.0, 0.0]],
         ]
-        fail_count = 0
+        unstable_fail_count = 0
         for _ in range(100):
             for unstable_box_pose in unstable_box_poses:
                 write_objects["box"]["position"] = unstable_box_pose[0]
@@ -542,12 +561,29 @@ class MujocoSimTestCase(unittest.TestCase):
                 multi_sim.set_write_objects(write_objects=write_objects)
                 multi_sim.set_write_objects(write_objects={})
                 multi_sim.unpause_simulation()
-                fail_count += multi_sim.is_stable(
+                unstable_fail_count += multi_sim.is_stable(
                     body_names=["box"], max_simulation_steps=1000, atol=1e-3
                 )
-        self.assertLess(fail_count, 10)  # Allow less than 10% failure
-
         multi_sim.stop_simulation()
+        self.assertLess(stable_fail_count, 10)  # Allow less than 10% failure
+        self.assertLess(unstable_fail_count, 10)  # Allow less than 10% failure
+
+    def test_mesh_scale_and_equality(self):
+        viewer = MultiverseViewer()
+        multi_sim = MujocoSim(
+            world=self.test_mjcf_2_world,
+            viewer=viewer,
+            headless=headless,
+            step_size=self.step_size,
+        )
+        self.assertIsInstance(multi_sim.simulator, MultiverseMujocoConnector)
+        self.assertIs(multi_sim.simulator.headless, headless)
+        self.assertEqual(multi_sim.simulator.step_size, self.step_size)
+        multi_sim.start_simulation()
+        start_time = time.time()
+        time.sleep(5.0)
+        multi_sim.stop_simulation()
+        self.assertGreaterEqual(time.time() - start_time, 5.0)
 
 
 if __name__ == "__main__":
