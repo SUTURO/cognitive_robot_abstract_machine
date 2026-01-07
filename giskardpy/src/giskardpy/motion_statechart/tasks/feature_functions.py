@@ -166,7 +166,7 @@ class AlignPerpendicular(FeatureFunctionGoal):
             task_expression=expr,
             name=f"{self.name}_constraint",
         )
-        artifacts.observation = sm.abs(expr) < self.threshold
+        artifacts.observation = sm.abs(0 - expr) < self.threshold
         return artifacts
 
 
