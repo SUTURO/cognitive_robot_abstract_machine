@@ -1,12 +1,10 @@
 from typing import Any
 
 import rclpy
-from debian.debtags import output
 
 from pycram.external_interfaces.nlp_interface import NlpInterface
 
-class NlpInterfaceTest(NlpInterface):
-
+class NlpInterfaceGPSR(NlpInterface):
     def __init__(self):
         super().__init__()
 
@@ -15,8 +13,9 @@ class NlpInterfaceTest(NlpInterface):
 
 
 def main():
-    nlp = NlpInterfaceTest()
-    nlp.input_confirmation_loop(2)
+    nlp = NlpInterfaceGPSR()
+    nlp.start_nlp()
+    print(nlp.confirm_last_response().__str__())
 
 if __name__ == "__main__":
     rclpy.init()
