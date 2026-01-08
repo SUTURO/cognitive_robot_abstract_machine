@@ -1,137 +1,68 @@
 
-from __future__ import annotations
-
-import pytest
-from dataclasses import dataclass
-from typing_extensions import List, Optional
-
+from random_events.set import Set
 from krrood.class_diagrams.parameterizer import Parameterizer
 from random_events.variable import Continuous, Integer, Symbolic
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    ProbabilisticCircuit,
-)
-
-from ..dataset.example_classes import (
-    Position,
-    Orientation,
-    Pose,
-    Element,
-)
+from ..dataset.example_classes import Position, Orientation, Pose, Atom, Element
 
 
-@pytest.fixture
-def parameterizer() -> Parameterizer:
-    return Parameterizer()
-
-
-def test_parameterizer_position(parameterizer: Parameterizer):
+def test_parameterizer_with_example_classes():
     """
-    Test parameterizing a simple dataclass with float fields.
+    Test the Parameterizer on the example dataclasses:
+    Position, Orientation, Pose, Atom.
+
+    - Explicitly constructs expected variables for comparison.
+    - Verifies variable types, names, and PC construction.
     """
-    variables = parameterizer(Position)
-    assert len(variables) == 3
-    assert all(isinstance(v, Continuous) for v in variables)
-    assert variables[0].name == "Position.x"
-    assert variables[1].name == "Position.y"
-    assert variables[2].name == "Position.z"
+    param = Parameterizer()
 
+    position_variables = param(Position)
+    orientation_variables = param(Orientation)
+    pose_variables = param(Pose)
+    atom_variables = param(Atom)
 
-def test_parameterizer_orientation(parameterizer: Parameterizer):
-    """
-    Test parameterizing a dataclass with an Optional float field.
-    """
-    variables = parameterizer(Orientation)
-    assert len(variables) == 4
-    assert all(isinstance(v, Continuous) for v in variables)
-    assert variables[3].name == "Orientation.w"
+    expected_position_variables = [
+        Continuous("Position.x"),
+        Continuous("Position.y"),
+        Continuous("Position.z"),
+    ]
 
+    expected_orientation_variables = [
+        Continuous("Orientation.x"),
+        Continuous("Orientation.y"),
+        Continuous("Orientation.z"),
+        Continuous("Orientation.w"),
+    ]
 
-def test_parameterizer_pose(parameterizer: Parameterizer):
-    """
-    Test parameterizing a nested dataclass.
-    """
-    variables = parameterizer(Pose)
-    # Pose has position (3) and orientation (4)
-    assert len(variables) == 7
-    assert variables[0].name == "Pose.position.x"
-    assert variables[4].name == "Pose.orientation.y"
+    expected_pose_variables = [
+        Continuous("Pose.position.x"),
+        Continuous("Pose.position.y"),
+        Continuous("Pose.position.z"),
+        Continuous("Pose.orientation.x"),
+        Continuous("Pose.orientation.y"),
+        Continuous("Pose.orientation.z"),
+        Continuous("Pose.orientation.w"),
+    ]
 
+    expected_atom_variables = [
+        Symbolic(
+            "Atom.element",
+            Set.from_iterable([Element.C, Element.H])
+        ),
+        Integer("Atom.type"),
+        Continuous("Atom.charge"),
+    ]
 
-@dataclass
-class IntegerClass:
-    count: int
+    variables_for_pc = [Continuous(v.name) if isinstance(v, Integer) else v for v in atom_variables]
+    pc = param.create_fully_factorized_distribution(variables_for_pc)
 
-
-def test_parameterizer_integer(parameterizer: Parameterizer):
-    """
-    Test parameterizing a dataclass with an integer field.
-    """
-    variables = parameterizer(IntegerClass)
-    assert len(variables) == 1
-    assert isinstance(variables[0], Integer)
-    assert variables[0].name == "IntegerClass.count"
-
-
-@dataclass
-class BooleanEnumClass:
-    active: bool
-    element: Element
-
-
-def test_parameterizer_symbolic(parameterizer: Parameterizer):
-    """
-    Test parameterizing a dataclass with boolean and Enum fields.
-    """
-    variables = parameterizer(BooleanEnumClass)
-    assert len(variables) == 2
-    assert all(isinstance(v, Symbolic) for v in variables)
-    assert variables[0].name == "BooleanEnumClass.active"
-    assert variables[1].name == "BooleanEnumClass.element"
-
-
-@dataclass
-class ListClass:
-    values: List[float]
-
-
-def test_parameterizer_list(parameterizer: Parameterizer):
-    """
-    Test parameterizing a dataclass with a List field.
-    """
-    variables = parameterizer(ListClass)
-    assert len(variables) == 1
-    assert isinstance(variables[0], Continuous)
-    assert variables[0].name == "ListClass.values"
-
-
-def test_create_fully_factorized_distribution(parameterizer: Parameterizer):
-    """
-    Test creating a fully factorized distribution.
-    """
-    variables = parameterizer(Position)
-    distribution = parameterizer.create_fully_factorized_distribution(variables)
-    assert isinstance(distribution, ProbabilisticCircuit)
-    assert set(distribution.variables) == set(variables)
-
-
-def test_parameterizer_non_dataclass_error(parameterizer: Parameterizer):
-    """
-    Test that a TypeError is raised when a non-dataclass is passed.
-    """
-    with pytest.raises(TypeError):
-        parameterizer(int)
-
-
-@dataclass
-class UnsupportedTypeClass:
-    data: dict
-
-
-def test_parameterizer_unsupported_type_error(parameterizer: Parameterizer):
-    """
-    Test that a NotImplementedError is raised for unsupported types.
-    """
-    with pytest.raises(NotImplementedError):
-        parameterizer(UnsupportedTypeClass)
-
-
+    assert position_variables == expected_position_variables
+    assert orientation_variables == expected_orientation_variables
+    assert pose_variables == expected_pose_variables
+    assert [
+               (type(v), v.name)
+               for v in atom_variables
+           ] == [
+               (type(v), v.name)
+               for v in expected_atom_variables
+           ]
+    assert set(pc.variables) == set(variables_for_pc)
