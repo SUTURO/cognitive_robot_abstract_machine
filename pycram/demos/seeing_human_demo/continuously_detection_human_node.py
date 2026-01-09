@@ -35,8 +35,10 @@ class CONTINUOUS_HUMAN_DETECTION(Node):
 def main():
     """Testing"""
     rclpy.init()
+    robokudo.send_query("human")
     chd = CONTINUOUS_HUMAN_DETECTION()
     sleep(10)
     robokudo.cancel_goal()
     chd.destroy_node()
+    robokudo.shutdown_robokudo_interface()
     rclpy.shutdown()
