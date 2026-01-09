@@ -173,6 +173,29 @@ def query_waving_human() -> PoseStamped:
     return None
 
 
+@init_robokudo_interface
+def cancel_goal():
+    """Sends a cancel request for the active goal."""
+    if not current_goal_handle:
+        logger.error("No active goal to cancel.")
+        return
+
+    logger.info("Sending cancel request...")
+    cancel_future = current_goal_handle.cancel_goal_async()
+    cancel_future.add_done_callback(cancel_done_callback)
+
+
+def cancel_done_callback(future):
+    """Handles the response from the action server regarding goal cancellation."""
+    cancel_response = future.result()
+    if len(cancel_response.goals_canceling) > 0:
+        logger.info("Goal cancellation accepted by the server.")
+    else:
+        logger.warning("Goal cancellation was not successful.")
+    # self.done = True
+    logger.info("Shutting down after cancellation is accepted.")
+
+
 def shutdown_robokudo_interface():
     """Clean shutdown of perception interface."""
 
