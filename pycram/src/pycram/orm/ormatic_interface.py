@@ -5356,7 +5356,7 @@ class FloorDAO(
 class HasCaseAsMainBodyDAO(
     HasSupportingSurfaceDAO,
     DataAccessObject[
-        semantic_digital_twin.semantic_annotations.mixins.HasCaseAsMainBody
+        semantic_digital_twin.semantic_annotations.mixins.HasCaseAsRootBody
     ],
 ):
 

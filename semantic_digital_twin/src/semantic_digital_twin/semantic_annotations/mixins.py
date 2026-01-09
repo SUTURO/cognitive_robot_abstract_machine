@@ -15,7 +15,6 @@ from typing_extensions import (
     Optional,
     Self,
     Iterable,
-    Tuple,
     Type,
 )
 
@@ -32,7 +31,7 @@ from ..world_description.connections import (
     PrismaticConnection,
     ActiveConnection1DOF,
 )
-from ..world_description.degree_of_freedom import DegreeOfFreedomLimits
+from ..world_description.degree_of_freedom import DegreeOfFreedomLimits, DegreeOfFreedom
 from ..world_description.geometry import Scale
 from ..world_description.shape_collection import BoundingBoxCollection
 from ..world_description.world_entity import (
@@ -77,6 +76,10 @@ class HasRootBody(SemanticAnnotation, ABC):
 
     body: Body = field(kw_only=True)
 
+    @classproperty
+    @abstractmethod
+    def _parent_connection_type(self) -> Type[Connection]: ...
+
     @property
     def bodies(self) -> Iterable[Body]:
         return [self.body]
@@ -86,8 +89,11 @@ class HasRootBody(SemanticAnnotation, ABC):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         **kwargs,
     ) -> Self:
         """
@@ -98,34 +104,103 @@ class HasRootBody(SemanticAnnotation, ABC):
 
         An example of this can be seen in HasCase.create_with_new_body_in_world.
         """
-        slider_body = Body(name=name)
+        body = Body(name=name)
 
-        return cls._create_with_fixed_connection_in_world(
-            name, world, slider_body, parent, parent_T_self
+        return cls._create_with_connection_in_world(
+            connection_type=cls._parent_connection_type,
+            name=name,
+            world=world,
+            body=body,
+            world_root_T_self=world_root_T_self,
+            connection_multiplier=connection_multiplier,
+            connection_offset=connection_offset,
+            active_axis=active_axis,
+            connection_limits=connection_limits,
         )
 
     @classmethod
-    def _create_with_fixed_connection_in_world(
-        cls, name, world, body, parent, parent_T_self
+    def _create_with_connection_in_world(
+        cls,
+        connection_type: Type[Connection],
+        name: PrefixedName,
+        world: World,
+        body: Body,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
     ):
+        if connection_type is None:
+            raise ValueError(
+                f"connection_type must not be None. You probably forgot to set the class variable "
+                f"_parent_connection_type for class {cls.__name__}."
+            )
+
         self_instance = cls(name=name, body=body)
-        parent_T_self = (
-            parent_T_self
-            if parent_T_self is not None
+        world_root_T_self = (
+            world_root_T_self
+            if world_root_T_self is not None
             else HomogeneousTransformationMatrix()
         )
 
         with world.modify_world():
             world.add_semantic_annotation(self_instance)
             world.add_kinematic_structure_entity(body)
-            parent_C_self = FixedConnection(
-                parent=parent,
-                child=body,
-                parent_T_connection_expression=parent_T_self,
-            )
-            world.add_connection(parent_C_self)
+            if issubclass(connection_type, ActiveConnection1DOF):
+                limits = connection_limits or cls._generate_default_dof_limits(
+                    connection_type
+                )
+                if limits.lower_limit.position >= limits.upper_limit.position:
+                    raise ValueError(
+                        f"Lower limit for {name} must be strictly less than upper limit."
+                    )
+                dof = DegreeOfFreedom(
+                    name=PrefixedName("dof", str(name)),
+                    upper_limits=limits.upper_limit,
+                    lower_limits=limits.lower_limit,
+                )
+                world.add_degree_of_freedom(dof)
+                world_root_C_self = cls._parent_connection_type(
+                    parent=world.root,
+                    child=body,
+                    parent_T_connection_expression=world_root_T_self,
+                    multiplier=connection_multiplier,
+                    offset=connection_offset,
+                    axis=active_axis,
+                    dof_id=dof.id,
+                )
+            elif connection_type == FixedConnection:
+                world_root_C_self = FixedConnection(
+                    parent=world.root,
+                    child=body,
+                    parent_T_connection_expression=world_root_T_self,
+                )
+            else:
+                raise ValueError(f"Invalid connection type: {connection_type}")
+            world.add_connection(world_root_C_self)
 
         return self_instance
+
+    @classmethod
+    def _generate_default_dof_limits(
+        cls, active_connection_type: Type[ActiveConnection1DOF]
+    ) -> DegreeOfFreedomLimits:
+        """ """
+        lower_limits = DerivativeMap[float]()
+        upper_limits = DerivativeMap[float]()
+        if active_connection_type == PrismaticConnection:
+            lower_limits.position = -np.inf
+            upper_limits.position = np.inf
+        elif active_connection_type == RevoluteConnection:
+            lower_limits.position = -2 * np.pi
+            upper_limits.position = 2 * np.pi
+        else:
+            raise ValueError(
+                f"Invalid active connection type: {active_connection_type}"
+            )
+
+        return DegreeOfFreedomLimits(lower_limit=lower_limits, upper_limit=upper_limits)
 
 
 @dataclass(eq=False)
@@ -141,53 +216,40 @@ class HasRootRegion(SemanticAnnotation, ABC):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
         **kwargs,
     ) -> Self:
         """
         Create a new semantic annotation with a new region in the given world.
         """
-        slider_body = Region(name=name)
+        body = Region(name=name)
 
         return cls._create_with_fixed_connection_in_world(
-            name, world, slider_body, parent, parent_T_self
+            name, world, body, world_root_T_self
         )
 
     @classmethod
     def _create_with_fixed_connection_in_world(
-        cls, name, world, region, parent, parent_T_self
+        cls, name, world, region, world_root_T_self
     ):
         self_instance = cls(name=name, region=region)
-        parent_T_self = (
-            parent_T_self
-            if parent_T_self is not None
+        world_root_T_self = (
+            world_root_T_self
+            if world_root_T_self is not None
             else HomogeneousTransformationMatrix()
         )
 
         with world.modify_world():
             world.add_semantic_annotation(self_instance)
             world.add_kinematic_structure_entity(region)
-            parent_C_self = FixedConnection(
-                parent=parent,
+            world_root_C_self = FixedConnection(
+                parent=world.root,
                 child=region,
-                parent_T_connection_expression=parent_T_self,
+                parent_T_connection_expression=world_root_T_self,
             )
-            world.add_connection(parent_C_self)
+            world.add_connection(world_root_C_self)
 
         return self_instance
-
-
-@dataclass(eq=False)
-class HasActiveConnection(ABC): ...
-
-
-@dataclass(eq=False)
-class HasPrismaticConnection(HasActiveConnection): ...
-
-
-@dataclass(eq=False)
-class HasRevoluteConnection(HasActiveConnection): ...
 
 
 @dataclass(eq=False)
@@ -200,6 +262,15 @@ class SemanticAssociation(ABC):
         return (
             parent_kinematic_structure_entity.global_pose.inverse()
             @ self.body.global_pose
+        )
+
+    def get_self_T_new_child(
+        self: HasRootBody | Self,
+        child_kinematic_structure_entity: KinematicStructureEntity,
+    ) -> HomogeneousTransformationMatrix:
+        return (
+            self.body.global_pose.inverse()
+            @ child_kinematic_structure_entity.global_pose
         )
 
     def get_new_grandparent(
@@ -216,32 +287,19 @@ class SemanticAssociation(ABC):
         )
         return new_hinge_parent
 
-    def get_self_T_new_child(
-        self: HasRootBody | Self,
-        child_kinematic_structure_entity: KinematicStructureEntity,
-    ) -> HomogeneousTransformationMatrix:
-        return (
-            self.body.global_pose.inverse()
-            @ child_kinematic_structure_entity.global_pose
-        )
-
     def _attach_parent_entity_in_kinematic_structure(
         self: HasRootBody | Self,
         new_parent_entity: KinematicStructureEntity,
-        connection_type: Type[ActiveConnection1DOF],
-        connection_limits: Optional[DegreeOfFreedomLimits] = None,
-        active_axis: Vector3 = Vector3.Z(),
-        connection_multiplier: float = 1.0,
-        connection_offset: float = 0.0,
     ):
         if new_parent_entity._world != self._world:
             raise ValueError(
                 "Semantic annotation must be part of the same world as the parent."
             )
+        if new_parent_entity == self.body.parent_kinematic_structure_entity:
+            return
 
         world = self._world
         new_parent_T_self = self.get_new_parent_T_self(new_parent_entity)
-        new_grandparent = self.get_new_grandparent(new_parent_entity)
 
         with world.modify_world():
             parent_C_self = self.body.parent_connection
@@ -253,45 +311,16 @@ class SemanticAssociation(ABC):
                 parent_T_connection_expression=new_parent_T_self,
             )
             world.add_connection(new_parent_C_self)
-            new_grandparent_T_new_parent = world._forward_kinematic_manager.compute(
-                new_grandparent, new_parent_entity
-            )
-
-            new_grandparent_C_new_parent = new_parent_entity.parent_connection
-            if isinstance(new_grandparent_C_new_parent, connection_type):
-                return
-
-            world.remove_connection(new_grandparent_C_new_parent)
-            if issubclass(connection_type, ActiveConnection1DOF):
-                new_grandparent_C_new_parent = connection_type.create_with_dofs(
-                    world=world,
-                    parent=new_grandparent,
-                    child=new_parent_entity,
-                    parent_T_connection_expression=new_grandparent_T_new_parent,
-                    multiplier=connection_multiplier,
-                    offset=connection_offset,
-                    axis=active_axis,
-                    limits=connection_limits,
-                )
-            else:
-                new_grandparent_C_new_parent = FixedConnection(
-                    parent=new_grandparent,
-                    child=new_parent_entity,
-                    parent_T_connection_expression=new_grandparent_T_new_parent,
-                )
-            world.add_connection(new_grandparent_C_new_parent)
 
     def _attach_child_entity_in_kinematic_structure(
         self: HasRootBody | Self,
         child_kinematic_structure_entity: KinematicStructureEntity,
-        connection_type: Type[Connection],
-        connection_limits: Optional[DegreeOfFreedomLimits] = None,
-        active_axis: Vector3 = Vector3.Z(),
-        connection_multiplier: float = 1.0,
-        connection_offset: float = 0.0,
     ):
         if child_kinematic_structure_entity._world != self._world:
             raise ValueError("Hinge must be part of the same world as the door.")
+
+        if self == child_kinematic_structure_entity.parent_kinematic_structure_entity:
+            return
 
         world = self._world
         self_T_new_child = self.get_self_T_new_child(child_kinematic_structure_entity)
@@ -300,23 +329,11 @@ class SemanticAssociation(ABC):
             parent_C_new_child = child_kinematic_structure_entity.parent_connection
             world.remove_connection(parent_C_new_child)
 
-            if issubclass(connection_type, ActiveConnection1DOF):
-                self_C_new_child = connection_type.create_with_dofs(
-                    world=world,
-                    parent=self.body,
-                    child=child_kinematic_structure_entity,
-                    parent_T_connection_expression=self_T_new_child,
-                    multiplier=connection_multiplier,
-                    offset=connection_offset,
-                    axis=active_axis,
-                    limits=connection_limits,
-                )
-            else:
-                self_C_new_child = FixedConnection(
-                    parent=self.body,
-                    child=child_kinematic_structure_entity,
-                    parent_T_connection_expression=self_T_new_child,
-                )
+            self_C_new_child = FixedConnection(
+                parent=self.body,
+                child=child_kinematic_structure_entity,
+                parent_T_connection_expression=self_T_new_child,
+            )
             world.add_connection(self_C_new_child)
 
 
@@ -332,9 +349,7 @@ class HasApertures(SemanticAssociation, ABC):
         :param body_annotation: The body annotation to cut a hole for.
         """
         self._remove_aperture_geometry_from_parent(aperture)
-        self._attach_child_entity_in_kinematic_structure(
-            aperture.region, FixedConnection
-        )
+        self._attach_child_entity_in_kinematic_structure(aperture.region)
         self.apertures.append(aperture)
 
     def _remove_aperture_geometry_from_parent(
@@ -355,7 +370,7 @@ class HasApertures(SemanticAssociation, ABC):
 
 
 @dataclass(eq=False)
-class HasHinge(HasRevoluteConnection, SemanticAssociation, ABC):
+class HasHinge(SemanticAssociation, ABC):
     """
     A mixin class for semantic annotations that have hinge joints.
     """
@@ -365,32 +380,18 @@ class HasHinge(HasRevoluteConnection, SemanticAssociation, ABC):
     def add_hinge(
         self: HasRootBody | Self,
         hinge: Hinge,
-        rotation_axis: Vector3 = Vector3.Z(),
-        connection_limits: Optional[DegreeOfFreedomLimits] = None,
-        connection_multiplier: float = 1.0,
-        connection_offset: float = 0.0,
     ):
         """
         Adds a door to the parent world using a new door hinge body with a revolute connection.
-
-        :param door_factory: The factory used to create the door.
-        :param parent_T_hinge: The transformation matrix defining the door's position and orientation relative
-        to the parent world.
-        :param parent_world: The world to which the door will be added.
         """
         self._attach_parent_entity_in_kinematic_structure(
             hinge.body,
-            RevoluteConnection,
-            connection_limits,
-            rotation_axis,
-            connection_multiplier,
-            connection_offset,
         )
         self.hinge = hinge
 
 
 @dataclass(eq=False)
-class HasSlider(HasPrismaticConnection, SemanticAssociation, ABC):
+class HasSlider(SemanticAssociation, ABC):
     """
     A mixin class for semantic annotations that have hinge joints.
     """
@@ -400,10 +401,6 @@ class HasSlider(HasPrismaticConnection, SemanticAssociation, ABC):
     def add_slider(
         self: HasRootBody | Self,
         slider: Slider,
-        translation_axis: Vector3 = Vector3.X(),
-        connection_limits: Optional[DegreeOfFreedomLimits] = None,
-        connection_multiplier: float = 1.0,
-        connection_offset: float = 0.0,
     ):
         """
         Adds a door to the parent world using a new door hinge body with a revolute connection.
@@ -415,11 +412,6 @@ class HasSlider(HasPrismaticConnection, SemanticAssociation, ABC):
         """
         self._attach_parent_entity_in_kinematic_structure(
             slider.body,
-            PrismaticConnection,
-            connection_limits,
-            translation_axis,
-            connection_multiplier,
-            connection_offset,
         )
         self.slider = slider
 
@@ -445,7 +437,7 @@ class HasDrawers(SemanticAssociation, ABC):
         :param parent_world: The world to which the door will be added.
         """
 
-        self._attach_child_entity_in_kinematic_structure(drawer.body, FixedConnection)
+        self._attach_child_entity_in_kinematic_structure(drawer.body)
         self.drawers.append(drawer)
 
 
@@ -470,7 +462,7 @@ class HasDoors(SemanticAssociation, ABC):
         :param parent_world: The world to which the door will be added.
         """
 
-        self._attach_child_entity_in_kinematic_structure(door.body, FixedConnection)
+        self._attach_child_entity_in_kinematic_structure(door.body)
         self.doors.append(door)
 
 
@@ -545,7 +537,6 @@ class HasHandle(SemanticAssociation, ABC):
         """
         self._attach_child_entity_in_kinematic_structure(
             handle.body,
-            FixedConnection,
         )
         self.handle = handle
 
@@ -652,7 +643,7 @@ class HasSupportingSurface(HasRootBody, ABC):
 
 
 @dataclass(eq=False)
-class HasCaseAsMainBody(HasSupportingSurface, ABC):
+class HasCaseAsRootBody(HasSupportingSurface, ABC):
 
     @classproperty
     @abstractmethod
@@ -663,26 +654,33 @@ class HasCaseAsMainBody(HasSupportingSurface, ABC):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         *,
         scale: Scale = Scale(),
         wall_thickness: float = 0.01,
     ) -> Self:
         container_event = cls._create_container_event(scale, wall_thickness)
 
-        cabinet_body = Body(name=name)
+        body = Body(name=name)
         collision_shapes = BoundingBoxCollection.from_event(
-            cabinet_body, container_event
+            body, container_event
         ).as_shapes()
-        cabinet_body.collision = collision_shapes
-        cabinet_body.visual = collision_shapes
-        return cls._create_with_fixed_connection_in_world(
+        body.collision = collision_shapes
+        body.visual = collision_shapes
+        return cls._create_with_connection_in_world(
+            connection_type=cls._parent_connection_type,
             name=name,
             world=world,
-            body=cabinet_body,
-            parent=parent,
-            parent_T_self=parent_T_self,
+            body=body,
+            world_root_T_self=world_root_T_self,
+            connection_multiplier=connection_multiplier,
+            connection_offset=connection_offset,
+            active_axis=active_axis,
+            connection_limits=connection_limits,
         )
 
     @classmethod

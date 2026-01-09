@@ -178,7 +178,7 @@ def test_generated_semantic_annotations(kitchen_world):
     drawer_container_names = [
         v.body.name.name
         for v in found_semantic_annotations
-        if isinstance(v, HasCaseAsMainBody)
+        if isinstance(v, HasCaseAsRootBody)
     ]
     assert len(drawer_container_names) == 19
 
@@ -196,7 +196,7 @@ def test_apartment_semantic_annotations(apartment_world):
     drawer_container_names = [
         v.body.name.name
         for v in found_semantic_annotations
-        if isinstance(v, HasCaseAsMainBody)
+        if isinstance(v, HasCaseAsRootBody)
     ]
     assert len(drawer_container_names) == 27
 

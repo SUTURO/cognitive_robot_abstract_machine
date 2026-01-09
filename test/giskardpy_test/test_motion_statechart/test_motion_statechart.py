@@ -2074,8 +2074,7 @@ class TestOpenClose:
         door = Door.create_with_new_body_in_world(
             name=PrefixedName("door"),
             world=pr2_world,
-            parent=pr2_world.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=1.5, z=1, yaw=np.pi, reference_frame=pr2_world.root
             ),
         )
@@ -2083,18 +2082,8 @@ class TestOpenClose:
         handle = Handle.create_with_new_body_in_world(
             name=PrefixedName("handle"),
             world=pr2_world,
-            parent=pr2_world.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=1.5, y=0.45, z=1, yaw=np.pi, reference_frame=pr2_world.root
-            ),
-        )
-
-        hinge = Hinge.create_with_new_body_in_world(
-            name=PrefixedName("hinge"),
-            world=pr2_world,
-            parent=pr2_world.root,
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=1.5, y=-0.5, z=1, yaw=np.pi, reference_frame=pr2_world.root
             ),
         )
 
@@ -2105,13 +2094,19 @@ class TestOpenClose:
         upper_limits.position = np.pi / 2
         upper_limits.velocity = 1
 
-        door.add_handle(handle)
-        door.add_hinge(
-            hinge=hinge,
+        hinge = Hinge.create_with_new_body_in_world(
+            name=PrefixedName("hinge"),
+            world=pr2_world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=1.5, y=-0.5, z=1, yaw=np.pi, reference_frame=pr2_world.root
+            ),
             connection_limits=DegreeOfFreedomLimits(
                 lower_limit=lower_limits, upper_limit=upper_limits
             ),
         )
+
+        door.add_handle(handle)
+        door.add_hinge(hinge=hinge)
 
         root_C_hinge = door.hinge.body.parent_connection
 

@@ -6,9 +6,10 @@ from dataclasses import dataclass, field
 from uuid import UUID
 
 import numpy as np
-from krrood.adapters.json_serializer import from_json, to_json
 from typing_extensions import List, TYPE_CHECKING, Union, Optional, Dict, Any, Self
 
+from krrood.adapters.json_serializer import from_json, to_json
+from .connection_properties import JointDynamics
 from .degree_of_freedom import DegreeOfFreedom, DegreeOfFreedomLimits
 from .world_entity import CollisionCheckingConfig, Connection, KinematicStructureEntity
 from ..adapters.world_entity_kwargs_tracker import (
@@ -18,7 +19,6 @@ from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.types import NpMatrix4x4
 from ..spatial_types import HomogeneousTransformationMatrix, Vector3, Point3, Quaternion
 from ..spatial_types.derivatives import DerivativeMap
-from .connection_properties import JointDynamics
 
 if TYPE_CHECKING:
     from ..world import World
@@ -204,16 +204,7 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
                  its DOF added to the world.
         """
         name = name or cls._generate_default_name(parent=parent, child=child)
-        limits = limits or cls._generate_default_dof_limits()
-        if limits.lower_limit.position >= limits.upper_limit.position:
-            raise ValueError(
-                f"Lower limit for {name} must be strictly less than upper limit."
-            )
-        dof = DegreeOfFreedom(
-            name=PrefixedName("dof", str(name)),
-            upper_limits=limits.upper_limit,
-            lower_limits=limits.lower_limit,
-        )
+        dof = DegreeOfFreedom(name=PrefixedName("dof", str(name)))
         world.add_degree_of_freedom(dof)
         connection = cls(
             parent=parent,
@@ -226,10 +217,6 @@ class ActiveConnection1DOF(ActiveConnection, ABC):
             **kwargs,
         )
         return connection
-
-    @classmethod
-    @abstractmethod
-    def _generate_default_dof_limits(cls) -> DegreeOfFreedomLimits: ...
 
     def add_to_world(self, world: World):
         super().add_to_world(world)
@@ -357,16 +344,6 @@ class PrismaticConnection(ActiveConnection1DOF):
             child_frame=self.child,
         )
 
-    @classmethod
-    def _generate_default_dof_limits(cls) -> DegreeOfFreedomLimits:
-        """ """
-        lower_limits = DerivativeMap[float]()
-        upper_limits = DerivativeMap[float]()
-        lower_limits.position = -np.inf
-        upper_limits.position = np.inf
-
-        return DegreeOfFreedomLimits(lower_limit=lower_limits, upper_limit=upper_limits)
-
 
 @dataclass(eq=False)
 class RevoluteConnection(ActiveConnection1DOF):
@@ -382,18 +359,6 @@ class RevoluteConnection(ActiveConnection1DOF):
             angle=self.dof.variables.position,
             child_frame=self.child,
         )
-
-    @classmethod
-    def _generate_default_dof_limits(cls) -> DegreeOfFreedomLimits:
-        """
-        Return default limits for RevoluteConnection.
-        """
-        lower_limits = DerivativeMap[float]()
-        upper_limits = DerivativeMap[float]()
-        lower_limits.position = -2 * np.pi
-        upper_limits.position = 2 * np.pi
-
-        return DegreeOfFreedomLimits(lower_limit=lower_limits, upper_limit=upper_limits)
 
 
 @dataclass(eq=False)

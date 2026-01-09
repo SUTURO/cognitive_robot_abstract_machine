@@ -6,52 +6,72 @@ from typing import Iterable, Optional, Self
 
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import List
+from typing_extensions import List, Type
 
 from krrood.entity_query_language.entity import entity, variable
 from krrood.entity_query_language.entity_result_processors import an
 from krrood.ormatic.utils import classproperty
 from .mixins import (
-    HasRootBody,
     HasSupportingSurface,
     HasRootRegion,
     HasDrawers,
     HasDoors,
     HasHandle,
-    HasCaseAsMainBody,
+    HasCaseAsRootBody,
     HasHinge,
     HasLeftRightDoor,
     HasSlider,
     HasApertures,
     IsPerceivable,
+    HasRootBody,
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
 from ..exceptions import InvalidPlaneDimensions
 from ..reasoning.predicates import InsideOf
-from ..spatial_types import Point3, HomogeneousTransformationMatrix
+from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
 from ..utils import Direction
 from ..world import World
+from ..world_description.connections import (
+    RevoluteConnection,
+    PrismaticConnection,
+    FixedConnection,
+)
+from ..world_description.degree_of_freedom import DegreeOfFreedomLimits
 from ..world_description.geometry import Scale
 from ..world_description.shape_collection import BoundingBoxCollection
 from ..world_description.world_entity import (
     SemanticAnnotation,
     Body,
-    KinematicStructureEntity,
     Region,
+    Connection,
 )
 
 
 @dataclass(eq=False)
+class Furniture(HasCaseAsRootBody, ABC):
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return FixedConnection
+
+
+@dataclass(eq=False)
 class Handle(HasRootBody):
+
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return FixedConnection
 
     @classmethod
     def create_with_new_body_in_world(
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         *,
         scale: Scale = Scale(0.1, 0.02, 0.02),
         thickness: float = 0.005,
@@ -70,8 +90,8 @@ class Handle(HasRootBody):
         ).as_shapes()
         handle_body.collision = collision
         handle_body.visual = collision
-        return cls._create_with_fixed_connection_in_world(
-            name, world, handle_body, parent, parent_T_self
+        return cls._create_with_connection_in_world(
+            cls._parent_connection_type, name, world, handle_body, world_root_T_self
         )
 
     @classmethod
@@ -104,13 +124,17 @@ class Handle(HasRootBody):
 
 @dataclass(eq=False)
 class Fridge(
-    HasCaseAsMainBody,
+    HasCaseAsRootBody,
     HasDoors,
     HasDrawers,
 ):
     """
     A fridge that has a door and a body.
     """
+
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return FixedConnection
 
     @classproperty
     def opening_direction(self) -> Direction:
@@ -129,8 +153,7 @@ class Aperture(HasRootRegion):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
         *,
         scale: Scale = Scale(),
     ) -> Self:
@@ -146,7 +169,7 @@ class Aperture(HasRootRegion):
         aperture_region.area = aperture_geometry
 
         return cls._create_with_fixed_connection_in_world(
-            name, world, aperture_region, parent, parent_T_self
+            name, world, aperture_region, world_root_T_self
         )
 
     @classmethod
@@ -154,7 +177,6 @@ class Aperture(HasRootRegion):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
         body: Body,
         parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
@@ -164,7 +186,7 @@ class Aperture(HasRootRegion):
             .scale
         )
         return cls.create_with_new_region_in_world(
-            name, world, parent, parent_T_self, scale=body_scale
+            name, world, parent_T_self, scale=body_scale
         )
 
 
@@ -174,12 +196,20 @@ class Hinge(HasRootBody):
     A hinge is a physical entity that connects two bodies and allows one to rotate around a fixed axis.
     """
 
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return RevoluteConnection
+
 
 @dataclass(eq=False)
 class Slider(HasRootBody):
     """
     A Slider is a physical entity that connects two bodies and allows one to linearly translate along a fixed axis.
     """
+
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return PrismaticConnection
 
 
 @dataclass(eq=False)
@@ -193,8 +223,11 @@ class Door(HasRootBody, HasHandle, HasHinge):
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         *,
         scale: Scale = Scale(0.03, 1, 2),
     ) -> Self:
@@ -209,8 +242,8 @@ class Door(HasRootBody, HasHandle, HasHinge):
         collision = bounding_box_collection.as_shapes()
         door_body.collision = collision
         door_body.visual = collision
-        return cls._create_with_fixed_connection_in_world(
-            name, world, door_body, parent, parent_T_self
+        return cls._create_with_connection_in_world(
+            FixedConnection, name, world, door_body, world_root_T_self
         )
 
 
@@ -222,7 +255,7 @@ class DoubleDoor(SemanticAnnotation, HasLeftRightDoor):
 
 
 @dataclass(eq=False)
-class Drawer(HasCaseAsMainBody, HasHandle, HasSlider):
+class Drawer(Furniture, HasHandle, HasSlider):
 
     @property
     def opening_direction(self) -> Direction:
@@ -230,8 +263,6 @@ class Drawer(HasCaseAsMainBody, HasHandle, HasSlider):
 
 
 ############################### subclasses to Furniture
-@dataclass(eq=False)
-class Furniture(SemanticAnnotation, ABC): ...
 
 
 @dataclass(eq=False)
@@ -242,28 +273,28 @@ class Table(Furniture, HasSupportingSurface):
 
 
 @dataclass(eq=False)
-class Cabinet(HasCaseAsMainBody, Furniture, HasDrawers, HasDoors):
+class Cabinet(Furniture, HasDrawers, HasDoors):
     @property
     def opening_direction(self) -> Direction:
         return Direction.NEGATIVE_X
 
 
 @dataclass(eq=False)
-class Dresser(HasCaseAsMainBody, Furniture, HasDrawers, HasDoors):
+class Dresser(Furniture, HasDrawers, HasDoors):
     @property
     def opening_direction(self) -> Direction:
         return Direction.NEGATIVE_X
 
 
 @dataclass(eq=False)
-class Cupboard(HasCaseAsMainBody, Furniture, HasDoors):
+class Cupboard(Furniture, HasDoors):
     @property
     def opening_direction(self) -> Direction:
         return Direction.NEGATIVE_X
 
 
 @dataclass(eq=False)
-class Wardrobe(HasCaseAsMainBody, Furniture, HasDrawers, HasDoors):
+class Wardrobe(Furniture, HasDrawers, HasDoors):
     @property
     def opening_direction(self) -> Direction:
         return Direction.NEGATIVE_X
@@ -272,13 +303,20 @@ class Wardrobe(HasCaseAsMainBody, Furniture, HasDrawers, HasDoors):
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
 
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return FixedConnection
+
     @classmethod
     def create_with_new_body_in_world(
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         *,
         scale: Scale = Scale(),
     ) -> Self:
@@ -292,8 +330,8 @@ class Floor(HasSupportingSurface):
         self = cls.create_with_new_body_from_polytope(
             name=name, floor_polytope=polytope
         )
-        self._create_with_fixed_connection_in_world(
-            name, world, self.body, parent, parent_T_self
+        self._create_with_connection_in_world(
+            cls._parent_connection_type, name, world, self.body, world_root_T_self
         )
         return self
 
@@ -326,13 +364,20 @@ class Room(SemanticAnnotation):
 @dataclass(eq=False)
 class Wall(HasRootBody, HasApertures):
 
+    @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return FixedConnection
+
     @classmethod
     def create_with_new_body_in_world(
         cls,
         name: PrefixedName,
         world: World,
-        parent: KinematicStructureEntity,
-        parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Vector3 = Vector3.Z(),
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
         *,
         scale: Scale = Scale(),
     ) -> Self:
@@ -348,8 +393,8 @@ class Wall(HasRootBody, HasApertures):
         wall_body.collision = wall_collision
         wall_body.visual = wall_collision
 
-        return cls._create_with_fixed_connection_in_world(
-            name, world, wall_body, parent, parent_T_self
+        return cls._create_with_connection_in_world(
+            cls._parent_connection_type, name, world, wall_body, world_root_T_self
         )
 
     @property
@@ -653,7 +698,7 @@ class Desk(Table):
 
 
 @dataclass(eq=False)
-class Chair(HasRootBody, Furniture):
+class Chair(Furniture):
     """
     Abstract class for chairs.
     """
@@ -674,21 +719,21 @@ class Armchair(Chair):
 
 
 @dataclass(eq=False)
-class ShelvingUnit(HasRootBody, Furniture):
+class ShelvingUnit(Furniture):
     """
     A shelving unit.
     """
 
 
 @dataclass(eq=False)
-class Bed(HasRootBody, Furniture):
+class Bed(Furniture):
     """
     A bed.
     """
 
 
 @dataclass(eq=False)
-class Sofa(HasRootBody, Furniture):
+class Sofa(Furniture):
     """
     A sofa.
     """
