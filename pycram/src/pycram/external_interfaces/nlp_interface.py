@@ -1,7 +1,3 @@
-# =========================
-# Imports
-# =========================
-
 # Standard library imports
 import json
 import time
@@ -17,9 +13,6 @@ from std_msgs.msg import String
 
 
 
-callback = False
-
-
 # TODO: replace print with talking function
 
 
@@ -33,20 +26,27 @@ class NlpInterface(ABC):
     - An abstract method for filtering NLP responses
     """
 
-    # Stores the last NLP output
+    """
+    stores the last NLP output
+    """
     last_output = []
 
-    # Stores the last confirmation result (affirm / deny)
+    """
+    Stores the last confirmation result 
+    (affirm / deny)
+    """
     last_confirmation = []
 
-    # Timeout (in seconds) for waiting for NLP responses, default: 15
+    """
+    Timeout (in seconds) for waiting for NLP responses, default: 15
+    """
     timeout : int = 15
 
     def __init__(self):
         # Initialize the ROS2 NLP node
         self.node = NlpNode()
 
-    # TODO: für die anderen Gruppen functions vorschreiben zum Filtern
+    # TODO: write functions for all challenges
     """
     List of intents and roles
         ---Intent List:---
