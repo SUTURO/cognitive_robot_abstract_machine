@@ -81,6 +81,11 @@ context = Context.from_world(world)
 """
 # ---------------------------------------------------------------------------------------------
 
+
+# TODO: baue steps in die Demo ein
+
+
+
 """
 Processes the NLP module output and dispatches the correct action.
 
@@ -318,7 +323,8 @@ Main execution loop:
         - Waits for spoken commands
         - Processes received NLP responses
 """
-if __name__ == '__main__':
+def main():
+#if __name__ == '__main__':
     #rclpy.init() # rausgenommen weil das schon in knowledge existiert TODO: testen ob nlp noch klappt
 
     #process_response(milestone1_response)
