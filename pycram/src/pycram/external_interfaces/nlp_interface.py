@@ -33,7 +33,16 @@ class NlpInterface(ABC):
     - An abstract method for filtering NLP responses
     """
 
-    # Stores the last NLP output
+    """
+    Stores the last NLP output
+    Format:
+    last_output = [
+        sentence,
+        intent,
+        entities[entity_elem[]]
+    ], mit
+    entity_elem = [role, value, entity, propertyAttributes[], actionAttributes[], numberAttributes[]
+    """
     last_output = []
 
     # Stores the last confirmation result (affirm / deny)
