@@ -24,8 +24,11 @@ from pycram.robot_plans import MoveTorsoActionDescription, TransportActionDescri
 from pycram.robot_plans import ParkArmsActionDescription
 from pycram.testing import setup_world
 
+from pycram.world_concepts.world_object import Object
+
 from pycram.external_interfaces import tmc
 
+from pycram.robot_plans.actions.composite import searching
 # from suturo_resources import queries_rody as queries, suturo_map_rody as suturo_map TODO: Implement mit rodys shit
 
 from pycram.datastructures.dataclasses import Color
@@ -51,6 +54,9 @@ last_affirmation = False
 # positions
 kitchen_placeholder = PoseStamped.from_list([1,1,1], [0,0,0,1])
 living_room_placeholder = PoseStamped.from_list([3.56,4.06,0], [0,0,0,1])
+
+milk_position = PoseStamped.from_list([0.5, 0.5, 0.5], [0, 0, 0, 1]) # TODO, find the actualy position
+
 
 # for creating objects with unique names
 global object_name_iteration
@@ -118,7 +124,7 @@ def process_response(lst: list[Any]):
             # MILESTONE 1
             case "Navigation":
                 print("case navigation")
-                driveTo(lst[7])
+                driveToLocation(lst[7])
             case "affirm":
                 last_affirmation = True
             case "deny":
@@ -169,11 +175,15 @@ Behavior:
     - Starts Nav2 navigation to the position.
     
 """
-def driveTo(location: String):
+def driveToLocation(location: String):
     goal = _location_from_string(location)
     start_nav(goal.position.x, goal.position.y)
     print(goal)
 
+def driveToObject(object: String):
+    goal = _find_obj_location(object)
+    start_nav(goal.position.x, goal.position.y)
+    print(goal)
 
 #----------------------------HELPER METHODS------------------------------------------------------------------
 """
@@ -210,7 +220,7 @@ def _location_from_string(location: String) -> PoseStamped:
             exception("unknown location")
             # return PoseStamped.from_list([0,0,0], [0,0,0,1])
 
-def _objectlocation_from_string(object: String = "") -> PoseStamped:
+def _find_obj_location(object: String = "") -> PoseStamped:
     object_pose = PoseStamped.from_list(position=(queries.query_object(suturo_map))) # TODO THIS METHOD DOES NOT EXIST, IT NEEDS TO BE FIXED, ELSE SWITCH CASE
 
     obj_pose = PoseStamped.from_list([0, 0, 0], [0, 0, 0, 1])
@@ -233,7 +243,7 @@ find object class from string, koennen wir spaeter von knowledge klauen
 
 SOLLTE NICHT MEHR GEBRAUCHT WERDEN IN NEUEM PYCRAM
 """
-def _find_class_from_string(obj: String):
+def _find_obj_location(obj: String):
     match obj:
         case "bowl":
             return None
@@ -386,14 +396,20 @@ def describing(obj_name, room: Optional[String] = "") -> Description:
 def findWithoutRoom(obj_name):
     raise NotImplementedError("This feature is not implemented yet")
 
-def requestObjectPosition(obj_name):
-    raise NotImplementedError("This feature is not implemented yet")
-
-
 def findWithRoom(obj_name, room: Optional[String] = ""):
     tts_pub.say("I will now go to " + str(room))
-    driveTo(room)
+    driveToLocation(room)
+    sleep(2)
+    SearchAction()
+    tts_pub.say("I will now pick up the " + str(obj_name))
+    try_pickup(suturo_map.query_object(obj_name))
 
+def try_pickup(object: Object):
+    if obj_name == "milk":
+        pickup_milk(robot, milk_position, grasp)
+
+
+    raise NotImplementedError("This feature is not implemented yet")
 
 
 #-----------------------------------------------------------------------------------------------------------------------
