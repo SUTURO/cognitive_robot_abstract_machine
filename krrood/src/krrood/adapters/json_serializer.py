@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import importlib
+import inspect
 import uuid
 from abc import ABC
 from dataclasses import dataclass
@@ -180,6 +181,9 @@ def to_json(obj: Union[SubclassJSONSerializer, Any]) -> JSON_RETURN_TYPE:
     if isinstance(obj, SubclassJSONSerializer):
         return obj.to_json()
 
+    if inspect.isclass(obj):
+        return ClassJSONSerializer.to_json(obj)
+
     registered_json_serializer = JSONSerializableTypeRegistry().get_external_serializer(
         type(obj)
     )
@@ -266,10 +270,6 @@ class ClassJSONSerializer(ExternalClassJSONSerializer[None]):
     @classmethod
     def from_json(cls, data: Dict[str, Any], clazz: Type, **kwargs) -> Type:
         return clazz
-
-    @classmethod
-    def matches_generic_type(cls, clazz: Type) -> bool:
-        return type(clazz) == type
 
 
 @dataclass
