@@ -4,6 +4,9 @@ import rclpy
 from debian.debtags import output
 import gpsr_01
 from pycram.external_interfaces.nlp_interface import NlpInterface
+import subprocess
+
+
 
 class NlpInterfaceStartingDemo(NlpInterface):
 
@@ -17,6 +20,9 @@ class NlpInterfaceStartingDemo(NlpInterface):
 
 
 def main():
+    # Interaktive Bash, Bashrc wird geladen
+    subprocess.run('bash -i -c "nlp_whisper_start"', shell=True)
+    """
     nlp = NlpInterfaceStartingDemo()
     nlp.input_confirmation_loop(4)
     if nlp.last_output is None:
@@ -32,6 +38,7 @@ def main():
             print("Start demo here")
         case _:
             print("Understood the command wrong")
+    """
 
 if __name__ == "__main__":
     rclpy.init()

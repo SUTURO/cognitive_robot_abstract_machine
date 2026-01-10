@@ -4,7 +4,7 @@ from absl.logging import exception
 
 from rclpy.node import Node
 
-from semantic_digital_twin.adapters.mesh import STLParser
+# from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Container
@@ -53,8 +53,8 @@ global object_name_iteration
 world2 = suturo_map.load_environment()
 
 # test objects
-spoon = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "objects", "spoon.stl")).parse()
-bowl = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "objects", "bowl.stl")).parse()
+#spoon = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "objects", "spoon.stl")).parse()
+#bowl = STLParser(os.path.join(os.path.dirname(__file__), "..", "..", "resources", "objects", "bowl.stl")).parse()
 
 """
 The following block shows how objects can be merged into the world model and connected
