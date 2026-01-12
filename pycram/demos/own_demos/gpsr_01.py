@@ -2,31 +2,9 @@ import os
 
 from absl.logging import exception
 
-from rclpy.node import Node
-
-# from semantic_digital_twin.adapters.mesh import STLParser
-from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
-from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Container
-from semantic_digital_twin.adapters.procthor.procthor_semantic_annotations import Milk, Bowl, Spoon
-from semantic_digital_twin.spatial_types import TransformationMatrix
-from semantic_digital_twin.world_description.connections import FixedConnection
-
-from pycram.datastructures.dataclasses import Context
-from pycram.datastructures.enums import TorsoState, Arms
-from pycram.datastructures.pose import PoseStamped
-from pycram.language import SequentialPlan
-from pycram.process_module import simulated_robot
-from pycram.robot_plans import MoveTorsoActionDescription, TransportActionDescription
-from pycram.robot_plans import ParkArmsActionDescription
-from pycram.testing import setup_world
 
 from suturo_resources import queries, suturo_map
 
-from pycram.datastructures.dataclasses import Color
-import tempfile
-
-import numpy as np
 from pycram.robot_plans import *
 
 import rclpy
