@@ -1,16 +1,16 @@
 from suturo_resources.suturo_map import load_environment
 
 from giskardpy.motion_statechart.context import ExecutionContext
-from pycram.src.pycram.datastructures.enums import TorsoState, Arms
-from pycram.src.pycram.language import SequentialPlan
-from pycram.src.pycram.process_module import simulated_robot
+from pycram.datastructures.enums import TorsoState, Arms
+from pycram.language import SequentialPlan
+from pycram.process_module import simulated_robot
 
 from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.world import World
 from simulation_setup import setup_hsrb_in_environment
-from pycram.src.pycram.robot_plans import SimplePouringActionDescription
-from src.pycram.robot_plans import ParkArmsActionDescription
-from pycram.src.pycram.alternative_motion_mappings import hsrb_motion_mapping
+from pycram.robot_plans import SimplePouringActionDescription
+from pycram.robot_plans import ParkArmsActionDescription
+from pycram.alternative_motion_mappings import hsrb_motion_mapping
 
 result = setup_hsrb_in_environment(load_environment=load_environment, with_viz=True)
 world: World

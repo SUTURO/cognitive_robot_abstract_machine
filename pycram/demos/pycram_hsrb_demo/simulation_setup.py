@@ -4,7 +4,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Callable, Optional, Sequence, Tuple
 
-from pycram.src.pycram.datastructures.dataclasses import Context
+from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -108,7 +108,7 @@ def try_make_viz(world):
         import rclpy
         from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 
-        node = rclpy.create_node("viz_marker")
+        node = rclpy.create_node("simulation_pycram")
         return VizMarkerPublisher(world, node)
     except Exception:
         logger.info(

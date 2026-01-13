@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.world_entity import Body
 from ...motions.gripper import MoveTCPMotion
 from .... import utils
@@ -45,12 +46,13 @@ class SimplePouringAction(ActionDescription):
     """
 
     def execute(self) -> None:
-        for arm_chain in self.robot_view.manipulator_chains:
-            grasp = GraspDescription(
-                ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
-            ).calculate_grasp_orientation(
-                arm_chain.manipulator.front_facing_orientation.to_np()
-            )
+        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
+        # grasp=gripper.front_facing_orientation
+
+        # for arm_chain in self.robot_view.manipulator_chains:
+        grasp = GraspDescription(
+            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
+        ).calculate_grasp_orientation(gripper.front_facing_orientation.to_np())
 
         object_pose = self.object_designator.global_pose
         object_pose.x += 0.009
@@ -61,12 +63,16 @@ class SimplePouringAction(ActionDescription):
             ros_pose = PoseStamped.from_spatial_type(object_pose)
 
             if rotate:
-                q = utils.axis_angle_to_quaternion([1, 0, 0], -110)
+                q = utils.axis_angle_to_quaternion(
+                    [1, 0, 0], -110
+                )  # ros_pose.rotate_by_quaternion(utils.quat_np_list(q))
                 ros_pose.rotate_by_quaternion(utils.quat_np_list(q))
+            tool_frame = gripper.tool_frame
 
-            man = next(iter(self.robot_view.manipulators))
-            tool_frame = man.tool_frame
-
+            # man = next(iter(self.robot_view.manipulators))
+            # for man in self.robot_view.manipulators:
+            #     print(man)
+            # tool_frame = man.tool_frame
             poseTg = PoseStamped.from_spatial_type(
                 self.world.transform(ros_pose.to_spatial_type(), tool_frame)
             )

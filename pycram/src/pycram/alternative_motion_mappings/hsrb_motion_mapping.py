@@ -4,6 +4,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import (
     NavigateActionServerTask,
 )
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from ..datastructures.enums import ExecutionType
 from ..robot_description import ViewManager
@@ -37,10 +38,12 @@ class HSRMoveTCPSim(MoveTCPMotion, AlternativeMotion[HSRB]):
 
     @property
     def _motion_chart(self) -> CartesianPose:
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot_view).tool_frame
+        tip = self.robot_view._world.get_semantic_annotations_by_type(ParallelGripper)[
+            0
+        ]
         return CartesianPose(
             root_link=self.world.root,
-            tip_link=tip,
+            tip_link=tip.tool_frame,
             goal_pose=self.target.to_spatial_type(),
         )
 
@@ -54,9 +57,13 @@ class HSRMoveTCPReal(MoveTCPMotion, AlternativeMotion[HSRB]):
 
     @property
     def _motion_chart(self) -> CartesianPose:
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot_view).tool_frame
+        # tip = self.robot_view.arms[0]
+        # Temp hack from Simon
+        tip = self.robot_view._world.get_semantic_annotations_by_type(ParallelGripper)[
+            0
+        ]
         return CartesianPose(
             root_link=self.world.root,
-            tip_link=tip,
+            tip_link=tip.tool_frame,
             goal_pose=self.target.to_spatial_type(),
         )

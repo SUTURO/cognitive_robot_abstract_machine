@@ -60,7 +60,7 @@ class VizMarkerPublisher(StateChangeCallback):
 
     def __post_init__(self):
         """
-        Initializes the publisher and registers the callback to the world.
+        Initializes the publisher and regis ters the callback to the world.
         """
         super().__post_init__()
         self.pub = self.node.create_publisher(MarkerArray, self.topic_name, 10)
