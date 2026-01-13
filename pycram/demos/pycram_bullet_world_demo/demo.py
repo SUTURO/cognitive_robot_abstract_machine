@@ -59,7 +59,6 @@ except ImportError:
 pr2 = PR2.from_world(world)
 context = Context.from_world(world)
 
-
 with world.modify_world():
     world_reasoner = WorldReasoner(world)
     world_reasoner.reason()
