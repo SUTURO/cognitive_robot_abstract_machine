@@ -161,6 +161,11 @@ def query_object(obj_desc: ObjectDesignatorDescription) -> dict:
     return send_query(obj_type=str(obj_desc.types[0]))
 
 
+@init_robokudo_interface
+def query_object_str(obj_desc: ObjectDesignatorDescription) -> dict:
+    return send_query()
+
+
 """
 Cancel needs to be implemented bevor this will work.
 @init_robokudo_interface
