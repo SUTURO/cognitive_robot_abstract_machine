@@ -52,15 +52,6 @@ except ImportError:
 
     world.merge_world(spoon, connection)
 
-try:
-    import rclpy
-
-    rclpy.init()
-    from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
-
-    v = VizMarkerPublisher(world, rclpy.create_node("viz_marker"))
-except ImportError:
-    pass
 
 pr2 = PR2.from_world(world)
 context = Context.from_world(world)
@@ -71,7 +62,6 @@ with world.modify_world():
     world.add_semantic_annotations(
         [
             Bowl(body=world.get_body_by_name("bowl.stl")),
-            Spoon(body=world.get_body_by_name("spoon.stl")),
         ]
     )
 
@@ -82,11 +72,6 @@ plan = SequentialPlan(
     TransportActionDescription(
         world.get_body_by_name("milk.stl"),
         PoseStamped.from_list([4.9, 3.3, 0.8], frame=world.root),
-        Arms.LEFT,
-    ),
-    TransportActionDescription(
-        world.get_body_by_name("spoon.stl"),
-        PoseStamped.from_list([5.1, 3.3, 0.75], [0, 0, 1, 1], frame=world.root),
         Arms.LEFT,
     ),
     TransportActionDescription(
