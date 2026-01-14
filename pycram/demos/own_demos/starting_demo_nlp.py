@@ -1,7 +1,6 @@
 from typing import Any
 
 import rclpy
-from debian.debtags import output
 #import gpsr_01
 from pycram.external_interfaces.nlp_interface import NlpInterface
 import subprocess
@@ -97,8 +96,12 @@ def main():
                                  stderr=subprocess.STDOUT, text=True)
         wait_for_whisper(proc2)
 
+        sleep(3)
+
         #nlp.input_confirmation_loop(4)
         nlp.start_nlp()
+
+        print(nlp.last_output)
 
         # if intent wasn't understood right even after confirmation and repeating n-times
         if nlp.last_output[1] != "Start" and nlp.last_output[0] != "Change":
@@ -133,7 +136,7 @@ def main():
         match nlp.filter_response(nlp.last_output, ""):
             case 'Receptionist':
                 print("Insert code here.......")
-            case 'GPSR':
+            case 'GPSR'|'GPS'|'GPS R':
                 print("Insert GPSR code here.......")
                 # gpsr_01.main()
             case 'Restaurant':
@@ -148,9 +151,10 @@ def main():
             sleep(2)
 
         print("If you want to stop, interrupt now")
-        i = 5
+        number = 5
         for i in range (5, 0):
-            print(i)
+            print(number)
+            number -= 1
             sleep(2)
 
 
