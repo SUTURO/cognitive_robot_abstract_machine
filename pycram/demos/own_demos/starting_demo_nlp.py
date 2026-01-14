@@ -20,7 +20,8 @@ class NlpInterfaceStartingDemo(NlpInterface):
 
     def filter_response(self, response : list[Any], challenge : str):
         # TODO: role einbinden, damit challenge ausgegeben wird
-        return response[2][1] # should return value from entity_elem
+        print(response)
+        return response[2][0][1] # should return value from entity_elem
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -89,17 +90,18 @@ def main():
 
     while True:
         # starts NLP Pipeline for demo start
-        proc = subprocess.Popen('bash -i -c "nlp_rasa_start"', shell=True)
+        proc = subprocess.Popen('bash -i -c "nlp_rasa_demo_start"', shell=True)
         wait_for_rasa()
 
         proc2 = subprocess.Popen('bash -i -c "nlp_whisper_start"', shell=True, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True)
         wait_for_whisper(proc2)
 
-        nlp.input_confirmation_loop(4)
+        #nlp.input_confirmation_loop(4)
+        nlp.start_nlp()
 
         # if intent wasn't understood right even after confirmation and repeating n-times
-        if nlp.last_output[0] != "Start" and nlp.last_output[0] != "Change":
+        if nlp.last_output[1] != "Start" and nlp.last_output[0] != "Change":
             raise NotImplementedError("NLP Intent should not happen.")
 
         end_process([proc, proc2])
@@ -117,7 +119,7 @@ def main():
             case 'Receptionist':
                 proc = subprocess.Popen('bash -i -c "nlp_rasa_receptionist_start"', shell=True) # befehle sind alias befehle
             case 'GPSR':
-                proc = subprocess.Popen('bash -i -c "nlp_rasa_start"', shell=True)
+                proc = subprocess.Popen('bash -i -c "nlp_rasa_gpsr_start"', shell=True)
                 #gpsr_01.main()
             case 'Restaurant':
                 proc = subprocess.Popen('bash -i -c "nlp_rasa_restaurant_start"', shell=True)
@@ -132,12 +134,12 @@ def main():
             case 'Receptionist':
                 print("Insert code here.......")
             case 'GPSR':
-                print("Insert code here.......")
+                print("Insert GPSR code here.......")
                 # gpsr_01.main()
             case 'Restaurant':
                 print("Insert code here.......")
             case _:
-                raise NotImplementedError()
+                print("couldn't understand your input")
 
         end_process([proc, proc2])
 
@@ -149,7 +151,7 @@ def main():
         i = 5
         for i in range (5, 0):
             print(i)
-            sleep(1)
+            sleep(2)
 
 
 
