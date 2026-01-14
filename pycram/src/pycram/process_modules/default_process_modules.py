@@ -7,7 +7,7 @@ from typing_extensions import TYPE_CHECKING
 from ..datastructures.dataclasses import Colors
 from ..datastructures.enums import ExecutionType
 from ..external_interfaces import giskard
-from ..external_interfaces.robokudo import (
+from ..external_interfaces.robokudo_ros1 import (
     query_all_objects,
     query_object,
     query_human,
