@@ -119,22 +119,31 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
 
 # Perceive
 perceived_objects_result = robokudo.query_all_objects().res
-print(perceived_objects_result)
 # simple box
 with hsrb_world.modify_world():
-    box = add_box(
-        "test",
-        (1.0, 1.0, 1.0),
-    )
-    hsrb_world.add_connection(
-        FixedConnection(
-            parent=hsrb_world.root,
-            child=box,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=-0.9, y=1.0, z=0.95
-            ),
+    for perceived_object in perceived_objects_result:
+        print(perceived_object)
+        object_size = perceived_object.shape_size[0].dimensions
+        object_pose = perceived_object.pose[0].pose
+        object_to_spawn = add_box(
+            perceived_object.type,
+            (object_size.x, object_size.y, object_size.z),
         )
-    )
+        hsrb_world.add_connection(
+            FixedConnection(
+                parent=hsrb_world.root,
+                child=object_to_spawn,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=object_pose.position.x,
+                    y=object_pose.position.y,
+                    z=object_pose.position.z,
+                    roll=object_pose.orientation.x,
+                    pitch=object_pose.orientation.y,
+                    yaw=object_pose.orientation.z,
+                ),
+            )
+        )
+
 
 #          .calculate_grasp_orientation(gripper.front_facing_orientation.to_np()))
 #
