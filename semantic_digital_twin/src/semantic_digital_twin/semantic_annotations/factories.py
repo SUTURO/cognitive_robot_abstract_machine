@@ -20,7 +20,9 @@ from probabilistic_model.probabilistic_circuit.rx.helper import (
 )
 from random_events.interval import Bound
 from random_events.product_algebra import *
+from typing import Optional, List
 from typing_extensions import Generic, TypeVar
+
 
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
@@ -43,6 +45,10 @@ from ..semantic_annotations.semantic_annotations import (
     Room,
     Floor,
 )
+from ..semantic_annotations.semantic_annotations import (
+    SemanticAnnotation,
+)
+
 from ..world import World
 from ..world_description.connections import (
     PrismaticConnection,
@@ -1342,3 +1348,109 @@ class WallFactory(SemanticAnnotationFactory[Wall], HasDoorLikeFactories):
             }
         )
         return wall_event
+
+
+# ============================================================
+# Perceived object factory and helpers
+# ============================================================
+
+class PerceivedObjectSemanticAnnotation(SemanticAnnotation):
+    """
+    Semantic Annotation für ein wahrgenommenes Objekt aus dem Perception System.
+    Attribute:
+    - body: Body des Objekts (Collision + Visual)
+    - name: Name des Objekts
+    - object_class: Klasse des Objekts, z.B. "apple", "banana"
+    """
+    def __init__(self, body: Body, name: PrefixedName, object_class: str) -> None:
+        super().__init__(name=name)
+        self.body = body
+        self.object_class = object_class
+
+
+class PerceivedObjectFactory:
+    """
+    Factory für die Erstellung von wahrgenommenen Objekten aus dem Perception System.
+    Interface für Planning und andere Teams.
+    """
+
+    def __init__(
+        self,
+        perceived_object_class: str,
+        object_dimensions: Scale,
+        name: Optional[PrefixedName] = None,
+    ) -> None:
+        """
+        :param perceived_object_class: Objektklasse, z.B. "apple"
+        :param object_dimensions: Dimensionen (x, y, z) in Metern als Scale
+        :param name: Optionaler Name; wenn None, wird die Klasse als Name verwendet
+        """
+        self.perceived_object_class = perceived_object_class
+        self.object_dimensions = object_dimensions
+        self.name = name or PrefixedName(perceived_object_class)
+
+    def create(self) -> World:
+        """Erstelle eine neue World mit dem wahrgenommenen Objekt."""
+        world = World(name=self.name.name)
+        with world.modify_world():
+            world = self._create_in_world(world)
+        return world
+
+    def create_in_world(self, world: World) -> World:
+        """Erstelle das Objekt in einer bestehenden World."""
+        with world.modify_world():
+            world = self._create_in_world(world)
+        return world
+
+    def _create_in_world(self, world: World) -> World:
+        # 1. Body aus den Dimensionen erzeugen
+        object_body = Body(name=self.name)
+        object_event = self.object_dimensions.simple_event.as_composite_set()
+        collision_shapes = BoundingBoxCollection.from_event(
+            object_body, object_event
+        ).as_shapes()
+        object_body.collision = collision_shapes
+        object_body.visual = collision_shapes
+        world.add_kinematic_structure_entity(object_body)
+
+        # 2. Semantic Annotation hinzufügen
+        semantic_annotation = PerceivedObjectSemanticAnnotation(
+            body=object_body, name=self.name, object_class=self.perceived_object_class
+        )
+        world.add_semantic_annotation(semantic_annotation)
+        return world
+
+
+def query_object_by_class(world: World, object_class: str) -> Optional[PerceivedObjectSemanticAnnotation]:
+    """Gib das erste wahrgenommene Objekt mit gegebener Klasse zurück, sonst None."""
+    perceived_objects: List[PerceivedObjectSemanticAnnotation] = world.get_semantic_annotations_by_type(
+        PerceivedObjectSemanticAnnotation
+    )
+    for obj in perceived_objects:
+        if obj.object_class == object_class:
+            return obj
+    return None
+
+
+def query_objects_by_class(world: World, object_class: str) -> List[PerceivedObjectSemanticAnnotation]:
+    """Gib alle wahrgenommenen Objekte mit gegebener Klasse zurück."""
+    perceived_objects: List[PerceivedObjectSemanticAnnotation] = world.get_semantic_annotations_by_type(
+        PerceivedObjectSemanticAnnotation
+    )
+    return [obj for obj in perceived_objects if obj.object_class == object_class]
+
+
+def get_all_perceived_objects(world: World) -> List[PerceivedObjectSemanticAnnotation]:
+    """Gib alle wahrgenommenen Objekte in der World zurück."""
+    return world.get_semantic_annotations_by_type(PerceivedObjectSemanticAnnotation)
+
+
+def query_object_by_name(world: World, object_name: str) -> Optional[PerceivedObjectSemanticAnnotation]:
+    """Suche ein wahrgenommenes Objekt anhand seines Namens."""
+    perceived_objects: List[PerceivedObjectSemanticAnnotation] = world.get_semantic_annotations_by_type(
+        PerceivedObjectSemanticAnnotation
+    )
+    for obj in perceived_objects:
+        if obj.name.name == object_name:
+            return obj
+    return None
