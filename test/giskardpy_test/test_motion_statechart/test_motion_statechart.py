@@ -29,6 +29,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
     CollisionAvoidance,
 )
 from giskardpy.motion_statechart.goals.open_close import Open, Close
+from giskardpy.motion_statechart.goals.pick_up import PreGraspPose, PickUp
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import (
     EndMotion,
@@ -87,6 +88,7 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_or,
     FloatVariable,
 )
+from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     KinematicStructureEntityKwargsTracker,
 )
@@ -113,6 +115,7 @@ from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
     FixedConnection,
+    PrismaticConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.world_description.geometry import Cylinder, Box, Scale
@@ -1163,21 +1166,28 @@ def test_long_goal(pr2_world_state_reset: World):
 class TestCartesianTasks:
     """Test suite for all Cartesian motion tasks."""
 
-    def test_front_facing_orientation(self, hsr_world_setup: World):
+    def test_front_facing_orientation(self, hsr_world_setup: World, rclpy_node):
         with hsr_world_setup.modify_world():
             box = Body(
                 name=PrefixedName("muh"),
                 collision=ShapeCollection([Box(scale=Scale(0.1, 0.1, 0.1))]),
             )
-            connection = FixedConnection(
+            dof = DegreeOfFreedom(
+                lower_limits=DerivativeMap(data=[None, -1.0, None, None]),
+                upper_limits=DerivativeMap(data=[None, 1.0, None, None]),
+            )
+            hsr_world_setup.add_degree_of_freedom(dof)
+            connection = PrismaticConnection(
+                dof_id=dof.id,
                 parent=hsr_world_setup.root,
                 child=box,
+                axis=Vector3.Z(reference_frame=hsr_world_setup.root),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=2, z=0.5
+                    x=2, z=0.5, y=1
                 ),
             )
             hsr_world_setup.add_connection(connection)
-
+        viz = VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
         hsr = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
         hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
         msc = MotionStatechart()
@@ -1185,27 +1195,56 @@ class TestCartesianTasks:
         orientation_goal.reference_frame = hsr_world_setup.get_body_by_name(
             "base_footprint"
         )
-        msc.add_node(
-            goal := Parallel(
-                [
-                    CartesianOrientation(
-                        root_link=hsr_world_setup.root,
-                        tip_link=hand.tool_frame,
-                        goal_orientation=orientation_goal,
-                    ),
-                    CartesianPosition(
-                        root_link=hsr_world_setup.root,
-                        tip_link=hand.tool_frame,
-                        goal_point=hsr_world_setup.bodies[-1].global_pose.to_position(),
-                    ),
-                ]
-            )
-        )
-        msc.add_node(EndMotion.when_true(goal))
 
+        pre = PickUp(manipulator=hand, object_geometry=box)
+        msc.add_node(pre)
+
+        # msc.add_node(
+        #     sequence := Sequence(
+        #         [
+        #             Parallel(
+        #                 [
+        #                     CartesianOrientation(
+        #                         root_link=hsr_world_setup.root,
+        #                         tip_link=hand.tool_frame,
+        #                         goal_orientation=orientation_goal,
+        #                     ),
+        #                     CartesianPosition(
+        #                         root_link=hsr_world_setup.root,
+        #                         tip_link=hand.tool_frame,
+        #                         goal_point=hsr_world_setup.bodies[
+        #                             -1
+        #                         ].global_pose.to_position(),
+        #                     ),
+        #                 ]
+        #             ),
+        #             Parallel(
+        #                 [
+        #                     CartesianPose(
+        #                         root_link=hsr_world_setup.root,
+        #                         tip_link=hand.tool_frame,
+        #                         goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+        #                             x=0.2, reference_frame=hand.tool_frame
+        #                         ),
+        #                         binding_policy=GoalBindingPolicy.Bind_on_start,
+        #                     ),
+        #                     CartesianPose(
+        #                         root_link=hand.tool_frame,
+        #                         tip_link=box,
+        #                         goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+        #                             reference_frame=hand.tool_frame
+        #                         ),
+        #                     ),
+        #                 ]
+        #             ),
+        #         ]
+        #     )
+        # )
+        msc.add_node(EndMotion.when_true(pre))
         kin_sim = Executor(world=hsr_world_setup)
         kin_sim.compile(motion_statechart=msc)
         kin_sim.tick_until_end()
+        msc.draw("muh.pdf")
 
     def test_cart_goal_1eef(self, pr2_world_state_reset: World):
         """Single CartesianPose goal test."""
