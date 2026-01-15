@@ -172,6 +172,9 @@ class PickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        grasp = GraspDescription(
+            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
+        )
         SequentialPlan(
             self.context,
             MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
@@ -190,9 +193,7 @@ class PickUpAction(ActionDescription):
         # grasp=gripper.front_facing_orientation
 
         # for arm_chain in self.robot_view.manipulator_chains:
-        grasp = GraspDescription(
-            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
-        )
+
         end_effector = gripper.tool_frame
         # end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
