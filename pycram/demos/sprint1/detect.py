@@ -117,29 +117,33 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
     return body
 
 
+perceived_objects = {}
 # Perceive
 perceived_objects_result = robokudo.query_all_objects().res
-# simple box
 with hsrb_world.modify_world():
     for perceived_object in perceived_objects_result:
         print(perceived_object)
         object_size = perceived_object.shape_size[0].dimensions
         object_pose = perceived_object.pose[0].pose
+        object_time = perceived_object.pose[0].header.stamp
+        object_name = perceived_object.type + object_time.sec + object_time.nanosec
         object_to_spawn = add_box(
-            perceived_object.type,
+            object_name,
             (object_size.x, object_size.y, object_size.z),
         )
+        perceived_objects[object_name] = object_to_spawn
         hsrb_world.add_connection(
             FixedConnection(
                 parent=hsrb_world.root,
                 child=object_to_spawn,
-                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=object_pose.position.x,
-                    y=object_pose.position.y,
-                    z=object_pose.position.z,
-                    roll=object_pose.orientation.x,
-                    pitch=object_pose.orientation.y,
-                    yaw=object_pose.orientation.z,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_quaternion(
+                    pos_x=object_pose.position.x,
+                    pos_y=object_pose.position.y,
+                    pos_z=object_pose.position.z,
+                    quat_x=object_pose.orientation.x,
+                    quat_y=object_pose.orientation.y,
+                    quat_z=object_pose.orientation.z,
+                    quat_w=object_pose.orientation.w,
                 ),
             )
         )
