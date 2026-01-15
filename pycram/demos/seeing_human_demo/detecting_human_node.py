@@ -2,7 +2,8 @@ import rclpy
 from pycram.external_interfaces import robokudo
 
 rclpy.init()
-result = robokudo.query_postion_closest_object()
+result = robokudo.send_query("human")
+# result = robokudo.query_postion_closest_object()
 print(result)
 # result = robokudo.send_query()
 # if result is None:

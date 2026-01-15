@@ -16,7 +16,7 @@ from semantic_digital_twin.robots.hsrb import HSRB
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from pycram.external_interfaces import robokudo_v1
+from pycram.external_interfaces import robokudo
 
 logger = logging.getLogger(__name__)
 _ros2_node = Node("robokudo_interface")
@@ -32,7 +32,7 @@ def checking_for_human():
     Cheking if a human is in front of the camara.
     """
     try:
-        human = robokudo_v1.query_human
+        human = robokudo.query_human
         print(human)
     except:
         logger.info("Error")

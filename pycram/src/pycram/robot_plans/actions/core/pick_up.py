@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
+from semantic_digital_twin.adapters.pose_publisher import PosePublisher
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
@@ -22,10 +23,11 @@ from ....datastructures.enums import (
 from ....datastructures.grasp import GraspDescription
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
+from ....external_interfaces import tmc
 from ....failures import ObjectNotGraspedError
 from ....failures import ObjectNotInGraspingArea
 from ....has_parameters import has_parameters
-from ....language import SequentialPlan
+from ....language import SequentialPlan, CodePlan
 from ....robot_description import RobotDescription
 from ....robot_description import ViewManager
 from ....robot_plans.actions.base import ActionDescription
@@ -88,7 +90,7 @@ class ReachAction(ActionDescription):
             gripper.front_facing_axis.to_np()[:3],
             ActionConfig.pick_up_prepose_distance,
         )
-
+        # PosePublisher(pose=target_pre_pose.to_spatial_type(), node=self.context.ros_node, world=self.world)
         SequentialPlan(
             self.context,
             MoveTCPMotion(target_pre_pose, self.arm, allow_gripper_collision=False),
@@ -172,9 +174,12 @@ class PickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
+        gripper_action = tmc.GripperActionClient()
+
         SequentialPlan(
             self.context,
-            MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
+            CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
             ReachActionDescription(
                 target_pose=PoseStamped.from_spatial_type(
                     self.object_designator.global_pose
@@ -183,10 +188,9 @@ class PickUpAction(ActionDescription):
                 arm=self.arm,
                 grasp_description=self.grasp_description,
             ),
-            MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
+            CodePlan(self.context, gripper_action.send_goal, {"effort": -0.8}),
         ).perform()
 
-        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
         # grasp=gripper.front_facing_orientation
 
         # for arm_chain in self.robot_view.manipulator_chains:

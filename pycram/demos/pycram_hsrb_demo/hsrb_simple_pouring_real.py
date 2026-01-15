@@ -5,18 +5,22 @@ import logging
 
 import numpy as np
 import rclpy
+from rclpy.action import ActionClient
 from rclpy.executors import SingleThreadedExecutor
 from suturo_resources.suturo_map import load_environment
+from tmc_control_msgs.action import GripperApplyEffort
 
 from pycram.datastructures.enums import (
     TorsoState,
     Arms,
     ApproachDirection,
     VerticalAlignment,
+    GripperState,
 )
 from pycram.datastructures.grasp import GraspDescription
-from pycram.language import SequentialPlan
+from pycram.language import SequentialPlan, CodeNode, CodePlan
 from pycram.process_module import simulated_robot, real_robot
+from semantic_digital_twin.adapters.pose_publisher import PosePublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import (
     FetchWorldServer,
     fetch_world_from_service,
@@ -32,6 +36,8 @@ from pycram.robot_plans import (
     MoveTorsoActionDescription,
     PickUpAction,
     PickUpActionDescription,
+    MoveGripperMotion,
+    SetGripperActionDescription,
 )
 from pycram.robot_plans import ParkArmsActionDescription
 from pycram.datastructures.dataclasses import Context
@@ -40,7 +46,7 @@ from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 import pycram.alternative_motion_mappings.hsrb_motion_mapping
-
+from pycram.external_interfaces import tmc
 
 logger = logging.getLogger(__name__)
 rclpy.init()
@@ -65,7 +71,9 @@ state_sync = StateSynchronizer(world=hsrb_world, node=node)
 
 try:
     hsrb_world.get_body_by_name("bowl.stl")
+    logger.debug("was in true")
 except Exception as e:
+    logger.debug(e)
     env_world = load_environment()
     bowl_world = STLParser(
         os.path.join(
@@ -82,42 +90,28 @@ except Exception as e:
         hsrb_world.merge_world_at_pose(
             milk_world,
             pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.9, y=5.7, z=0.78, yaw=np.pi / 2
+                x=0.9, y=5.7, z=0.8, yaw=np.pi / 2
             ),
         )
-        # hsrb_world.merge_world_at_pose(
-        #     milk_world,
-        #     pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.38, y=3.5, z=0.74),
-        # )
 
-VizMarkerPublisher(hsrb_world, node)
-
+VizMarkerPublisher(hsrb_world, node, throttle_state_updates=5)
+# PosePublisher(hsrb_world, node)
 context = Context(
     hsrb_world, hsrb_world.get_semantic_annotations_by_type(HSRB)[0], ros_node=node
 )
 gripper = hsrb_world.get_semantic_annotations_by_type(ParallelGripper)[0]
-# grasp=gripper.front_facing_orientation
-
-# for arm_chain in self.robot_view.manipulator_chains:
 grasp = GraspDescription(ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False)
 
-#          .calculate_grasp_orientation(gripper.front_facing_orientation.to_np()))
-#
-# print(grasp)
+
 plan = SequentialPlan(
     context,
     ParkArmsActionDescription(Arms.BOTH),
-    # \MoveTorsoActionDescription(TorsoState.HIGH),
-    # PouringActionDescription(world.get_body_by_name("milk.stl")),
+    MoveTorsoActionDescription(TorsoState.HIGH),
     PickUpActionDescription(
-        object_designator=hsrb_world.get_body_by_name("milk.stl"),
         arm=Arms.LEFT,
+        object_designator=hsrb_world.get_body_by_name("milk.stl"),
         grasp_description=grasp,
     ),
 )
-# )
-# SimplePouringActionDescription(hsrb_world.get_body_by_name("bowl.stl"), Arms.LEFT),
-
-
 with real_robot:
     plan.perform()

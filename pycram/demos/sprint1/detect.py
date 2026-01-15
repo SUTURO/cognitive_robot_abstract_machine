@@ -79,23 +79,23 @@ except Exception as e:
     #         os.path.dirname(__file__), "..", "..", "resources", "objects", "bowl.stl"
     #     )
     # ).parse()
-    # milk_world = STLParser(
-    #     os.path.join(
-    #         os.path.dirname(__file__), "..", "..", "resources", "objects", "milk.stl"
-    #     )
-    # ).parse()
+    milk_world = STLParser(
+        os.path.join(
+            os.path.dirname(__file__), "..", "..", "resources", "objects", "milk.stl"
+        )
+    ).parse()
     with hsrb_world.modify_world():
         hsrb_world.merge_world(env_world)
-        # hsrb_world.merge_world_at_pose(
-        #     milk_world,
-        #     pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-        #         x=0.9, y=5.7, z=0.78, yaw=np.pi / 2
-        #     ),
-        # )
-        # hsrb_world.merge_world_at_pose(
-        #     milk_world,
-        #     pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.38, y=3.5, z=0.74),
-        # )
+        hsrb_world.merge_world_at_pose(
+            milk_world,
+            pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=0.9, y=5.7, z=0.78, yaw=np.pi / 2
+            ),
+        )
+        hsrb_world.merge_world_at_pose(
+            milk_world,
+            pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.38, y=3.5, z=0.74),
+        )
 
 VizMarkerPublisher(hsrb_world, node)
 
@@ -139,17 +139,17 @@ with hsrb_world.modify_world():
 #          .calculate_grasp_orientation(gripper.front_facing_orientation.to_np()))
 #
 # print(grasp)
-# plan = SequentialPlan(
-#     context,
-#     ParkArmsActionDescription(Arms.BOTH),
-#     # \MoveTorsoActionDescription(TorsoState.HIGH),
-#     # PouringActionDescription(world.get_body_by_name("milk.stl")),
-#     PickUpActionDescription(
-#         object_designator=hsrb_world.get_body_by_name("milk.stl"),
-#         arm=Arms.LEFT,
-#         grasp_description=grasp,
-#     ),
-# )
+plan = SequentialPlan(
+    context,
+    ParkArmsActionDescription(Arms.BOTH),
+    # \MoveTorsoActionDescription(TorsoState.HIGH),
+    # PouringActionDescription(world.get_body_by_name("milk.stl")),
+    PickUpActionDescription(
+        object_designator=hsrb_world.get_body_by_name("milk.stl"),
+        arm=Arms.LEFT,
+        grasp_description=grasp,
+    ),
+)
 # )
 # SimplePouringActionDescription(hsrb_world.get_body_by_name("bowl.stl"), Arms.LEFT),
 
