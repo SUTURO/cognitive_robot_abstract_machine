@@ -163,7 +163,7 @@ def query_object(obj_desc: ObjectDesignatorDescription) -> dict:
 
 @init_robokudo_interface
 def query_object_str(obj_desc: ObjectDesignatorDescription) -> dict:
-    return send_query()
+    return send_query(obj_type=obj_desc)
 
 
 """
