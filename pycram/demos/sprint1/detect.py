@@ -70,42 +70,12 @@ hsrb_world = fetch_world_from_service(node)
 model_sync = ModelSynchronizer(world=hsrb_world, node=node)
 state_sync = StateSynchronizer(world=hsrb_world, node=node)
 
-try:
-    hsrb_world.get_body_by_name("bowl.stl")
-except Exception as e:
-    env_world = load_environment()
-    # bowl_world = STLParser(
-    #     os.path.join(
-    #         os.path.dirname(__file__), "..", "..", "resources", "objects", "bowl.stl"
-    #     )
-    # ).parse()
-    milk_world = STLParser(
-        os.path.join(
-            os.path.dirname(__file__), "..", "..", "resources", "objects", "milk.stl"
-        )
-    ).parse()
-    with hsrb_world.modify_world():
-        hsrb_world.merge_world(env_world)
-        hsrb_world.merge_world_at_pose(
-            milk_world,
-            pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.9, y=5.7, z=0.78, yaw=np.pi / 2
-            ),
-        )
-        hsrb_world.merge_world_at_pose(
-            milk_world,
-            pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.38, y=3.5, z=0.74),
-        )
-
 VizMarkerPublisher(hsrb_world, node)
 
 context = Context(
     hsrb_world, hsrb_world.get_semantic_annotations_by_type(HSRB)[0], ros_node=node
 )
 gripper = hsrb_world.get_semantic_annotations_by_type(ParallelGripper)[0]
-# grasp=gripper.front_facing_orientation
-
-# for arm_chain in self.robot_view.manipulator_chains:
 grasp = GraspDescription(ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False)
 
 
@@ -126,7 +96,7 @@ with hsrb_world.modify_world():
         object_size = perceived_object.shape_size[0].dimensions
         object_pose = perceived_object.pose[0].pose
         object_time = perceived_object.pose[0].header.stamp
-        object_name = perceived_object.type + object_time.sec + object_time.nanosec
+        object_name = f"{perceived_object.type}{object_time.sec}{object_time.nanosec}"
         object_to_spawn = add_box(
             object_name,
             (object_size.x, object_size.y, object_size.z),
@@ -147,25 +117,3 @@ with hsrb_world.modify_world():
                 ),
             )
         )
-
-
-#          .calculate_grasp_orientation(gripper.front_facing_orientation.to_np()))
-#
-# print(grasp)
-plan = SequentialPlan(
-    context,
-    ParkArmsActionDescription(Arms.BOTH),
-    # \MoveTorsoActionDescription(TorsoState.HIGH),
-    # PouringActionDescription(world.get_body_by_name("milk.stl")),
-    PickUpActionDescription(
-        object_designator=hsrb_world.get_body_by_name("milk.stl"),
-        arm=Arms.LEFT,
-        grasp_description=grasp,
-    ),
-)
-# )
-# SimplePouringActionDescription(hsrb_world.get_body_by_name("bowl.stl"), Arms.LEFT),
-
-
-# with real_robot:
-#     plan.perform()
