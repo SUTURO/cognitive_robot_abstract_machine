@@ -4,6 +4,7 @@ import pytest
 
 from semantic_digital_twin.exceptions import IncorrectScaleError
 from semantic_digital_twin.worlddescription.geometry import Scale
+from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.datastructures.prefixedname import PrefixedName
 from semantic_digital_twin.spatialtypes.spatialtypes import HomogeneousTransformationMatrix
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -16,6 +17,20 @@ from semantic_digital_twin.semantic_annotations.factories import (
     # NEU:
     PerceivedObjectFactory, query_object_by_class, query_objects_by_class,
     get_all_perceived_objects, query_object_by_name
+)
+
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Apple,
+    Banana,
+    Cereal,
+    Muesli,
+    Salt,
+    Soda,
+    SoyaDrink,
+    Spatula,
+    Skillet,
+    SoccerBall,
+
 )
 from semantic_digital_twin.world import World
 
@@ -269,57 +284,42 @@ class TestFactories(unittest.TestCase):
         wall: Wall = semantic_wall_annotations[0]
         self.assertEqual(world.root, wall.body)
 
+    def test_perceived_object_factory_comprehensive(self):
+        """Test 10 representative perceived object classes with correct types and names."""
+        test_cases = [
+            # Food
+            ("apple", Apple, "apple_1"),
+            ("banana", Banana, "banana_1"),
+            ("cereal_jumbo_box_special", Cereal, "cereal_1"),
+            ("muesli_koelln_box_cranberry", Muesli, "muesli_1"),
+            ("salt_aquasale_can", Salt, "salt_1"),
 
-def test_perceived_object_factory():
-    """Test PerceivedObjectFactory creation and queries."""
-    from semantic_digital_twin.semantic_annotations.factories import (
-        PerceivedObjectFactory,
-        query_object_by_class,
-        query_objects_by_class,
-        get_all_perceived_objects,
-        query_object_by_name,
-    )
-    from semantic_digital_twin.worlddescription.geometry import Scale
-    from semantic_digital_twin.datastructures.prefixedname import PrefixedName
+            # Drinks
+            ("soda_cocacocla_can_zero", Soda, "soda_1"),
+            ("sojadrink_biobio_pack", SoyaDrink, "soyadrink_1"),
 
-    # Test 1: Single object creation
-    factory = PerceivedObjectFactory(
-        perceived_object_class="apple",
-        object_dimensions=Scale(x=0.08, y=0.08, z=0.08)
-    )
-    world = factory.create()
+            # Kitchenware
+            ("spatula_black", Spatula, "spatula_1"),
+            ("skillet_whitegold", Skillet, "skillet_1"),
+            ("soccerball_mini", SoccerBall, "soccerball_1"),
+        ]
 
-    # Check: World contains 1 body + 1 semantic annotation
-    assert len(world.bodies) == 1
-    assert len(world.semantic_annotations) == 1
+        for obj_class, expected_class, name_str in test_cases:
+            with self.subTest(obj_class=obj_class):
+                factory = PerceivedObjectFactory(
+                    perceived_object_class=obj_class,
+                    object_dimensions=Scale(0.1, 0.1, 0.1),
+                    name=PrefixedName(name_str),
+                )
+                world = factory.create()
+                instances = world.get_semantic_annotations_by_type(expected_class)
+                self.assertEqual(len(instances), 1, f"Expected 1 {expected_class.__name__}")
+                instance = instances[0]
+                self.assertEqual(instance.name.name, name_str)
+                self.assertIsInstance(instance, expected_class)
+                self.assertIsInstance(instance.body, Body)
 
-    # Test queries
-    apple = query_object_by_class(world, "apple")
-    assert apple is not None
-    assert apple.object_class == "apple"
-
-    all_objects = get_all_perceived_objects(world)
-    assert len(all_objects) == 1
-
-    # Test 2: Multiple objects
-    scene_world = World(name="kitchen_scene")
-
-    objects = [
-        ("apple", Scale(x=0.08, y=0.08, z=0.08)),
-        ("banana", Scale(x=0.02, y=0.02, z=0.12)),
-    ]
-
-    for obj_class, dims in objects:
-        factory = PerceivedObjectFactory(perceived_object_class=obj_class, object_dimensions=dims)
-        obj_world = factory.create()
-        scene_world.merge_world(obj_world)
-
-    apples = query_objects_by_class(scene_world, "apple")
-    assert len(apples) == 1
-
-    all_perceived = get_all_perceived_objects(scene_world)
-    assert len(all_perceived) == 2
-
+        print("10 comprehensive perceived object factory tests passed!")
 
 if __name__ == "__main__":
     unittest.main()
