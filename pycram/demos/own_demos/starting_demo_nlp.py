@@ -169,7 +169,7 @@ def main():
 
                 sleep(3) # Give processes some buffer time - needed, otherwise doesn't work sometimes
 
-                # gets nlp input
+                # gets nlp input    TODO: pull updated Rasa Model and change nlp.start_nlp() to input confirmation loop
                 # nlp.input_confirmation_loop(4)
                 nlp.start_nlp()
 

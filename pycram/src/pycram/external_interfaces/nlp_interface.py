@@ -1,7 +1,3 @@
-# =========================
-# Imports
-# =========================
-
 # Standard library imports
 import json
 import time
@@ -14,10 +10,6 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import String
-
-
-
-callback = False
 
 
 # TODO: replace print with talking function
@@ -33,29 +25,32 @@ class NlpInterface(ABC):
     - An abstract method for filtering NLP responses
     """
 
-    """
-    Stores the last NLP output
-    Format:
-    last_output = [
-        sentence,
-        intent,
-        entities[entity_elem[]]
-    ], mit
-    entity_elem = [role, value, entity, propertyAttributes[], actionAttributes[], numberAttributes[]
-    """
-    last_output = []
-
-    # Stores the last confirmation result (affirm / deny)
-    last_confirmation = []
-
-    # Timeout (in seconds) for waiting for NLP responses, default: 15
-    timeout : int = 15
-
     def __init__(self):
         # Initialize the ROS2 NLP node
         self.node = NlpNode()
 
-    # TODO: für die anderen Gruppen functions vorschreiben zum Filtern
+        """
+        stores the last NLP output
+        """
+        self.last_output = []
+
+        """
+        if multiple outputs are expected, all outputs from one input
+        """
+        self.all_last_outputs : list[list[Any]] = []
+
+        """
+        Stores the last confirmation result 
+        (affirm / deny)
+        """
+        self.last_confirmation = []
+
+        """
+        Timeout (in seconds) for waiting for NLP responses, default: 15
+        """
+        self.timeout: int = 15
+
+    # TODO: write functions for all challenges
     """
     List of intents and roles
         ---Intent List:---
@@ -78,7 +73,7 @@ class NlpInterface(ABC):
         deny
         receptionist
         order
-        
+
         ---Roles:---
         NatrualPerson = Person,  
         drink = Drink, 
@@ -89,8 +84,9 @@ class NlpInterface(ABC):
         Clothing = Clothes, 
         Transportable = Item
     """
+
     @abstractmethod
-    def filter_response(self, response : list[Any], challenge : str):
+    def filter_response(self, response: list[Any], challenge: str):
         """
         Filters and post-processes the NLP response depending on the challenge.
 
@@ -102,13 +98,12 @@ class NlpInterface(ABC):
         """ draft start
         match challenge:
             case "GPSR":
-                NotImplemented()
+                raise NotImplementedError()
             """
 
-        NotImplemented()
+        raise NotImplementedError()
 
-
-    def input_confirmation_loop(self, tries : int):
+    def input_confirmation_loop(self, tries: int):
         """
         Repeatedly asks the user for a command and confirms it.
 
@@ -147,13 +142,11 @@ class NlpInterface(ABC):
 
         return self.last_output
 
-
-
     def start_nlp(self):
         """
-        Starts the NLP process and stores the result in last_output.
+        Starts the NLP process and stores the result in last_output and all_last_outputs.
         """
-        self.last_output = NlpNode.talk_nlp(self.node, timeout=self.timeout)
+        (self.last_output, self.all_last_outputs) = self.node.talk_nlp(timeout=self.timeout)
 
     def confirm_last_response(self):
         """
@@ -183,9 +176,6 @@ class NlpInterface(ABC):
 
         # Fallback return value
         return False
-        
-        
-
 
 
 class NlpNode(Node):
@@ -199,6 +189,7 @@ class NlpNode(Node):
     - Parse NLP output into a structured Python list.
     - Expose a blocking `talk_nlp()` call that waits for NLP results.
     """
+
     def __init__(self):
 
         # Initialize ROS2 node with name "nlp"
@@ -239,9 +230,14 @@ class NlpNode(Node):
         self.get_logger().info(f"NLP output: {data}")
         try:
             return json.loads(data)
-        except:
-            rclpy.logwarn("Failed to parse NLP")
-            return None
+        except json.JSONDecodeError as e:
+            self.get_logger().warning(f"decode failed: {e}")
+        except KeyError as e:
+            self.get_logger().warning(f"missing key: {e}")
+        except TypeError as e:
+            self.get_logger().warning(f"Invalid type while parsing: {e}")
+
+        return None
 
     def _data_callback(self, data):
         """
@@ -289,8 +285,8 @@ class NlpNode(Node):
 
             entity_elems = []
             for entity in entities:
-                entity_elem = [entity.get('role'), entity.get('value'), entity.get('entity'), 
-                               entity.get('propertyAttribute'),entity.get('actionAttribute'), 
+                entity_elem = [entity.get('role'), entity.get('value'), entity.get('entity'),
+                               entity.get('propertyAttribute'), entity.get('actionAttribute'),
                                entity.get('numberAttribute')]
 
                 entity_elems.append(entity_elem)
@@ -299,9 +295,7 @@ class NlpNode(Node):
         except (ValueError, SyntaxError, IndexError) as e:
             self.get_logger().error(f"Error parsing string: {e}")
 
-
-
-    def talk_nlp(self, timeout : int):
+    def talk_nlp(self, timeout: int):
         """
         Triggers the NLP system and waits synchronously for a response.
 
@@ -310,7 +304,7 @@ class NlpNode(Node):
 
         Returns:
             list | None:
-                - Parsed NLP response list if successful
+                - Parsed NLP response list if successful and all outputs in 1.5 seconds
                 - None if no response arrives within timeout
         """
         # Initial delay before triggering NLP
@@ -329,13 +323,29 @@ class NlpNode(Node):
         while not self.response and (time.time() - start_time < timeout):
             executor.spin_once(timeout_sec=0.1)
 
+        all_out : list[list[Any]] = []
+
         if self.response:
+            # sometimes multiple outputs, have to wait to ensure all of them are received
+            old_res = self.response
+            all_out.append(self.response)
+            second_start_time = time.time()
+            while (time.time() - second_start_time) < 2:
+                new_res = self.response
+                if new_res != old_res:
+                    res = self.response
+                    all_out.append(res)
+                    print (self.response)
+                    old_res = new_res
+                executor.spin_once(timeout_sec=0.05)
+            print(all_out)
+
             self.get_logger().info(f"Received response: {self.response}")
 
             # Save and reset response
             resp = self.response
             self.response = None
-            return resp
+            return resp, all_out
         else:
             self.get_logger().info(f"No response received within timeout")
             print("Sorry, I couldn't understand.")
@@ -357,6 +367,5 @@ class NlpNode(Node):
         self.nlp_pub.publish(msg)
         self.get_logger().info(f"Publishing once: {msg}")
         print("speak now: ..................")
-
 
 
