@@ -36,7 +36,7 @@ class HSRGripper(Enum):
 class PickUp(Goal):
     # root_link: KinematicStructureEntity = field(kw_only=True)
     # NOTE: Pickup should be called split, meaning grabbing first and then separately retracting
-    # because after grasping the object it should get attached to the too frame in semdt
+    # because after grasping the object it should get attached to the tool frame in semdt
     manipulator: Manipulator = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
@@ -45,14 +45,14 @@ class PickUp(Goal):
         super().expand(context)
         self.sequence = Sequence(
             [
-                OpenHand(manipulator=self.manipulator),
+                # OpenHand(manipulator=self.manipulator),
                 PreGraspPose(
                     manipulator=self.manipulator, object_geometry=self.object_geometry
                 ),
                 Grasping(
                     manipulator=self.manipulator, object_geometry=self.object_geometry
                 ),
-                CloseHand(manipulator=self.manipulator, ft=self.ft),
+                # CloseHand(manipulator=self.manipulator, ft=self.ft),
                 PullUp(manipulator=self.manipulator, ft=self.ft),
                 # Retracting(manipulator=self.manipulator)
             ]
@@ -64,21 +64,20 @@ class PickUp(Goal):
         artifacts.observation = self.sequence.observation_variable
         return artifacts
 
-
-@dataclass(repr=False, eq=False)
-class OpenHand(Goal):
-    # NOTE: Only works in simulation, giskard cant move gripper irl
-    manipulator: Manipulator = field(kw_only=True)
-
-    def expand(self, context: BuildContext) -> None:
-        # TODO remove hsr hardcoding
-        position_list = JointPositionList(
-            goal_state=JointState.from_str_dict(
-                {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
-            )
-        )
-        self.joint_goal = position_list
-        self.add_node(self.joint_goal)
+    # @dataclass(repr=False, eq=False)
+    # class OpenHand(Goal):
+    #     # NOTE: Only works in simulation, giskard cant move gripper irl
+    #     manipulator: Manipulator = field(kw_only=True)
+    #
+    #     def expand(self, context: BuildContext) -> None:
+    #         # TODO remove hsr hardcoding
+    #         position_list = JointPositionList(
+    #             goal_state=JointState.from_str_dict(
+    #                 {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
+    #             )
+    #         )
+    #         self.joint_goal = position_list
+    #         self.add_node(self.joint_goal)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
@@ -105,6 +104,10 @@ class PreGraspPose(Goal):
         object_up.reference_frame = self.object_geometry
 
         # TODO Check object dimensions & orientation for best grasp direction
+        # HSR can only really do front grasping
+        # Bcs of that pycram pickup did it so that the robot is always grasping the object from its
+        # front facing axis (which was the x axis, the longest dimension of the object)
+        # even though the object could have fit from a longer side
         # Calculate pre-grasp position on robot->object vector
         robot_pos = self.manipulator.tool_frame.global_pose
         obj_to_robot = Vector3()
@@ -163,10 +166,6 @@ class Grasping(Goal):
 
     def expand(self, context: BuildContext) -> None:
         # TODO implement better grasping motion
-        # HSR can only really do front grasping
-        # Bcs of that pycram pickup did it so that the robot is always grasping the object from its
-        # front facing axis (which was the x axis, the longest dimension of the object)
-        # even though the object could have fit from a longer side
         goal_point = Point3()
         goal_point.x = self.object_geometry.global_pose.x
         goal_point.y = self.object_geometry.global_pose.y
@@ -188,25 +187,26 @@ class Grasping(Goal):
         return artifacts
 
 
-@dataclass(repr=False, eq=False)
-class CloseHand(Goal):
-    # NOTE: Only works in simulation, giskard cant move gripper irl
-    manipulator: Manipulator = field(kw_only=True)
-    ft: bool = field(kw_only=True, default=False)
-
-    def expand(self, context: BuildContext) -> None:
-        # TODO remove hsr hardcoding
-        self.joint_goal = JointPositionList(
-            goal_state=JointState.from_str_dict(
-                {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
-            )
-        )
-        self.add_node(self.joint_goal)
-
-    def build(self, context: BuildContext) -> NodeArtifacts:
-        artifacts = super().build(context)
-        artifacts.observation = self.joint_goal.observation_variable
-        return artifacts
+#
+# @dataclass(repr=False, eq=False)
+# class CloseHand(Goal):
+#     # NOTE: Only works in simulation, giskard cant move gripper irl
+#     manipulator: Manipulator = field(kw_only=True)
+#     ft: bool = field(kw_only=True, default=False)
+#
+#     def expand(self, context: BuildContext) -> None:
+#         # TODO remove hsr hardcoding
+#         self.joint_goal = JointPositionList(
+#             goal_state=JointState.from_str_dict(
+#                 {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
+#             )
+#         )
+#         self.add_node(self.joint_goal)
+#
+#     def build(self, context: BuildContext) -> NodeArtifacts:
+#         artifacts = super().build(context)
+#         artifacts.observation = self.joint_goal.observation_variable
+#         return artifacts
 
 
 @dataclass(repr=False, eq=False)
