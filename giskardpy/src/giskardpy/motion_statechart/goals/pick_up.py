@@ -150,26 +150,12 @@ class PreGraspPose(Goal):
             ),  # approach along Z -> face is XxY
         ]
 
-        # Determine grasp direction based on gripper orientation
-        if self.prefer_front_grasp:
-            if self.gripper_vertical and obj_bbox.height <= self.gripper_width:
-                grasp_axis = Vector3.X(self.object_geometry)
-            elif not self.gripper_vertical and obj_bbox.width <= self.gripper_width:
-                grasp_axis = Vector3.X(self.object_geometry)
-            else:
-                valid_faces = []
-                for v, (d1, d2) in faces:
-                    if self.gripper_vertical and min(d1, d2) <= self.gripper_width:
-                        valid_faces.append((v, (d1, d2)))
-                    elif not self.gripper_vertical and d1 <= self.gripper_width:
-                        valid_faces.append((v, (d1, d2)))
-                if not valid_faces:
-                    raise Exception(
-                        "No valid grasp face found for current gripper orientation"
-                    )
-                grasp_axis = max(
-                    valid_faces, key=lambda x: abs(x[0].dot(obj_to_robot))
-                )[0]
+        # Determine grasp direction
+        if self.prefer_front_grasp and (
+            obj_bbox.width <= self.gripper_width
+            or obj_bbox.height <= self.gripper_width
+        ):
+            grasp_axis = Vector3.X(self.object_geometry)
         else:
             valid_faces = [
                 (v, (d1, d2))
