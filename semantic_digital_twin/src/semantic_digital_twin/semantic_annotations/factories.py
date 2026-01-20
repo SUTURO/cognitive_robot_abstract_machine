@@ -1575,20 +1575,26 @@ class PerceivedObjectFactory(SemanticAnnotationFactory[SemanticAnnotation]):
     object_dimensions: Scale
     name: Optional[PrefixedName] = None
 
-    def __post_init__(self) -> None:
+    def __init__(self, perceived_object_class: str, object_dimensions: Scale, name: Optional[PrefixedName] = None):
         """
-        Validate that the perceived_object_class exists in the mapping.
+        Initialize the factory.
+
+        :param perceived_object_class: Class name of the object, e.g., "apple"
+        :param object_dimensions: Dimensions (x, y, z) in meters as Scale
+        :param name: Optional name; if None, the class name is used
         """
-        if self.perceived_object_class not in PERCEIVED_OBJECT_MAPPING:
+        if perceived_object_class not in PERCEIVED_OBJECT_MAPPING:
             raise ValueError(
-                f"Unknown perceived object class: {self.perceived_object_class}. "
+                f"Unknown perceived object class: {perceived_object_class}. "
                 f"Must be in PERCEIVED_OBJECT_MAPPING."
             )
 
-        if self.name is None:
-            self.name = PrefixedName(self.perceived_object_class)
+        self.perceived_object_class = perceived_object_class
+        self.object_dimensions = object_dimensions
+        self.name = name or PrefixedName(perceived_object_class)
 
-        self._target_class = PERCEIVED_OBJECT_MAPPING[self.perceived_object_class]
+        # Store the target class
+        self._target_class = PERCEIVED_OBJECT_MAPPING[perceived_object_class]
 
     def _create(self, world: World) -> World:
         """
