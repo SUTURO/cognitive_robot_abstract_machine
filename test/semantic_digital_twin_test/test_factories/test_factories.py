@@ -300,7 +300,5 @@ class TestFactories(unittest.TestCase):
         self.assertIsInstance(instance, Apple)
         self.assertIsInstance(instance.body, Body)
 
-        print("✅ PerceivedObjectFactory test passed (one representative case).")
-
 if __name__ == "__main__":
     unittest.main()
