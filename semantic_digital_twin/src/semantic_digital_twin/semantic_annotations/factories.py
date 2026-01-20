@@ -1568,50 +1568,57 @@ PERCEIVED_OBJECT_MAPPING = {
 class PerceivedObjectFactory(SemanticAnnotationFactory[SemanticAnnotation]):
     """
     Factory for creating a perceived object from the perception system.
-    ...
     """
 
-    perceived_object_class: str
-    object_dimensions: Scale
+    perceived_object_class: str = field(kw_only=True)
+    """
+    String identifier of the perceived object class as provided by Perception.
+    """
+
+    object_dimensions: Scale = field(kw_only=True)
+    """
+    Dimensions of the perceived object (x, y, z) in meters.
+    """
+
     name: Optional[PrefixedName] = None
+    """
+    Optional name of the perceived object.
 
-    def __init__(self, perceived_object_class: str, object_dimensions: Scale, name: Optional[PrefixedName] = None):
-        """
-        Initialize the factory.
+    If not provided, a name is generated automatically from the object class.
+    """
 
-        :param perceived_object_class: Class name of the object, e.g., "apple"
-        :param object_dimensions: Dimensions (x, y, z) in meters as Scale
-        :param name: Optional name; if None, the class name is used
-        """
-        if perceived_object_class not in PERCEIVED_OBJECT_MAPPING:
+    def __post_init__(self) -> None:
+        if self.perceived_object_class not in PERCEIVED_OBJECT_MAPPING:
             raise ValueError(
-                f"Unknown perceived object class: {perceived_object_class}. "
-                f"Must be in PERCEIVED_OBJECT_MAPPING."
+                f"Unknown perceived object class: {self.perceived_object_class}"
             )
 
-        self.perceived_object_class = perceived_object_class
-        self.object_dimensions = object_dimensions
-        self.name = name or PrefixedName(perceived_object_class)
+        if self.name is None:
+            self.name = PrefixedName(self.perceived_object_class)
 
-        # Store the target class
-        self._target_class = PERCEIVED_OBJECT_MAPPING[perceived_object_class]
+        self._target_class = PERCEIVED_OBJECT_MAPPING[self.perceived_object_class]
 
     def _create(self, world: World) -> World:
         """
-        Create the perceived object in the world.
+        Create the perceived object in the given world.
 
-        :param world: The world to create the object in.
-        :return: The world with the object added.
+        :param world: World in which the perceived object should be created.
+        :return: World containing the newly created body and semantic annotation.
         """
+        # Create body from perceived dimensions
         object_body = Body(name=self.name)
         object_event = self.object_dimensions.simple_event.as_composite_set()
+
         collision_shapes = BoundingBoxCollection.from_event(
             object_body, object_event
         ).as_shapes()
+
         object_body.collision = collision_shapes
         object_body.visual = collision_shapes
+
         world.add_kinematic_structure_entity(object_body)
 
+        # Create the corresponding semantic annotation
         semantic_annotation = self._target_class(
             name=self.name,
             body=object_body,
