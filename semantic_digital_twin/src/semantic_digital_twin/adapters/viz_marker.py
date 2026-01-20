@@ -85,6 +85,8 @@ class VizMarkerPublisher(StateChangeCallback):
         :return: An Array of Visualization Marker
         """
         marker_array = MarkerArray()
+        if self.world.world_is_being_modified:
+            return marker_array
         for body in self.world.bodies:
             for i, collision in enumerate(body.collision):
                 msg = Marker()
