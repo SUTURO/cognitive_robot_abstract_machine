@@ -134,6 +134,7 @@ class PreGraspPose(Goal):
         obj_to_robot.norm()
         print(f"Object->robot vector on expand: {obj_to_robot}")
 
+        # TODO consider gripper orientation
         faces = [
             # (axis_vector, (face_dim1, face_dim2))
             (
@@ -248,13 +249,12 @@ class PreGraspPose(Goal):
         self.add_node(parallel := Parallel(align_nodes))
         self.parallel = parallel
 
-
-def build(self, context: BuildContext) -> NodeArtifacts:
-    artifacts = super().build(context)
-    artifacts.observation = trinary_logic_and(
-        self.parallel.observation_variable, self._cart_pose.observation_variable
-    )
-    return artifacts
+    def build(self, context: BuildContext) -> NodeArtifacts:
+        artifacts = super().build(context)
+        artifacts.observation = trinary_logic_and(
+            self.parallel.observation_variable, self._cart_pose.observation_variable
+        )
+        return artifacts
 
 
 # def on_end(self, context: ExecutionContext):
