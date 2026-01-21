@@ -158,7 +158,7 @@ def query_current_human_postion_in_continues():
         # Send goal
         send_query(obj_type="human", continues=True)
     rclpy.spin_once(chd, timeout_sec=0.5)
-    return current_human_position.point
+    return current_human_position
 
 
 @init_robokudo_interface
