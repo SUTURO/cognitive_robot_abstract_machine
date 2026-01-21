@@ -3,10 +3,12 @@ import os
 import time
 import unittest
 import uuid
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Optional, List
 from uuid import uuid4
 
 import numpy as np
+import pytest
 import sqlalchemy
 from pkg_resources import resource_filename
 from sqlalchemy import select
@@ -20,6 +22,7 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
 )
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import MissingWorldModificationContextError
 from semantic_digital_twin.orm.ormatic_interface import Base, WorldMappingDAO
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
@@ -35,7 +38,17 @@ from semantic_digital_twin.world_description.connections import (
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+    SemanticAnnotation,
+)
+from semantic_digital_twin.world_description.world_modification import (
+    AttributeUpdateModification,
+)
+from semantic_digital_twin.semantic_annotations.mixins import (
+    synchronized_attribute_modification,
+)
+from krrood.adapters.json_serializer import JSONAttributeDiff
 
 
 def create_dummy_world(w: Optional[World] = None) -> World:
@@ -535,6 +548,146 @@ def test_attribute_updates(rclpy_node):
     assert [hash(sa) for sa in world1.semantic_annotations] == [
         hash(sa) for sa in world2.semantic_annotations
     ], f"{[sa.name for sa in world1.semantic_annotations]} vs {[sa.name for sa in world2.semantic_annotations]}"
+
+
+@dataclass(eq=False)
+class TestAnnotation(SemanticAnnotation):
+    value: str = "default"
+    entity: Optional[Body] = None
+    entities: List[Body] = field(default_factory=list, hash=False)
+
+    @synchronized_attribute_modification
+    def update_value(self, new_value: str):
+        self.value = new_value
+
+    @synchronized_attribute_modification
+    def update_entity(self, new_entity: Body):
+        self.entity = new_entity
+
+    @synchronized_attribute_modification
+    def add_to_list(self, new_entity: Body):
+        self.entities.append(new_entity)
+
+    @synchronized_attribute_modification
+    def remove_from_list(self, old_entity: Body):
+        self.entities.remove(old_entity)
+
+
+def test_synchronized_attribute_modification(rclpy_node):
+    w1 = World(name="w1")
+    w2 = World(name="w2")
+    sync1 = ModelSynchronizer(node=rclpy_node, world=w1)
+    sync2 = ModelSynchronizer(node=rclpy_node, world=w2)
+
+    # Allow time for publishers/subscribers to connect
+    time.sleep(0.5)
+
+    # 1. Add TestAnnotation and some bodies to w1
+    b1 = Body(name=PrefixedName("b1"))
+    b2 = Body(name=PrefixedName("b2"))
+    anno = TestAnnotation(name=PrefixedName("anno"))
+
+    with w1.modify_world():
+        w1.add_body(b1)
+        w1.add_body(b2)
+        w1.add_connection(FixedConnection(parent=b1, child=b2))
+        w1.add_semantic_annotation(anno)
+
+    time.sleep(0.5)
+
+    # Verify initial sync
+    assert len(w2.kinematic_structure_entities) == 2
+    assert len(w2.semantic_annotations) == 1
+
+    anno2 = w2.semantic_annotations[0]
+    assert isinstance(anno2, TestAnnotation)
+    assert anno2.value == "default"
+    assert anno2.entity is None
+    assert len(anno2.entities) == 0
+
+    # 2. Test single attribute modification (primitive)
+    with w1.modify_world():
+        anno.update_value("new_value")
+
+    time.sleep(0.5)
+    assert anno2.value == "new_value"
+
+    # 3. Test single attribute modification (entity)
+    with w1.modify_world():
+        anno.update_entity(b1)
+
+    time.sleep(0.5)
+    assert anno2.entity is not None
+    assert anno2.entity.id == b1.id
+
+    # 4. Test list attribute modification (addition)
+    with w1.modify_world():
+        anno.add_to_list(b1)
+        anno.add_to_list(b2)
+
+    time.sleep(0.5)
+    assert len(anno2.entities) == 2
+    assert w2.get_kinematic_structure_entity_by_id(b1.id) in anno2.entities
+    assert w2.get_kinematic_structure_entity_by_id(b2.id) in anno2.entities
+
+    # 5. Test list attribute modification (removal)
+    with w1.modify_world():
+        anno.remove_from_list(b1)
+
+    time.sleep(0.5)
+    assert len(anno2.entities) == 1
+    assert w2.get_kinematic_structure_entity_by_id(b1.id) not in anno2.entities
+    assert w2.get_kinematic_structure_entity_by_id(b2.id) in anno2.entities
+
+    # 6. Test attribute modification with invalid context
+    with pytest.raises(MissingWorldModificationContextError):
+        anno.update_value("new_value")
+
+    sync1.close()
+    sync2.close()
+
+
+def test_attribute_update_modification_apply_direct():
+    w = World(name="w")
+    b1 = Body(name=PrefixedName("b1"))
+    anno = TestAnnotation(name=PrefixedName("anno"))
+    with w.modify_world():
+        w.add_body(b1)
+        w.add_semantic_annotation(anno)
+
+    # Test single value update
+    mod = AttributeUpdateModification(
+        entity_id=anno.id,
+        updated_kwargs=[
+            JSONAttributeDiff(attribute_name="value", add=["direct_value"])
+        ],
+    )
+    mod.apply(w)
+    assert anno.value == "direct_value"
+
+    # Test entity reference update
+    mod = AttributeUpdateModification(
+        entity_id=anno.id,
+        updated_kwargs=[JSONAttributeDiff(attribute_name="entity", add=[b1.id])],
+    )
+    mod.apply(w)
+    assert anno.entity == b1
+
+    # Test list update (add)
+    mod = AttributeUpdateModification(
+        entity_id=anno.id,
+        updated_kwargs=[JSONAttributeDiff(attribute_name="entities", add=[b1.id])],
+    )
+    mod.apply(w)
+    assert b1 in anno.entities
+
+    # Test list update (remove)
+    mod = AttributeUpdateModification(
+        entity_id=anno.id,
+        updated_kwargs=[JSONAttributeDiff(attribute_name="entities", remove=[b1.id])],
+    )
+    mod.apply(w)
+    assert b1 not in anno.entities
 
 
 if __name__ == "__main__":
