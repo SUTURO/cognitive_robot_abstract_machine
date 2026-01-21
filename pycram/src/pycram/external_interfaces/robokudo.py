@@ -192,8 +192,7 @@ def query_waving_human() -> PoseStamped:
     result = send_query(obj_type="human")
     if result and result.res:
         try:
-            pose = PoseStamped.from_pose_stamped(result.res[0].pose[0])
-            return pose
+            return result.res[0]
         except IndexError:
             pass
     return None
