@@ -12,7 +12,6 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 
-
 # TODO: replace print with talking function
 
 
@@ -33,6 +32,11 @@ class NlpInterface(ABC):
         stores the last NLP output
         """
         self.last_output = []
+
+        """
+        if multiple outputs are expected, all outputs from one input
+        """
+        self.all_last_outputs: list[list[Any]] = []
 
         """
         Stores the last confirmation result 
@@ -141,9 +145,9 @@ class NlpInterface(ABC):
 
     def start_nlp(self):
         """
-        Starts the NLP process and stores the result in last_output.
+        Starts the NLP process and stores the result in last_output and all_last_outputs.
         """
-        self.last_output = self.node.talk_nlp(timeout=self.timeout)
+        (self.last_output, self.all_last_outputs) = self.node.talk_nlp(timeout=self.timeout)
 
 
     def confirm_last_response(self):
@@ -325,8 +329,23 @@ class NlpNode(Node):
         while not self.response and (time.time() - start_time < timeout):
             executor.spin_once(timeout_sec=0.1)
 
+        all_out : list[list[Any]] = []
+
         if self.response:
-            self.get_logger().info(f"Received response: {self.response}")
+            # sometimes multiple outputs, have to wait to ensure all of them are received
+            old_res = self.response
+            all_out.append(self.response)
+            second_start_time = time.time()
+            while (time.time() - second_start_time) < 2:
+                new_res = self.response
+                if new_res != old_res:
+                    res = self.response
+                    all_out.append(res)
+                    print(self.response)
+                    old_res = new_res
+                executor.spin_once(timeout_sec=0.05)
+
+            self.get_logger().info(f"Received response, last output: {self.response}, full output: {all_out}")
 
             # Save and reset response
             resp = self.response
