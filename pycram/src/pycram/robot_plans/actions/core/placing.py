@@ -7,7 +7,7 @@ from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from semantic_digital_twin.src.semantic_digital_twin.robots.abstract_robot import ParallelGripper
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from .pick_up import ReachActionDescription
 from ....config.action_conf import ActionConfig
 from ...motions.gripper import MoveTCPMotion, MoveGripperMotion, ReachMotion
