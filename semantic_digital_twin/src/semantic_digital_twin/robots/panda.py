@@ -83,17 +83,17 @@ class Panda(AbstractRobot, HasArms):
 
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=panda.name.name),
-                joints=[world.get_body_by_name("joint1"), world.get_body_by_name("joint2"),
-                             world.get_body_by_name("joint3"), world.get_body_by_name("joint4"),
-                             world.get_body_by_name("joint5"), world.get_body_by_name("joint6"),
-                             world.get_body_by_name("joint7"), world.get_body_by_name("joint8")],
+                joints=[world.get_connection_by_name("joint1"), world.get_connection_by_name("joint2"),
+                             world.get_connection_by_name("joint3"), world.get_connection_by_name("joint4"),
+                             world.get_connection_by_name("joint5"), world.get_connection_by_name("joint6"),
+                             world.get_connection_by_name("joint7"), world.get_connection_by_name("joint8")],
                 joint_positions=[0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("finger_joint1"), world.get_body_by_name("finger_joint2")]
+            gripper_joints = [world.get_connection_by_name("finger_joint1"), world.get_connection_by_name("finger_joint2")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=panda.name.name),

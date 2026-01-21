@@ -45,22 +45,22 @@ class Kevin(AbstractRobot, HasArms):
         with world.modify_world():
             kevin = cls(
                 name=PrefixedName(name="kevin", prefix=world.name),
-                root=world.get_body_by_name("base_footprint"),
+                root=world.get_body_by_name("robot_base_footprint"),
                 _world=world,
             )
 
             # Create arm
             gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=kevin.name.name),
-                root=world.get_body_by_name("robot_arm_left_finger_link"),
-                tip=world.get_body_by_name("robot_arm_left_finger_tip_link"),
+                root=world.get_body_by_name("robot_arm_wrist_link"),
+                tip=world.get_body_by_name("robot_arm_left_finger_link"),
                 _world=world,
             )
 
             gripper_finger = Finger(
                 name=PrefixedName("left_gripper_finger", prefix=kevin.name.name),
-                root=world.get_body_by_name("robot_arm_right_finger_link"),
-                tip=world.get_body_by_name("robot_arm_right_finger_tip_link"),
+                root=world.get_body_by_name("robot_arm_wrist_link"),
+                tip=world.get_body_by_name("robot_arm_right_finger_link"),
                 _world=world,
             )
 
@@ -111,18 +111,18 @@ class Kevin(AbstractRobot, HasArms):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=kevin.name.name),
-                joints=[world.get_body_by_name("robot_arm_column_joint"),
-                             world.get_body_by_name("robot_arm_inner_joint"),
-                             world.get_body_by_name("robot_arm_outer_joint"),
-                             world.get_body_by_name("robot_arm_wrist_joint")],
+                joints=[world.get_connection_by_name("robot_arm_column_joint"),
+                             world.get_connection_by_name("robot_arm_inner_joint"),
+                             world.get_connection_by_name("robot_arm_outer_joint"),
+                             world.get_connection_by_name("robot_arm_wrist_joint")],
                 joint_positions=[0.63, 0.03, 4.70, -1.63],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("robot_arm_gripper_joint"),
-                             world.get_body_by_name("robot_arm_gripper_mirror_joint")]
+            gripper_joints = [world.get_connection_by_name("robot_arm_gripper_joint"),
+                             world.get_connection_by_name("robot_arm_gripper_mirror_joint")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=kevin.name.name),
@@ -142,7 +142,7 @@ class Kevin(AbstractRobot, HasArms):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("robot_arm_column_joint")]
+            torso_joint = [world.get_connection_by_name("robot_arm_column_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=kevin.name.name),

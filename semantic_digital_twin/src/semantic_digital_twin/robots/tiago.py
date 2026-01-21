@@ -52,15 +52,15 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create left arm
             left_gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=tiago.name.name),
-                root=world.get_body_by_name("gripper_left_left_finger_link"),
-                tip=world.get_body_by_name("gripper_left_left_finger_tip_link"),
+                root=world.get_body_by_name("gripper_left_link"),
+                tip=world.get_body_by_name("gripper_left_left_finger_link"),
                 _world=world,
             )
 
             left_gripper_finger = Finger(
                 name=PrefixedName("left_gripper_finger", prefix=tiago.name.name),
-                root=world.get_body_by_name("gripper_left_right_finger_link"),
-                tip=world.get_body_by_name("gripper_left_right_finger_tip_link"),
+                root=world.get_body_by_name("gripper_left_link"),
+                tip=world.get_body_by_name("gripper_left_right_finger_link"),
                 _world=world,
             )
 
@@ -87,14 +87,14 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create right arm
             right_gripper_thumb = Finger(
                 name=PrefixedName("right_gripper_thumb", prefix=tiago.name.name),
-                root=world.get_body_by_name("gripper_right_left_finger_link"),
-                tip=world.get_body_by_name("gripper_right_left_finger_tip_link"),
+                root=world.get_body_by_name("gripper_right_link"),
+                tip=world.get_body_by_name("gripper_right_left_finger_link"),
                 _world=world,
             )
             right_gripper_finger = Finger(
                 name=PrefixedName("right_gripper_finger", prefix=tiago.name.name),
-                root=world.get_body_by_name("gripper_right_right_finger_link"),
-                tip=world.get_body_by_name("gripper_right_right_finger_tip_link"),
+                root=world.get_body_by_name("gripper_right_link"),
+                tip=world.get_body_by_name("gripper_right_right_finger_link"),
                 _world=world,
             )
             right_gripper = ParallelGripper(
@@ -153,10 +153,10 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=tiago.name.name),
-                joints=[world.get_body_by_name("arm_left_1_joint"), world.get_body_by_name("arm_left_2_joint"),
-                             world.get_body_by_name("arm_left_3_joint"), world.get_body_by_name("arm_left_4_joint"),
-                             world.get_body_by_name("arm_left_5_joint"), world.get_body_by_name("arm_left_6_joint"),
-                             world.get_body_by_name("arm_left_7_joint")],
+                joints=[world.get_connection_by_name("arm_left_1_joint"), world.get_connection_by_name("arm_left_2_joint"),
+                             world.get_connection_by_name("arm_left_3_joint"), world.get_connection_by_name("arm_left_4_joint"),
+                             world.get_connection_by_name("arm_left_5_joint"), world.get_connection_by_name("arm_left_6_joint"),
+                             world.get_connection_by_name("arm_left_7_joint")],
                 joint_positions=[0.27, -1.07, 1.5, 1.96, -2.0, 1.2, 0.5],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -165,18 +165,18 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=tiago.name.name),
-                joints=[world.get_body_by_name("arm_right_1_joint"), world.get_body_by_name("arm_right_2_joint"),
-                             world.get_body_by_name("arm_right_3_joint"), world.get_body_by_name("arm_right_4_joint"),
-                             world.get_body_by_name("arm_right_5_joint"), world.get_body_by_name("arm_right_6_joint"),
-                             world.get_body_by_name("arm_right_7_joint")],
+                joints=[world.get_connection_by_name("arm_right_1_joint"), world.get_connection_by_name("arm_right_2_joint"),
+                             world.get_connection_by_name("arm_right_3_joint"), world.get_connection_by_name("arm_right_4_joint"),
+                             world.get_connection_by_name("arm_right_5_joint"), world.get_connection_by_name("arm_right_6_joint"),
+                             world.get_connection_by_name("arm_right_7_joint")],
                 joint_positions=[0.27, -1.07, 1.5, 1.96, -2.0, 1.2, 0.5],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
 
-            left_gripper_joints = [world.get_body_by_name("gripper_left_left_finger_joint"),
-                                   world.get_body_by_name("gripper_left_right_finger_joint")]
+            left_gripper_joints = [world.get_connection_by_name("gripper_left_left_finger_joint"),
+                                   world.get_connection_by_name("gripper_left_right_finger_joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=tiago.name.name),
@@ -196,8 +196,8 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joints = [world.get_body_by_name("gripper_right_left_finger_joint"),
-                                    world.get_body_by_name("gripper_right_right_finger_joint")]
+            right_gripper_joints = [world.get_connection_by_name("gripper_right_left_finger_joint"),
+                                    world.get_connection_by_name("gripper_right_right_finger_joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=tiago.name.name),
@@ -217,7 +217,7 @@ class Tiago(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("torso_lift_joint")]
+            torso_joint = [world.get_connection_by_name("torso_lift_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=tiago.name.name),

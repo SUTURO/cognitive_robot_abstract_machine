@@ -232,13 +232,13 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             right_arm_park = JointState(
                 name=PrefixedName("right_park", prefix=robot.name.name),
-                joints=[world.get_body_by_name("r_shoulder_pan_joint"),
-                             world.get_body_by_name("r_shoulder_lift_joint"),
-                             world.get_body_by_name("r_upper_arm_roll_joint"),
-                             world.get_body_by_name("r_elbow_flex_joint"),
-                             world.get_body_by_name("r_forearm_roll_joint"),
-                             world.get_body_by_name("r_wrist_flex_joint"),
-                             world.get_body_by_name("r_wrist_roll_joint")],
+                joints=[world.get_connection_by_name("r_shoulder_pan_joint"),
+                             world.get_connection_by_name("r_shoulder_lift_joint"),
+                             world.get_connection_by_name("r_upper_arm_roll_joint"),
+                             world.get_connection_by_name("r_elbow_flex_joint"),
+                             world.get_connection_by_name("r_forearm_roll_joint"),
+                             world.get_connection_by_name("r_wrist_flex_joint"),
+                             world.get_connection_by_name("r_wrist_roll_joint")],
                 joint_positions=[-1.712, -0.256, -1.463, -2.12, 1.766, -0.07, 0.051],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
@@ -247,13 +247,13 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             left_arm_park = JointState(
                 name=PrefixedName("left_park", prefix=robot.name.name),
-                joints=[world.get_body_by_name("l_shoulder_pan_joint"),
-                             world.get_body_by_name("l_shoulder_lift_joint"),
-                             world.get_body_by_name("l_upper_arm_roll_joint"),
-                             world.get_body_by_name("l_elbow_flex_joint"),
-                             world.get_body_by_name("l_forearm_roll_joint"),
-                             world.get_body_by_name("l_wrist_flex_joint"),
-                             world.get_body_by_name("l_wrist_roll_joint")],
+                joints=[world.get_connection_by_name("l_shoulder_pan_joint"),
+                             world.get_connection_by_name("l_shoulder_lift_joint"),
+                             world.get_connection_by_name("l_upper_arm_roll_joint"),
+                             world.get_connection_by_name("l_elbow_flex_joint"),
+                             world.get_connection_by_name("l_forearm_roll_joint"),
+                             world.get_connection_by_name("l_wrist_flex_joint"),
+                             world.get_connection_by_name("l_wrist_roll_joint")],
                 joint_positions=[1.712, -0.264, 1.38, -2.12, 16.996 + 3.14159, -0.073, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -262,20 +262,20 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             both_arms_park = JointState(
                 name=PrefixedName("both_park", prefix=robot.name.name),
-                joints=[world.get_body_by_name("l_shoulder_pan_joint"),
-                             world.get_body_by_name("l_shoulder_lift_joint"),
-                             world.get_body_by_name("l_upper_arm_roll_joint"),
-                             world.get_body_by_name("l_elbow_flex_joint"),
-                             world.get_body_by_name("l_forearm_roll_joint"),
-                             world.get_body_by_name("l_wrist_flex_joint"),
-                             world.get_body_by_name("l_wrist_roll_joint"),
-                             world.get_body_by_name("r_shoulder_pan_joint"),
-                             world.get_body_by_name("r_shoulder_lift_joint"),
-                             world.get_body_by_name("r_upper_arm_roll_joint"),
-                             world.get_body_by_name("r_elbow_flex_joint"),
-                             world.get_body_by_name("r_forearm_roll_joint"),
-                             world.get_body_by_name("r_wrist_flex_joint"),
-                             world.get_body_by_name("r_wrist_roll_joint")],
+                joints=[world.get_connection_by_name("l_shoulder_pan_joint"),
+                             world.get_connection_by_name("l_shoulder_lift_joint"),
+                             world.get_connection_by_name("l_upper_arm_roll_joint"),
+                             world.get_connection_by_name("l_elbow_flex_joint"),
+                             world.get_connection_by_name("l_forearm_roll_joint"),
+                             world.get_connection_by_name("l_wrist_flex_joint"),
+                             world.get_connection_by_name("l_wrist_roll_joint"),
+                             world.get_connection_by_name("r_shoulder_pan_joint"),
+                             world.get_connection_by_name("r_shoulder_lift_joint"),
+                             world.get_connection_by_name("r_upper_arm_roll_joint"),
+                             world.get_connection_by_name("r_elbow_flex_joint"),
+                             world.get_connection_by_name("r_forearm_roll_joint"),
+                             world.get_connection_by_name("r_wrist_flex_joint"),
+                             world.get_connection_by_name("r_wrist_roll_joint")],
                 joint_positions=[1.712, -0.264, 1.38, -2.12, 16.996 + 3.14159, -0.073, 0.0,
                      -1.712, -0.256, -1.463, -2.12, 1.766, -0.07, 0.051],
                 state_type=StaticJointState.PARK,
@@ -283,8 +283,8 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            left_gripper_joints = [world.get_body_by_name("l_gripper_l_finger_joint"),
-                                   world.get_body_by_name("l_gripper_r_finger_joint")]
+            left_gripper_joints = [world.get_connection_by_name("l_gripper_l_finger_joint"),
+                                   world.get_connection_by_name("l_gripper_r_finger_joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=robot.name.name),
@@ -304,8 +304,8 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joints = [world.get_body_by_name("r_gripper_l_finger_joint"),
-                                    world.get_body_by_name("r_gripper_r_finger_joint")]
+            right_gripper_joints = [world.get_connection_by_name("r_gripper_l_finger_joint"),
+                                    world.get_connection_by_name("r_gripper_r_finger_joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=robot.name.name),
@@ -325,7 +325,7 @@ class PR2(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("torso_lift_joint")]
+            torso_joint = [world.get_connection_by_name("torso_lift_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=robot.name.name),

@@ -174,17 +174,17 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
             #Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=hsrb.name.name),
-                joints=[world.get_body_by_name("arm_flex_joint"), world.get_body_by_name("arm_roll_joint"),
-                             world.get_body_by_name("wrist_flex_joint"), world.get_body_by_name("wrist_roll_joint")],
+                joints=[world.get_connection_by_name("arm_flex_joint"), world.get_connection_by_name("arm_roll_joint"),
+                             world.get_connection_by_name("wrist_flex_joint"), world.get_connection_by_name("wrist_roll_joint")],
                 joint_positions=[0.0, 1.5, -1.85, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("hand_l_proximal_joint"),
-                             world.get_body_by_name("hand_r_proximal_joint"),
-                             world.get_body_by_name("hand_motor_joint")]
+            gripper_joints = [world.get_connection_by_name("hand_l_proximal_joint"),
+                             world.get_connection_by_name("hand_r_proximal_joint"),
+                             world.get_connection_by_name("hand_motor_joint")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=hsrb.name.name),
@@ -204,7 +204,7 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("torso_lift_joint")]
+            torso_joint = [world.get_connection_by_name("torso_lift_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=hsrb.name.name),

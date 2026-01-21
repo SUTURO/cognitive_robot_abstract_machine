@@ -136,12 +136,12 @@ class Tracy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=robot.name.name),
-                joints=[world.get_body_by_name("left_shoulder_pan_joint"),
-                             world.get_body_by_name("left_shoulder_lift_joint"),
-                             world.get_body_by_name("left_elbow_joint"),
-                             world.get_body_by_name("left_wrist_1_joint"),
-                             world.get_body_by_name("left_wrist_2_joint"),
-                             world.get_body_by_name("left_wrist_3_joint")],
+                joints=[world.get_connection_by_name("left_shoulder_pan_joint"),
+                             world.get_connection_by_name("left_shoulder_lift_joint"),
+                             world.get_connection_by_name("left_elbow_joint"),
+                             world.get_connection_by_name("left_wrist_1_joint"),
+                             world.get_connection_by_name("left_wrist_2_joint"),
+                             world.get_connection_by_name("left_wrist_3_joint")],
                 joint_positions=[3.0, -1.0, 1.2, -0.5, 1.57, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -150,24 +150,24 @@ class Tracy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=robot.name.name),
-                joints=[world.get_body_by_name("right_shoulder_pan_joint"),
-                             world.get_body_by_name("right_shoulder_lift_joint"),
-                             world.get_body_by_name("right_elbow_joint"),
-                             world.get_body_by_name("right_wrist_1_joint"),
-                             world.get_body_by_name("right_wrist_2_joint"),
-                             world.get_body_by_name("right_wrist_3_joint")],
+                joints=[world.get_connection_by_name("right_shoulder_pan_joint"),
+                             world.get_connection_by_name("right_shoulder_lift_joint"),
+                             world.get_connection_by_name("right_elbow_joint"),
+                             world.get_connection_by_name("right_wrist_1_joint"),
+                             world.get_connection_by_name("right_wrist_2_joint"),
+                             world.get_connection_by_name("right_wrist_3_joint")],
                 joint_positions=[3.0, -2.1, -1.57, 0.5, 1.57, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
 
-            left_gripper_joints = [world.get_body_by_name("left_robotiq_85_left_knuckle_joint"),
-                                   world.get_body_by_name("left_robotiq_85_right_knuckle_joint"),
-                                   world.get_body_by_name("left_robotiq_85_left_inner_knuckle_joint"),
-                                   world.get_body_by_name("left_robotiq_85_right_inner_knuckle_joint"),
-                                   world.get_body_by_name("left_robotiq_85_left_finger_tip_joint"),
-                                   world.get_body_by_name("left_robotiq_85_right_finger_tip_joint")]
+            left_gripper_joints = [world.get_connection_by_name("left_robotiq_85_left_knuckle_joint"),
+                                   world.get_connection_by_name("left_robotiq_85_right_knuckle_joint"),
+                                   world.get_connection_by_name("left_robotiq_85_left_inner_knuckle_joint"),
+                                   world.get_connection_by_name("left_robotiq_85_right_inner_knuckle_joint"),
+                                   world.get_connection_by_name("left_robotiq_85_left_finger_tip_joint"),
+                                   world.get_connection_by_name("left_robotiq_85_right_finger_tip_joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=robot.name.name),
@@ -187,12 +187,12 @@ class Tracy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joints = [world.get_body_by_name("right_robotiq_85_left_knuckle_joint"),
-                                    world.get_body_by_name("right_robotiq_85_right_knuckle_joint"),
-                                    world.get_body_by_name("right_robotiq_85_left_inner_knuckle_joint"),
-                                    world.get_body_by_name("right_robotiq_85_right_inner_knuckle_joint"),
-                                    world.get_body_by_name("right_robotiq_85_left_finger_tip_joint"),
-                                    world.get_body_by_name("right_robotiq_85_right_finger_tip_joint")]
+            right_gripper_joints = [world.get_connection_by_name("right_robotiq_85_left_knuckle_joint"),
+                                    world.get_connection_by_name("right_robotiq_85_right_knuckle_joint"),
+                                    world.get_connection_by_name("right_robotiq_85_left_inner_knuckle_joint"),
+                                    world.get_connection_by_name("right_robotiq_85_right_inner_knuckle_joint"),
+                                    world.get_connection_by_name("right_robotiq_85_left_finger_tip_joint"),
+                                    world.get_connection_by_name("right_robotiq_85_right_finger_tip_joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=robot.name.name),

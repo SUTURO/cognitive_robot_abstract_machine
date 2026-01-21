@@ -41,7 +41,7 @@ class UR5Controlled(AbstractRobot, HasArms):
         with world.modify_world():
             ur5_controlled = cls(
                 name=PrefixedName("ur5_controlled", prefix=world.name),
-                root=world.get_body_by_name("base_footprint"),
+                root=world.get_body_by_name("base_link"),
                 _world=world,
             )
 
@@ -84,26 +84,26 @@ class UR5Controlled(AbstractRobot, HasArms):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=ur5_controlled.name.name),
-                joints=[world.get_body_by_name("shoulder_pan_joint"),
-                             world.get_body_by_name("shoulder_lift_joint"),
-                             world.get_body_by_name("elbow_joint"),
-                             world.get_body_by_name("wrist_1_joint"),
-                             world.get_body_by_name("wrist_2_joint"),
-                             world.get_body_by_name("wrist_3_joint")],
+                joints=[world.get_connection_by_name("shoulder_pan_joint"),
+                             world.get_connection_by_name("shoulder_lift_joint"),
+                             world.get_connection_by_name("elbow_joint"),
+                             world.get_connection_by_name("wrist_1_joint"),
+                             world.get_connection_by_name("wrist_2_joint"),
+                             world.get_connection_by_name("wrist_3_joint")],
                 joint_positions=[3.14, -1.56, 1.58, -1.57, -1.57, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("right_driver_joint"),
-                              world.get_body_by_name("right_coupler_joint"),
-                              world.get_body_by_name("right_spring_link_joint"),
-                              world.get_body_by_name("right_follower_joint"),
-                              world.get_body_by_name("left_driver_joint"),
-                              world.get_body_by_name("left_coupler_joint"),
-                              world.get_body_by_name("left_spring_link_joint"),
-                              world.get_body_by_name("left_follower_joint")]
+            gripper_joints = [world.get_connection_by_name("right_driver_joint"),
+                              world.get_connection_by_name("right_coupler_joint"),
+                              world.get_connection_by_name("right_spring_link_joint"),
+                              world.get_connection_by_name("right_follower_joint"),
+                              world.get_connection_by_name("left_driver_joint"),
+                              world.get_connection_by_name("left_coupler_joint"),
+                              world.get_connection_by_name("left_spring_link_joint"),
+                              world.get_connection_by_name("left_follower_joint")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open",prefix=ur5_controlled.name.name),

@@ -46,28 +46,28 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
         with world.modify_world():
             armar = cls(
                 name=PrefixedName(name="armar", prefix=world.name),
-                root=world.get_body_by_name("base_footprint"),
+                root=world.get_body_by_name("platform"),
                 _world=world,
             )
 
             # Create left arm
             left_gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=armar.name.name),
-                root=world.get_body_by_name("Thumb L 1 link"),
-                tip=world.get_body_by_name("Thumb L 2 link"),
+                root=world.get_body_by_name("Thumb L 1"),
+                tip=world.get_body_by_name("Thumb L 2"),
                 _world=world,
             )
 
             left_gripper_finger = Finger(
                 name=PrefixedName("left_gripper_finger", prefix=armar.name.name),
-                root=world.get_body_by_name("Index L 1 link"),
-                tip=world.get_body_by_name("Index L 3 link"),
+                root=world.get_body_by_name("Index L 1"),
+                tip=world.get_body_by_name("Index L 3"),
                 _world=world,
             )
 
             left_gripper = ParallelGripper(
                 name=PrefixedName("left_gripper", prefix=armar.name.name),
-                root=world.get_body_by_name("arm_t8_r0_link"),
+                root=world.get_body_by_name("arm_t8_r0"),
                 tool_frame=world.get_body_by_name("left_tool_frame"),
                 front_facing_orientation=Quaternion(0.707, 0.707, 0.707, 0.707),
                 front_facing_axis=Vector3(0, 0, 1),
@@ -77,8 +77,8 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             )
             left_arm = Arm(
                 name=PrefixedName("left_arm", prefix=armar.name.name),
-                root=world.get_body_by_name("world_link"),
-                tip=world.get_body_by_name("arm_t8_r0_link"),
+                root=world.get_body_by_name("torso"),
+                tip=world.get_body_by_name("arm_t8_r0"),
                 manipulator=left_gripper,
                 _world=world,
             )
@@ -88,19 +88,19 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create right arm
             right_gripper_thumb = Finger(
                 name=PrefixedName("right_gripper_thumb", prefix=armar.name.name),
-                root=world.get_body_by_name("Thumb R 1 link"),
-                tip=world.get_body_by_name("Thumb R 2 link"),
+                root=world.get_body_by_name("Thumb R 1"),
+                tip=world.get_body_by_name("Thumb R 2"),
                 _world=world,
             )
             right_gripper_finger = Finger(
                 name=PrefixedName("right_gripper_finger", prefix=armar.name.name),
-                root=world.get_body_by_name("Index R 1 link"),
-                tip=world.get_body_by_name("Index R 3 link"),
+                root=world.get_body_by_name("Index R 1"),
+                tip=world.get_body_by_name("Index R 3"),
                 _world=world,
             )
             right_gripper = ParallelGripper(
                 name=PrefixedName("right_gripper", prefix=armar.name.name),
-                root=world.get_body_by_name("arm_t8_r1_link"),
+                root=world.get_body_by_name("arm_t8_r1"),
                 tool_frame=world.get_body_by_name("right_tool_frame"),
                 front_facing_orientation=Quaternion(0.707, 0.707, 0.707, 0.707),
                 front_facing_axis=Vector3(0, 0, 1),
@@ -110,8 +110,8 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             )
             right_arm = Arm(
                 name=PrefixedName("right_arm", prefix=armar.name.name),
-                root=world.get_body_by_name("world_link"),
-                tip=world.get_body_by_name("arm_t8_r1_link"),
+                root=world.get_body_by_name("torso"),
+                tip=world.get_body_by_name("arm_t8_r1"),
                 manipulator=right_gripper,
                 _world=world,
             )
@@ -145,19 +145,19 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create torso
             torso = Torso(
                 name=PrefixedName("torso", prefix=armar.name.name),
-                root=world.get_body_by_name("platform_link"),
-                tip=world.get_body_by_name("torso_link"),
+                root=world.get_body_by_name("platform"),
+                tip=world.get_body_by_name("torso"),
                 _world=world,
             )
             armar.add_torso(torso)
 
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=armar.name.name),
-                joints=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r0"),
-                             world.get_body_by_name("arm_t23_joint_r0"), world.get_body_by_name("arm_t34_joint_r0"),
-                             world.get_body_by_name("arm_t45_joint_r0"), world.get_body_by_name("arm_t56_joint_r0"),
-                             world.get_body_by_name("arm_t67_joint_r0"), world.get_body_by_name("arm_t78_joint_r0"),
-                             world.get_body_by_name("arm_t8_joint_r0")],
+                joints=[world.get_connection_by_name("torso_joint"), world.get_connection_by_name("arm_t12_joint_r0"),
+                             world.get_connection_by_name("arm_t23_joint_r0"), world.get_connection_by_name("arm_t34_joint_r0"),
+                             world.get_connection_by_name("arm_t45_joint_r0"), world.get_connection_by_name("arm_t56_joint_r0"),
+                             world.get_connection_by_name("arm_t67_joint_r0"), world.get_connection_by_name("arm_t78_joint_r0"),
+                             world.get_connection_by_name("arm_t8_joint_r0")],
                 joint_positions=[-0.15, 0.0, 0.0, 1.5, 0.5, 2.0, 1.5, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -166,24 +166,24 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=armar.name.name),
-                joints=[world.get_body_by_name("torso_joint"), world.get_body_by_name("arm_t12_joint_r1"),
-                             world.get_body_by_name("arm_t23_joint_r1"), world.get_body_by_name("arm_t34_joint_r1"),
-                             world.get_body_by_name("arm_t45_joint_r1"), world.get_body_by_name("arm_t56_joint_r1"),
-                             world.get_body_by_name("arm_t67_joint_r1"), world.get_body_by_name("arm_t78_joint_r1"),
-                             world.get_body_by_name("arm_t8_joint_r1")],
+                joints=[world.get_connection_by_name("torso_joint"), world.get_connection_by_name("arm_t12_joint_r1"),
+                             world.get_connection_by_name("arm_t23_joint_r1"), world.get_connection_by_name("arm_t34_joint_r1"),
+                             world.get_connection_by_name("arm_t45_joint_r1"), world.get_connection_by_name("arm_t56_joint_r1"),
+                             world.get_connection_by_name("arm_t67_joint_r1"), world.get_connection_by_name("arm_t78_joint_r1"),
+                             world.get_connection_by_name("arm_t8_joint_r1")],
                 joint_positions=[-0.15, 0.0, 0.0, 1.5, 2.64, 2.0, 1.6415, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
                 _world=world,
             )
 
-            left_gripper_joints = [world.get_body_by_name("Thumb L 1 Joint"), world.get_body_by_name("Thumb L 2 Joint"),
-                             world.get_body_by_name("Index L 1 Joint"), world.get_body_by_name("Index L 2 Joint"),
-                             world.get_body_by_name("Index L 3 Joint"), world.get_body_by_name("Middle L 1 Joint"),
-                             world.get_body_by_name("Middle L 2 Joint"), world.get_body_by_name("Middle L 3 Joint"),
-                             world.get_body_by_name("Ring L 1 Joint"), world.get_body_by_name("Ring L 2 Joint"),
-                             world.get_body_by_name("Ring L 3 Joint"), world.get_body_by_name("Pinky L 1 Joint"),
-                             world.get_body_by_name("Pinky L 2 Joint"), world.get_body_by_name("Pinky L 3 Joint")]
+            left_gripper_joints = [world.get_connection_by_name("Thumb L 1 Joint"), world.get_connection_by_name("Thumb L 2 Joint"),
+                             world.get_connection_by_name("Index L 1 Joint"), world.get_connection_by_name("Index L 2 Joint"),
+                             world.get_connection_by_name("Index L 3 Joint"), world.get_connection_by_name("Middle L 1 Joint"),
+                             world.get_connection_by_name("Middle L 2 Joint"), world.get_connection_by_name("Middle L 3 Joint"),
+                             world.get_connection_by_name("Ring L 1 Joint"), world.get_connection_by_name("Ring L 2 Joint"),
+                             world.get_connection_by_name("Ring L 3 Joint"), world.get_connection_by_name("Pinky L 1 Joint"),
+                             world.get_connection_by_name("Pinky L 2 Joint"), world.get_connection_by_name("Pinky L 3 Joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=armar.name.name),
@@ -203,13 +203,13 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joints = [world.get_body_by_name("Thumb R 1 Joint"), world.get_body_by_name("Thumb R 2 Joint"),
-                             world.get_body_by_name("Index R 1 Joint"), world.get_body_by_name("Index R 2 Joint"),
-                             world.get_body_by_name("Index R 3 Joint"), world.get_body_by_name("Middle R 1 Joint"),
-                             world.get_body_by_name("Middle R 2 Joint"), world.get_body_by_name("Middle R 3 Joint"),
-                             world.get_body_by_name("Ring R 1 Joint"), world.get_body_by_name("Ring R 2 Joint"),
-                             world.get_body_by_name("Ring R 3 Joint"), world.get_body_by_name("Pinky R 1 Joint"),
-                             world.get_body_by_name("Pinky R 2 Joint"), world.get_body_by_name("Pinky R 3 Joint")]
+            right_gripper_joints = [world.get_connection_by_name("Thumb R 1 Joint"), world.get_connection_by_name("Thumb R 2 Joint"),
+                             world.get_connection_by_name("Index R 1 Joint"), world.get_connection_by_name("Index R 2 Joint"),
+                             world.get_connection_by_name("Index R 3 Joint"), world.get_connection_by_name("Middle R 1 Joint"),
+                             world.get_connection_by_name("Middle R 2 Joint"), world.get_connection_by_name("Middle R 3 Joint"),
+                             world.get_connection_by_name("Ring R 1 Joint"), world.get_connection_by_name("Ring R 2 Joint"),
+                             world.get_connection_by_name("Ring R 3 Joint"), world.get_connection_by_name("Pinky R 1 Joint"),
+                             world.get_connection_by_name("Pinky R 2 Joint"), world.get_connection_by_name("Pinky R 3 Joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=armar.name.name),
@@ -229,7 +229,7 @@ class Armar(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("torso_joint")]
+            torso_joint = [world.get_connection_by_name("torso_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=armar.name.name),

@@ -53,42 +53,42 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create left arm
             left_gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_thumb_0_link"),
-                tip=world.get_body_by_name("l_hand_thumb_3_link"),
+                root=world.get_body_by_name("l_hand_thumb_0"),
+                tip=world.get_body_by_name("l_hand_thumb_tip"),
                 _world=world,
             )
 
             left_gripper_index_finger = Finger(
                 name=PrefixedName("left_gripper_index_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_index_0_link"),
-                tip=world.get_body_by_name("l_hand_index_3_link"),
+                root=world.get_body_by_name("l_hand_index_0"),
+                tip=world.get_body_by_name("l_hand_index_tip"),
                 _world=world,
             )
 
             left_gripper_middle_finger = Finger(
                 name=PrefixedName("left_gripper_middle_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_middle_0_link"),
-                tip=world.get_body_by_name("l_hand_middle_3_link"),
+                root=world.get_body_by_name("l_hand_middle_0"),
+                tip=world.get_body_by_name("l_hand_middle_tip"),
                 _world=world,
             )
 
             left_gripper_ring_finger = Finger(
                 name=PrefixedName("left_gripper_ring_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_ring_0_link"),
-                tip=world.get_body_by_name("l_hand_ring_3_link"),
+                root=world.get_body_by_name("l_hand_ring_0"),
+                tip=world.get_body_by_name("l_hand_ring_tip"),
                 _world=world,
             )
 
             left_gripper_little_finger = Finger(
                 name=PrefixedName("left_gripper_little_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_little_0_link"),
-                tip=world.get_body_by_name("l_hand_little_3_link"),
+                root=world.get_body_by_name("l_hand_little_0"),
+                tip=world.get_body_by_name("l_hand_little_tip"),
                 _world=world,
             )
 
             left_gripper = ParallelGripper(
                 name=PrefixedName("left_gripper", prefix=icub3.name.name),
-                root=world.get_body_by_name("l_hand_link"),
+                root=world.get_body_by_name("l_hand"),
                 tool_frame=world.get_body_by_name("l_gripper_tool_frame"),
                 front_facing_orientation=Quaternion(0.5, 0.5, 0.5, 0.5),
                 front_facing_axis=Vector3(0, 0, 1),
@@ -99,7 +99,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             left_arm = Arm(
                 name=PrefixedName("left_arm", prefix=icub3.name.name),
                 root=world.get_body_by_name("root_link"),
-                tip=world.get_body_by_name("l_hand_link"),
+                tip=world.get_body_by_name("l_hand"),
                 manipulator=left_gripper,
                 _world=world,
             )
@@ -109,38 +109,38 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create right arm
             right_gripper_thumb = Finger(
                 name=PrefixedName("right_gripper_thumb", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_thumb_0_link"),
-                tip=world.get_body_by_name("r_hand_thumb_3_link"),
+                root=world.get_body_by_name("r_hand_thumb_0"),
+                tip=world.get_body_by_name("r_hand_thumb_tip"),
                 _world=world,
             )
             right_gripper_index_finger = Finger(
                 name=PrefixedName("right_gripper_index_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_index_0_link"),
-                tip=world.get_body_by_name("r_hand_index_3_joint"),
+                root=world.get_body_by_name("r_hand_index_0"),
+                tip=world.get_body_by_name("r_hand_index_tip"),
                 _world=world,
             )
             right_gripper_middle_finger = Finger(
                 name=PrefixedName("right_gripper_middle_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_middle_0_link"),
-                tip=world.get_body_by_name("r_hand_middle_3_link"),
+                root=world.get_body_by_name("r_hand_middle_0"),
+                tip=world.get_body_by_name("r_hand_middle_tip"),
                 _world=world,
             )
             right_gripper_ring_finger = Finger(
                 name=PrefixedName("right_gripper_ring_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_ring_0_link"),
-                tip=world.get_body_by_name("r_hand_ring_3_link"),
+                root=world.get_body_by_name("r_hand_ring_0"),
+                tip=world.get_body_by_name("r_hand_ring_tip"),
                 _world=world,
             )
             right_gripper_little_finger = Finger(
                 name=PrefixedName("right_gripper_little_finger", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_little_0_link"),
-                tip=world.get_body_by_name("r_hand_little_3_link"),
+                root=world.get_body_by_name("r_hand_little_0"),
+                tip=world.get_body_by_name("r_hand_little_tip"),
                 _world=world,
             )
 
             right_gripper = ParallelGripper(
                 name=PrefixedName("right_gripper", prefix=icub3.name.name),
-                root=world.get_body_by_name("r_hand_link"),
+                root=world.get_body_by_name("r_hand"),
                 tool_frame=world.get_body_by_name("r_gripper_tool_frame"),
                 front_facing_orientation=Quaternion(0, 0, -0.707, 0.707),
                 front_facing_axis=Vector3(0, 0, 1),
@@ -151,7 +151,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             right_arm = Arm(
                 name=PrefixedName("right_arm", prefix=icub3.name.name),
                 root=world.get_body_by_name("root_link"),
-                tip=world.get_body_by_name("r_hand_link"),
+                tip=world.get_body_by_name("r_hand"),
                 manipulator=right_gripper,
                 _world=world,
             )
@@ -161,7 +161,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create camera and neck
             camera = Camera(
                 name=PrefixedName("eye_camera", prefix=icub3.name.name),
-                root=world.get_body_by_name("head_link"),
+                root=world.get_body_by_name("head"),
                 forward_facing_axis=Vector3(1, 0, 0),
                 field_of_view=FieldOfView(
                     horizontal_angle=0.99483, vertical_angle=0.75049
@@ -174,10 +174,10 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             neck = Neck(
                 name=PrefixedName("neck", prefix=icub3.name.name),
                 sensors={camera},
-                root=world.get_body_by_name("chest_link"),
-                tip=world.get_body_by_name("head_link"),
-                pitch_body=world.get_body_by_name("neck_pitch_link"),
-                yaw_body=world.get_body_by_name("neck_yaw_link"),
+                root=world.get_body_by_name("chest"),
+                tip=world.get_body_by_name("head"),
+                pitch_body=world.get_body_by_name("neck_pitch"),
+                yaw_body=world.get_body_by_name("neck_yaw"),
                 _world=world,
             )
             icub3.add_neck(neck)
@@ -186,7 +186,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             torso = Torso(
                 name=PrefixedName("torso", prefix=icub3.name.name),
                 root=world.get_body_by_name("root_link"),
-                tip=world.get_body_by_name("chest_link"),
+                tip=world.get_body_by_name("chest"),
                 _world=world,
             )
             icub3.add_torso(torso)
@@ -194,11 +194,11 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=icub3.name.name),
-                joints=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
-                             world.get_body_by_name("torso_yaw"), world.get_body_by_name("l_shoulder_pitch"),
-                             world.get_body_by_name("l_shoulder_roll"), world.get_body_by_name("l_shoulder_pitch"),
-                             world.get_body_by_name("l_elbow"), world.get_body_by_name("l_wrist_prosup"),
-                             world.get_body_by_name("l_wrist_pitch"), world.get_body_by_name("l_wrist_yaw")],
+                joints=[world.get_connection_by_name("torso_roll"), world.get_connection_by_name("torso_pitch"),
+                             world.get_connection_by_name("torso_yaw"), world.get_connection_by_name("l_shoulder_pitch"),
+                             world.get_connection_by_name("l_shoulder_roll"), world.get_connection_by_name("l_shoulder_pitch"),
+                             world.get_connection_by_name("l_elbow"), world.get_connection_by_name("l_wrist_prosup"),
+                             world.get_connection_by_name("l_wrist_pitch"), world.get_connection_by_name("l_wrist_yaw")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -207,37 +207,37 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=icub3.name.name),
-                joints=[world.get_body_by_name("torso_roll"), world.get_body_by_name("torso_pitch"),
-                             world.get_body_by_name("torso_yaw"), world.get_body_by_name("r_shoulder_pitch"),
-                             world.get_body_by_name("r_shoulder_roll"), world.get_body_by_name("r_shoulder_pitch"),
-                             world.get_body_by_name("r_elbow"), world.get_body_by_name("r_wrist_prosup"),
-                             world.get_body_by_name("r_wrist_pitch"), world.get_body_by_name("r_wrist_yaw")],
+                joints=[world.get_connection_by_name("torso_roll"), world.get_connection_by_name("torso_pitch"),
+                             world.get_connection_by_name("torso_yaw"), world.get_connection_by_name("r_shoulder_pitch"),
+                             world.get_connection_by_name("r_shoulder_roll"), world.get_connection_by_name("r_shoulder_pitch"),
+                             world.get_connection_by_name("r_elbow"), world.get_connection_by_name("r_wrist_prosup"),
+                             world.get_connection_by_name("r_wrist_pitch"), world.get_connection_by_name("r_wrist_yaw")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
 
-            left_gripper_joints = [world.get_body_by_name("l_hand_thumb_0_joint"),
-                                   world.get_body_by_name("l_hand_thumb_1_joint"),
-                                   world.get_body_by_name("l_hand_thumb_2_joint"),
-                                   world.get_body_by_name("l_hand_thumb_3_joint"),
-                                   world.get_body_by_name("l_hand_index_0_joint"),
-                                   world.get_body_by_name("l_hand_index_1_joint"),
-                                   world.get_body_by_name("l_hand_index_2_joint"),
-                                   world.get_body_by_name("l_hand_index_3_joint"),
-                                   world.get_body_by_name("l_hand_middle_0_joint"),
-                                   world.get_body_by_name("l_hand_middle_1_joint"),
-                                   world.get_body_by_name("l_hand_middle_2_joint"),
-                                   world.get_body_by_name("l_hand_middle_3_joint"),
-                                   world.get_body_by_name("l_hand_ring_0_joint"),
-                                   world.get_body_by_name("l_hand_ring_1_joint"),
-                                   world.get_body_by_name("l_hand_ring_2_joint"),
-                                   world.get_body_by_name("l_hand_ring_3_joint"),
-                                   world.get_body_by_name("l_hand_little_0_joint"),
-                                   world.get_body_by_name("l_hand_little_1_joint"),
-                                   world.get_body_by_name("l_hand_little_2_joint"),
-                                   world.get_body_by_name("l_hand_little_3_joint")]
+            left_gripper_joints = [world.get_connection_by_name("l_hand_thumb_0_joint"),
+                                   world.get_connection_by_name("l_hand_thumb_1_joint"),
+                                   world.get_connection_by_name("l_hand_thumb_2_joint"),
+                                   world.get_connection_by_name("l_hand_thumb_3_joint"),
+                                   world.get_connection_by_name("l_hand_index_0_joint"),
+                                   world.get_connection_by_name("l_hand_index_1_joint"),
+                                   world.get_connection_by_name("l_hand_index_2_joint"),
+                                   world.get_connection_by_name("l_hand_index_3_joint"),
+                                   world.get_connection_by_name("l_hand_middle_0_joint"),
+                                   world.get_connection_by_name("l_hand_middle_1_joint"),
+                                   world.get_connection_by_name("l_hand_middle_2_joint"),
+                                   world.get_connection_by_name("l_hand_middle_3_joint"),
+                                   world.get_connection_by_name("l_hand_ring_0_joint"),
+                                   world.get_connection_by_name("l_hand_ring_1_joint"),
+                                   world.get_connection_by_name("l_hand_ring_2_joint"),
+                                   world.get_connection_by_name("l_hand_ring_3_joint"),
+                                   world.get_connection_by_name("l_hand_little_0_joint"),
+                                   world.get_connection_by_name("l_hand_little_1_joint"),
+                                   world.get_connection_by_name("l_hand_little_2_joint"),
+                                   world.get_connection_by_name("l_hand_little_3_joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=icub3.name.name),
@@ -262,26 +262,26 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joints = [world.get_body_by_name("r_hand_thumb_0_joint"),
-                                    world.get_body_by_name("r_hand_thumb_1_joint"),
-                                    world.get_body_by_name("r_hand_thumb_2_joint"),
-                                    world.get_body_by_name("r_hand_thumb_3_joint"),
-                                    world.get_body_by_name("r_hand_index_0_joint"),
-                                    world.get_body_by_name("r_hand_index_1_joint"),
-                                    world.get_body_by_name("r_hand_index_2_joint"),
-                                    world.get_body_by_name("r_hand_index_3_joint"),
-                                    world.get_body_by_name("r_hand_middle_0_joint"),
-                                    world.get_body_by_name("r_hand_middle_1_joint"),
-                                    world.get_body_by_name("r_hand_middle_2_joint"),
-                                    world.get_body_by_name("r_hand_middle_3_joint"),
-                                    world.get_body_by_name("r_hand_ring_0_joint"),
-                                    world.get_body_by_name("r_hand_ring_1_joint"),
-                                    world.get_body_by_name("r_hand_ring_2_joint"),
-                                    world.get_body_by_name("r_hand_ring_3_joint"),
-                                    world.get_body_by_name("r_hand_little_0_joint"),
-                                    world.get_body_by_name("r_hand_little_1_joint"),
-                                    world.get_body_by_name("r_hand_little_2_joint"),
-                                    world.get_body_by_name("r_hand_little_3_joint")]
+            right_gripper_joints = [world.get_connection_by_name("r_hand_thumb_0_joint"),
+                                    world.get_connection_by_name("r_hand_thumb_1_joint"),
+                                    world.get_connection_by_name("r_hand_thumb_2_joint"),
+                                    world.get_connection_by_name("r_hand_thumb_3_joint"),
+                                    world.get_connection_by_name("r_hand_index_0_joint"),
+                                    world.get_connection_by_name("r_hand_index_1_joint"),
+                                    world.get_connection_by_name("r_hand_index_2_joint"),
+                                    world.get_connection_by_name("r_hand_index_3_joint"),
+                                    world.get_connection_by_name("r_hand_middle_0_joint"),
+                                    world.get_connection_by_name("r_hand_middle_1_joint"),
+                                    world.get_connection_by_name("r_hand_middle_2_joint"),
+                                    world.get_connection_by_name("r_hand_middle_3_joint"),
+                                    world.get_connection_by_name("r_hand_ring_0_joint"),
+                                    world.get_connection_by_name("r_hand_ring_1_joint"),
+                                    world.get_connection_by_name("r_hand_ring_2_joint"),
+                                    world.get_connection_by_name("r_hand_ring_3_joint"),
+                                    world.get_connection_by_name("r_hand_little_0_joint"),
+                                    world.get_connection_by_name("r_hand_little_1_joint"),
+                                    world.get_connection_by_name("r_hand_little_2_joint"),
+                                    world.get_connection_by_name("r_hand_little_3_joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=icub3.name.name),
@@ -306,7 +306,7 @@ class ICub3(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("torso_roll")]
+            torso_joint = [world.get_connection_by_name("torso_roll")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=icub3.name.name),

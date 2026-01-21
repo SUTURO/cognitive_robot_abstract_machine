@@ -51,15 +51,15 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
             # Create arm
             gripper_thumb = Finger(
                 name=PrefixedName("gripper_thumb", prefix=stretch.name.name),
-                root=world.get_body_by_name("joint_gripper_finger_left_link"),
-                tip=world.get_body_by_name("joint_gripper_finger_left_tip_link"),
+                root=world.get_body_by_name("link_gripper_finger_left"),
+                tip=world.get_body_by_name("link_gripper_fingertip_left"),
                 _world=world,
             )
 
             gripper_finger = Finger(
                 name=PrefixedName("gripper_finger", prefix=stretch.name.name),
-                root=world.get_body_by_name("joint_gripper_finger_right_link"),
-                tip=world.get_body_by_name("joint_gripper_finger_right_tip_link"),
+                root=world.get_body_by_name("link_gripper_finger_right"),
+                tip=world.get_body_by_name("link_gripper_fingertip_right"),
                 _world=world,
             )
 
@@ -144,18 +144,18 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=stretch.name.name),
-                joints=[world.get_body_by_name("joint_lift"), world.get_body_by_name("joint_arm_l3"),
-                             world.get_body_by_name("joint_arm_l2"), world.get_body_by_name("joint_arm_l1"),
-                             world.get_body_by_name("joint_arm_l0"), world.get_body_by_name("joint_wrist_yaw"),
-                             world.get_body_by_name("joint_wrist_pitch"), world.get_body_by_name("joint_wrist_roll")],
+                joints=[world.get_connection_by_name("joint_lift"), world.get_connection_by_name("joint_arm_l3"),
+                             world.get_connection_by_name("joint_arm_l2"), world.get_connection_by_name("joint_arm_l1"),
+                             world.get_connection_by_name("joint_arm_l0"), world.get_connection_by_name("joint_wrist_yaw"),
+                             world.get_connection_by_name("joint_wrist_pitch"), world.get_connection_by_name("joint_wrist_roll")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("joint_gripper_finger_left"),
-                              world.get_body_by_name("joint_gripper_finger_right")]
+            gripper_joints = [world.get_connection_by_name("joint_gripper_finger_left"),
+                              world.get_connection_by_name("joint_gripper_finger_right")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=stretch.name.name),
@@ -175,7 +175,7 @@ class Stretch(AbstractRobot, HasArms, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("joint_lift")]
+            torso_joint = [world.get_connection_by_name("joint_lift")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=stretch.name.name),

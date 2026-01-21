@@ -53,15 +53,15 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
             # Create arm
             gripper_thumb = Finger(
                 name=PrefixedName("gripper_thumb", prefix=donbot.name.name),
-                root=world.get_body_by_name("gripper_base_gripper_left_link"),
-                tip=world.get_body_by_name("gripper_base_gripper_left_tip_link"),
+                root=world.get_body_by_name("gripper_gripper_left_link"),
+                tip=world.get_body_by_name("gripper_finger_right_link"),
                 _world=world,
             )
 
             gripper_finger = Finger(
                 name=PrefixedName("gripper_finger", prefix=donbot.name.name),
-                root=world.get_body_by_name("gripper_base_gripper_right_link"),
-                tip=world.get_body_by_name("gripper_base_gripper_right_tip_link"),
+                root=world.get_body_by_name("gripper_gripper_left_link"),
+                tip=world.get_body_by_name("gripper_finger_left_link"),
                 _world=world,
             )
 
@@ -119,12 +119,12 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=donbot.name.name),
-                joints=[world.get_body_by_name("ur5_shoulder_pan_joint"),
-                             world.get_body_by_name("ur5_shoulder_lift_joint"),
-                             world.get_body_by_name("ur5_elbow_joint"),
-                             world.get_body_by_name("ur5_wrist_1_joint"),
-                             world.get_body_by_name("ur5_wrist_2_joint"),
-                             world.get_body_by_name("ur5_wrist_3_joint")],
+                joints=[world.get_connection_by_name("ur5_shoulder_pan_joint"),
+                             world.get_connection_by_name("ur5_shoulder_lift_joint"),
+                             world.get_connection_by_name("ur5_elbow_joint"),
+                             world.get_connection_by_name("ur5_wrist_1_joint"),
+                             world.get_connection_by_name("ur5_wrist_2_joint"),
+                             world.get_connection_by_name("ur5_wrist_3_joint")],
                 joint_positions=[3.23, -1.51, -1.57, 0.0, 1.57, -1.65],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
@@ -133,20 +133,20 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
 
             looking = JointState(
                 name=PrefixedName("looking", prefix=donbot.name.name),
-                joints=[world.get_body_by_name("ur5_shoulder_pan_joint"),
-                             world.get_body_by_name("ur5_shoulder_lift_joint"),
-                             world.get_body_by_name("ur5_elbow_joint"),
-                             world.get_body_by_name("ur5_wrist_1_joint"),
-                             world.get_body_by_name("ur5_wrist_2_joint"),
-                             world.get_body_by_name("ur5_wrist_3_joint")],
+                joints=[world.get_connection_by_name("ur5_shoulder_pan_joint"),
+                             world.get_connection_by_name("ur5_shoulder_lift_joint"),
+                             world.get_connection_by_name("ur5_elbow_joint"),
+                             world.get_connection_by_name("ur5_wrist_1_joint"),
+                             world.get_connection_by_name("ur5_wrist_2_joint"),
+                             world.get_connection_by_name("ur5_wrist_3_joint")],
                 joint_positions=[0.0, -0.35, -2.15, -0.7, 1.57, -1.57],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("gripper_joint"),
-                              world.get_body_by_name("gripper_base_gripper_left_joint")]
+            gripper_joints = [world.get_connection_by_name("gripper_joint"),
+                              world.get_connection_by_name("gripper_base_gripper_left_joint")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=donbot.name.name),
@@ -166,7 +166,7 @@ class Donbot(AbstractRobot, HasArms, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("arm_base_mounting_joint")]
+            torso_joint = [world.get_connection_by_name("arm_base_mounting_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=donbot.name.name),

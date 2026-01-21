@@ -53,15 +53,15 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create left arm
             left_gripper_thumb = Finger(
                 name=PrefixedName("left_gripper_thumb", prefix=boxy.name.name),
-                root=world.get_body_by_name("left_gripper_finger_right_link"),
-                tip=world.get_body_by_name("left_gripper_finger_left_tip_link"),
+                root=world.get_body_by_name("left_gripper_gripper_left_link"),
+                tip=world.get_body_by_name("left_gripper_finger_right_link"),
                 _world=world,
             )
 
             left_gripper_finger = Finger(
                 name=PrefixedName("left_gripper_finger", prefix=boxy.name.name),
-                root=world.get_body_by_name("left_gripper_finger_left_link"),
-                tip=world.get_body_by_name("left_gripper_finger_left_tip_link"),
+                root=world.get_body_by_name("left_gripper_gripper_left_link"),
+                tip=world.get_body_by_name("left_gripper_finger_left_link"),
                 _world=world,
             )
 
@@ -88,20 +88,20 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             # Create right arm
             right_gripper_thumb = Finger(
                 name=PrefixedName("right_gripper_thumb", prefix=boxy.name.name),
-                root=world.get_body_by_name("right_gripper_finger_left_link"),
-                tip=world.get_body_by_name("right_gripper_finger_left_tip_link"),
+                root=world.get_body_by_name("right_gripper_gripper_left_link"),
+                tip=world.get_body_by_name("right_gripper_finger_right_link"),
                 _world=world,
             )
             right_gripper_finger = Finger(
                 name=PrefixedName("right_gripper_finger", prefix=boxy.name.name),
-                root=world.get_body_by_name("right_gripper_finger_right_link"),
-                tip=world.get_body_by_name("right_gripper_finger_right_tip_link"),
+                root=world.get_body_by_name("right_gripper_gripper_left_link"),
+                tip=world.get_body_by_name("right_gripper_finger_left_link"),
                 _world=world,
             )
             right_gripper = ParallelGripper(
                 name=PrefixedName("right_gripper", prefix=boxy.name.name),
-                root=world.get_body_by_name("left_gripper_base_link"),
-                tool_frame=world.get_body_by_name("left_gripper_tool_frame"),
+                root=world.get_body_by_name("right_gripper_base_link"),
+                tool_frame=world.get_body_by_name("right_gripper_tool_frame"),
                 front_facing_orientation=Quaternion(1, 0, 1, 0),
                 front_facing_axis=Vector3(0, 0, 1),
                 thumb=right_gripper_thumb,
@@ -110,8 +110,8 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             )
             right_arm = Arm(
                 name=PrefixedName("right_arm", prefix=boxy.name.name),
-                root=world.get_body_by_name("calib_left_arm_base_link"),
-                tip=world.get_body_by_name("left_arm_7_link"),
+                root=world.get_body_by_name("calib_right_arm_base_link"),
+                tip=world.get_body_by_name("right_arm_7_link"),
                 manipulator=right_gripper,
                 _world=world,
             )
@@ -151,10 +151,10 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             #Create states
             left_arm_park = JointState(
                 name=PrefixedName("left_arm_park", prefix=boxy.name.name),
-                joints=[world.get_body_by_name("left_arm_0_joint"), world.get_body_by_name("left_arm_1_joint"),
-                             world.get_body_by_name("left_arm_2_joint"), world.get_body_by_name("left_arm_3_joint"),
-                             world.get_body_by_name("left_arm_4_joint"), world.get_body_by_name("left_arm_5_joint"),
-                             world.get_body_by_name("left_arm_6_joint")],
+                joints=[world.get_connection_by_name("left_arm_0_joint"), world.get_connection_by_name("left_arm_1_joint"),
+                             world.get_connection_by_name("left_arm_2_joint"), world.get_connection_by_name("left_arm_3_joint"),
+                             world.get_connection_by_name("left_arm_4_joint"), world.get_connection_by_name("left_arm_5_joint"),
+                             world.get_connection_by_name("left_arm_6_joint")],
                 joint_positions=[-1.858, 0.70571, 0.9614, -0.602, -2.5922, -1.94065, -1.28735],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[left_arm],
@@ -163,17 +163,17 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
 
             right_arm_park = JointState(
                 name=PrefixedName("right_arm_park", prefix=boxy.name.name),
-                joints=[world.get_body_by_name("right_arm_0_joint"), world.get_body_by_name("right_arm_1_joint"),
-                             world.get_body_by_name("right_arm_2_joint"), world.get_body_by_name("right_arm_3_joint"),
-                             world.get_body_by_name("right_arm_4_joint"), world.get_body_by_name("right_arm_5_joint"),
-                             world.get_body_by_name("right_arm_6_joint")],
+                joints=[world.get_connection_by_name("right_arm_0_joint"), world.get_connection_by_name("right_arm_1_joint"),
+                             world.get_connection_by_name("right_arm_2_joint"), world.get_connection_by_name("right_arm_3_joint"),
+                             world.get_connection_by_name("right_arm_4_joint"), world.get_connection_by_name("right_arm_5_joint"),
+                             world.get_connection_by_name("right_arm_6_joint")],
                 joint_positions=[1.858, -0.70571, -0.9614, 0.602, 2.5922, 1.94065, 1.28735],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[right_arm],
                 _world=world,
             )
 
-            left_gripper_joint = [world.get_body_by_name("left_gripper_joint")]
+            left_gripper_joint = [world.get_connection_by_name("left_gripper_joint")]
 
             left_gripper_open = JointState(
                 name=PrefixedName("left_gripper_open", prefix=boxy.name.name),
@@ -193,7 +193,7 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            right_gripper_joint = [world.get_body_by_name("right_gripper_joint")]
+            right_gripper_joint = [world.get_connection_by_name("right_gripper_joint")]
 
             right_gripper_open = JointState(
                 name=PrefixedName("right_gripper_open", prefix=boxy.name.name),
@@ -213,7 +213,7 @@ class Boxy(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                 _world=world,
             )
 
-            torso_joint = [world.get_body_by_name("triangle_base_joint")]
+            torso_joint = [world.get_connection_by_name("triangle_base_joint")]
 
             torso_low = JointState(
                 name=PrefixedName("torso_low", prefix=boxy.name.name),

@@ -410,8 +410,8 @@ class JointState(ABC):
         Applies the joint state to the robot in the given world.
         :param world: The world in which the robot is located.
         """
-        for joint_name, joint_position in zip(self.joints, self.joint_positions):
-            dof = list(world.get_connection_by_name(joint_name).dofs)[0]
+        for joint, joint_position in zip(self.joints, self.joint_positions):
+            dof = list(joint.dofs)[0]
             world.state[dof.name].position = joint_position
         world.notify_state_change()
 
@@ -462,7 +462,7 @@ class Base(KinematicChain):
 
 
 @dataclass(eq=False)
-class AbstractRobot(Agent, ABC):
+class AbstractRobot(Agent):
     """
     Specification of an abstract robot. A robot consists of:
     - a root body, which is the base of the robot

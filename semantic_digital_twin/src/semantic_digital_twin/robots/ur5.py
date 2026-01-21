@@ -41,21 +41,21 @@ class UR5(AbstractRobot, HasArms):
         with world.modify_world():
             ur5 = cls(
                 name=PrefixedName("ur5", prefix=world.name),
-                root=world.get_body_by_name("base_footprint"),
+                root=world.get_body_by_name("base_link"),
                 _world=world,
             )
 
             # Create arm
             gripper_thumb = Finger(
                 name=PrefixedName("gripper_thumb", prefix=ur5.name.name),
-                root=world.get_body_by_name("robotiq_85_left_finger_link"),
+                root=world.get_body_by_name("robotiq_85_left_inner_knuckle_link"),
                 tip=world.get_body_by_name("robotiq_85_left_finger_tip_link"),
                 _world=world,
             )
 
             gripper_finger = Finger(
                 name=PrefixedName("gripper_finger", prefix=ur5.name.name),
-                root=world.get_body_by_name("robotiq_85_right_finger_link"),
+                root=world.get_body_by_name("robotiq_85_right_inner_knuckle_link"),
                 tip=world.get_body_by_name("robotiq_85_right_finger_tip_link"),
                 _world=world,
             )
@@ -84,24 +84,24 @@ class UR5(AbstractRobot, HasArms):
             # Create states
             arm_park = JointState(
                 name=PrefixedName("arm_park", prefix=ur5.name.name),
-                joints=[world.get_body_by_name("shoulder_pan_joint"),
-                             world.get_body_by_name("shoulder_lift_joint"),
-                             world.get_body_by_name("elbow_joint"),
-                             world.get_body_by_name("wrist_1_joint"),
-                             world.get_body_by_name("wrist_2_joint"),
-                             world.get_body_by_name("wrist_3_joint")],
+                joints=[world.get_connection_by_name("shoulder_pan_joint"),
+                             world.get_connection_by_name("shoulder_lift_joint"),
+                             world.get_connection_by_name("elbow_joint"),
+                             world.get_connection_by_name("wrist_1_joint"),
+                             world.get_connection_by_name("wrist_2_joint"),
+                             world.get_connection_by_name("wrist_3_joint")],
                 joint_positions=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                 state_type=StaticJointState.PARK,
                 kinematic_chains=[arm],
                 _world=world,
             )
 
-            gripper_joints = [world.get_body_by_name("robotiq_85_left_finger_joint"),
-                              world.get_body_by_name("robotiq_85_right_finger_joint"),
-                              world.get_body_by_name("robotiq_85_left_inner_knuckle_joint"),
-                              world.get_body_by_name("robotiq_85_right_inner_knuckle_joint"),
-                              world.get_body_by_name("robotiq_85_left_finger_tip_joint"),
-                              world.get_body_by_name("robotiq_85_right_finger_tip_joint")]
+            gripper_joints = [world.get_connection_by_name("robotiq_85_left_finger_joint"),
+                              world.get_connection_by_name("robotiq_85_right_finger_joint"),
+                              world.get_connection_by_name("robotiq_85_left_inner_knuckle_joint"),
+                              world.get_connection_by_name("robotiq_85_right_inner_knuckle_joint"),
+                              world.get_connection_by_name("robotiq_85_left_finger_tip_joint"),
+                              world.get_connection_by_name("robotiq_85_right_finger_tip_joint")]
 
             gripper_open = JointState(
                 name=PrefixedName("gripper_open", prefix=ur5.name.name),
