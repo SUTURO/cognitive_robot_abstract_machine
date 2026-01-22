@@ -17,6 +17,7 @@ from pycram.robot_plans import (
 )
 from pycram.ros_utils.force_torque_sensor import ForceTorqueSensor
 from pycram.failures import SensorMonitoringCondition
+from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 ###########################################################################
 # import tf
@@ -49,7 +50,9 @@ def _sleep_ros(seconds: float) -> None:
     robot,
     kitchen,
 ) = startup()
-# text_to_img_publisher = TextToImagePublisher()
+
+text_to_img_publisher = TextToImagePublisher()
+
 _demo_node.get_logger().info("Waiting for action server")
 _demo_node.get_logger().info("You can start your demo now")
 response = [None, None]
@@ -275,7 +278,7 @@ def demo(step: int):
             print("order", customer.order)
             if len(customer.order) == 1:
                 # TalkingMotion(f"Please prepare the order {customer.order[0][1]} {customer.order[0][0]}").perform()
-                text_to_img_publisher.pub_now(
+                text_to_img_publisher.publish_text(
                     f"The order: {customer.order[0][1]} {customer.order[0][0]}"
                 )
                 _sleep_ros(2)
@@ -287,7 +290,7 @@ def demo(step: int):
                     # TalkingMotion(f"{n[1]} {n[0]} ").perform()
                     _sleep_ros(1)
                     txt_order += f" {n[1]} {n[0]} " + "\n"
-                text_to_img_publisher.pub_now(txt_order)
+                text_to_img_publisher.publish_text(txt_order)
                 _sleep_ros(2)
                 image_switch_publisher.pub_now(ImageEnum.GENERATED_TEXT.value)
             # TalkingMotion("Please put the order into the tray in my gripper").perform()
