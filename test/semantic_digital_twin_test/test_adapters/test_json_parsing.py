@@ -33,6 +33,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 def test_body_json_serialization():
+    world = World()
     body = Body(name=PrefixedName("body"))
     collision = [
         Box(origin=HomogeneousTransformationMatrix.from_xyz_rpy(0, 1, 0, 0, 0, 1, body))
@@ -43,8 +44,14 @@ def test_body_json_serialization():
     body.collision_config.buffer_zone_distance = 1.227
     body.collision_config.violated_distance = 0.23
 
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body)
+    body_index = body.index
+
     json_data = body.to_json()
     body2 = Body.from_json(json_data)
+
+    assert body_index == body2.index
 
     for c1 in body.collision:
         for c2 in body2.collision:

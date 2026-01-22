@@ -476,6 +476,7 @@ class Body(KinematicStructureEntity):
         result["collision"] = self.collision.to_json()
         result["visual"] = self.visual.to_json()
         result["collision_config"] = to_json(self.collision_config)
+        result["index"] = to_json(self.index)
         return result
 
     @classmethod
@@ -484,6 +485,8 @@ class Body(KinematicStructureEntity):
             name=PrefixedName.from_json(data["name"], **kwargs),
             id=from_json(data["id"]),
         )
+        result.index = from_json(data["index"])
+
         result._track_object_in_from_json(kwargs)
 
         collision = ShapeCollection.from_json(data["collision"], **kwargs)
