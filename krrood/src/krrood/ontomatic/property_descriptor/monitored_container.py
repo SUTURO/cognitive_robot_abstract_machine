@@ -60,7 +60,7 @@ class MonitoredContainer(Generic[T], ABC):
     >>> Company.members = Member(Company, "members")
     >>> company = Company("Company")
     >>> person = Person("Person")
-    >>> company.members.added_values(person)
+    >>> company.members.add(person)
     >>> assert isinstance(company.members, MonitoredSet)
     """
 

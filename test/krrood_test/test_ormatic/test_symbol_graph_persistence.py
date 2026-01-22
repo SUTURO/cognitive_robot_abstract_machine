@@ -13,7 +13,7 @@ def test_symbol_graph_persistence(session, database):
     symbol_graph = SymbolGraph()
     symbol_graph_dao = to_dao(symbol_graph)
 
-    session.added_values(symbol_graph_dao)
+    session.add(symbol_graph_dao)
     session.commit()
 
     # # krrood_test the content of the database

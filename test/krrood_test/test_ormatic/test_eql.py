@@ -34,8 +34,8 @@ from krrood.ormatic.eql_interface import eql_to_sql
 
 
 def test_translate_simple_greater(session, database):
-    session.added_values(PositionDAO(x=1, y=2, z=3))
-    session.added_values(PositionDAO(x=1, y=2, z=4))
+    session.add(PositionDAO(x=1, y=2, z=3))
+    session.add(PositionDAO(x=1, y=2, z=4))
     session.commit()
 
     position = variable(type_=Position, domain=[])
@@ -54,9 +54,9 @@ def test_translate_simple_greater(session, database):
 
 
 def test_translate_or_condition(session, database):
-    session.added_values(PositionDAO(x=1, y=2, z=3))
-    session.added_values(PositionDAO(x=1, y=2, z=4))
-    session.added_values(PositionDAO(x=2, y=9, z=10))
+    session.add(PositionDAO(x=1, y=2, z=3))
+    session.add(PositionDAO(x=1, y=2, z=4))
+    session.add(PositionDAO(x=2, y=9, z=10))
     session.commit()
 
     position = variable(type_=Position, domain=[])
@@ -84,13 +84,13 @@ def test_translate_or_condition(session, database):
 
 
 def test_translate_join_one_to_one(session, database):
-    session.added_values(
+    session.add(
         PoseDAO(
             position=PositionDAO(x=1, y=2, z=3),
             orientation=OrientationDAO(w=1.0, x=0.0, y=0.0, z=0.0),
         )
     )
-    session.added_values(
+    session.add(
         PoseDAO(
             position=PositionDAO(x=1, y=2, z=4),
             orientation=OrientationDAO(w=1.0, x=0.0, y=0.0, z=0.0),
@@ -115,9 +115,9 @@ def test_translate_join_one_to_one(session, database):
 
 
 def test_translate_in_operator(session, database):
-    session.added_values(PositionDAO(x=1, y=2, z=3))
-    session.added_values(PositionDAO(x=5, y=2, z=6))
-    session.added_values(PositionDAO(x=7, y=8, z=9))
+    session.add(PositionDAO(x=1, y=2, z=3))
+    session.add(PositionDAO(x=5, y=2, z=6))
+    session.add(PositionDAO(x=7, y=8, z=9))
     session.commit()
 
     position = variable(Position, domain=[])
@@ -183,7 +183,7 @@ def test_equal(session, database):
     world.connections = [c1_c2, c2_h2]
 
     dao = to_dao(world)
-    session.added_values(dao)
+    session.add(dao)
     session.commit()
 
     # Query for the kinematic tree of the drawer which has more than one component.
@@ -238,7 +238,7 @@ def test_complicated_equal(session, database):
     world.connections = [c1_c2, c2_h2, c1_h2_fixed]
 
     dao = to_dao(world)
-    session.added_values(dao)
+    session.add(dao)
     session.commit()
 
     # Query for the kinematic tree of the drawer which has more than one component.
@@ -276,9 +276,9 @@ def test_complicated_equal(session, database):
 
 def test_contains(session, database):
     body1 = BodyDAO(name="Body1", size=1)
-    session.added_values(body1)
-    session.added_values(BodyDAO(name="Body2", size=1))
-    session.added_values(BodyDAO(name="Body3", size=1))
+    session.add(body1)
+    session.add(BodyDAO(name="Body2", size=1))
+    session.add(BodyDAO(name="Body3", size=1))
     session.commit()
 
     b = variable(type_=Body, domain=[], name="b")
