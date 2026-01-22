@@ -171,7 +171,7 @@ class MismatchingWorld(UsageError):
 @dataclass
 class MissingSemanticAnnotationError(UsageError):
     """
-    Raised when a required semantic annotation is required but missing.
+    Raised when a semantic annotation is required but missing.
     """
 
     semantic_annotation_class: Type[SemanticAnnotation]

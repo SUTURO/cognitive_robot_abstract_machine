@@ -148,12 +148,3 @@ class SemanticPositionDescription:
         simple_event = self._apply_zoom(event.bounding_box())
         event_circuit = uniform_measure_of_simple_event(simple_event)
         return event_circuit.sample(amount=1)[0]
-
-
-class Direction(IntEnum):
-    X = 0
-    Y = 1
-    Z = 2
-    NEGATIVE_X = 3
-    NEGATIVE_Y = 4
-    NEGATIVE_Z = 5

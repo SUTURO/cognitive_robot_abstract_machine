@@ -70,7 +70,7 @@ logged into the database once we insert the plan .
 ```python
 from krrood.ormatic.dao import to_dao
 
-session.add(to_dao(sp))
+session.added_values(to_dao(sp))
 session.commit()
 ```
 

@@ -555,7 +555,7 @@ class HistoryGanttChartPlotter:
                 if bbox.width > max_width_px:
                     max_width_px = bbox.width
             for t in temp_texts:
-                t.remove()
+                t.removed_values()
             return max_width_px / fig.dpi if fig.dpi else 0.0
         finally:
             plt.close(fig)

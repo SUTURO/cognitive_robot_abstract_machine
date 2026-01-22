@@ -19,7 +19,6 @@ from ...semantic_annotations.position_descriptions import (
     SemanticPositionDescription,
     HorizontalSemanticDirection,
     VerticalSemanticDirection,
-    Direction,
 )
 from ...semantic_annotations.semantic_annotations import (
     Room,
@@ -150,7 +149,7 @@ class ProcthorDoor:
         one_door_scale = Scale(self.thickness, self.scale.y * 0.5, self.scale.z)
         x_direction: float = one_door_scale.x / 2
         y_direction: float = one_door_scale.y / 2
-        handle_directions = [Direction.Y, Direction.NEGATIVE_Y]
+        handle_directions = [Vector3.Y(), Vector3.NEGATIVE_Y()]
 
         doors = []
 
@@ -161,7 +160,7 @@ class ProcthorDoor:
 
             horizontal_direction = (
                 HorizontalSemanticDirection.RIGHT
-                if direction == Direction.Y
+                if direction == Vector3.Y()
                 else HorizontalSemanticDirection.LEFT
             )
             semantic_position = SemanticPositionDescription(
@@ -174,7 +173,7 @@ class ProcthorDoor:
 
             wall_T_door = HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=x_direction,
-                y=(-y_direction) if direction == Direction.Y else y_direction,
+                y=(-y_direction) if direction == Vector3.Y() else y_direction,
             )
             world_T_door = self.world_T_parent_wall @ wall_T_door
 

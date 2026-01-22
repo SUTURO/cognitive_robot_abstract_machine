@@ -21,9 +21,8 @@ from typing_extensions import Optional, List, Dict, Any, Self, Tuple, TYPE_CHECK
 from krrood.adapters.exceptions import JSON_TYPE_NAME
 from krrood.adapters.json_serializer import SubclassJSONSerializer
 from ..datastructures.variables import SpatialVariables
-from ..spatial_types import HomogeneousTransformationMatrix, Point3
+from ..spatial_types import HomogeneousTransformationMatrix, Point3, Vector3
 from ..utils import IDGenerator
-from ..semantic_annotations.position_descriptions import Direction
 
 if TYPE_CHECKING:
     from .world_entity import KinematicStructureEntity
@@ -124,7 +123,7 @@ class Scale(SubclassJSONSerializer):
     @lru_cache
     def to_simple_event(
         self,
-        extend_result_in_direction: Optional[Direction] = None,
+        extend_result_in_direction: Optional[Vector3] = None,
         amount: float = 0.0,
     ) -> SimpleEvent:
         simple_event = SimpleEvent(
@@ -143,7 +142,7 @@ class Scale(SubclassJSONSerializer):
         return simple_event
 
     def _extend_simple_event_in_direction(
-        self, simple_event: SimpleEvent, direction: Direction, amount: float
+        self, simple_event: SimpleEvent, direction: Vector3, amount: float
     ) -> SimpleEvent:
         """
         Extend the inner event in the specified direction to create the container opening in that direction.
@@ -152,27 +151,27 @@ class Scale(SubclassJSONSerializer):
         :return: The modified inner event with the specified direction extended.
         """
         match direction:
-            case Direction.X:
+            case Vector3.X():
                 simple_event[SpatialVariables.x.value] = closed(
                     -self.x / 2, self.x / 2 + amount
                 )
-            case Direction.Y:
+            case Vector3.Y():
                 simple_event[SpatialVariables.y.value] = closed(
                     -self.y / 2, self.y / 2 + amount
                 )
-            case Direction.Z:
+            case Vector3.Z():
                 simple_event[SpatialVariables.z.value] = closed(
                     -self.z / 2, self.z / 2 + amount
                 )
-            case Direction.NEGATIVE_X:
+            case Vector3.NEGATIVE_X():
                 simple_event[SpatialVariables.x.value] = closed(
                     -(self.x / 2 + amount), self.x / 2
                 )
-            case Direction.NEGATIVE_Y:
+            case Vector3.NEGATIVE_Y():
                 simple_event[SpatialVariables.y.value] = closed(
                     -(self.y / 2 + amount), self.y / 2
                 )
-            case Direction.NEGATIVE_Z:
+            case Vector3.NEGATIVE_Z():
                 simple_event[SpatialVariables.z.value] = closed(
                     -(self.z / 2 + amount), self.z / 2
                 )

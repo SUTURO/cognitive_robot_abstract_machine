@@ -20,7 +20,6 @@ from typing_extensions import (
 )
 
 from krrood.ormatic.utils import classproperty
-from .position_descriptions import Direction
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
 from ..exceptions import (
@@ -118,19 +117,20 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         self_instance = cls(name=name, root=kinematic_structure_entity)
         world_root_T_self = world_root_T_self or HomogeneousTransformationMatrix()
 
+        root = world.root
+        world_root_T_self.reference_frame = root
+        world_root_T_self.child_frame = kinematic_structure_entity
+
         if cls._parent_connection_type == FixedConnection:
             world_root_C_self = FixedConnection(
-                parent=world.root,
+                parent=root,
                 child=kinematic_structure_entity,
                 parent_T_connection_expression=world_root_T_self,
             )
         else:
-            connection_limits = connection_limits or cls._generate_default_dof_limits(
-                cls._parent_connection_type
-            )
             world_root_C_self = cls._parent_connection_type.create_with_dofs(
                 world=world,
-                parent=world.root,
+                parent=root,
                 child=kinematic_structure_entity,
                 parent_T_connection_expression=world_root_T_self,
                 multiplier=connection_multiplier,
@@ -143,31 +143,6 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
         world.add_semantic_annotation(self_instance)
 
         return self_instance
-
-    @classmethod
-    def _generate_default_dof_limits(
-        cls, connection_type: Type[Connection]
-    ) -> Optional[DegreeOfFreedomLimits]:
-        """
-        Generate default degree of freedom limits for a given connection type.
-
-        :param connection_type: The type of connection to generate limits for.
-        :return: The generated degree of freedom limits.
-        """
-        if not issubclass(connection_type, ActiveConnection1DOF):
-            return None
-        lower_limits = DerivativeMap[float]()
-        upper_limits = DerivativeMap[float]()
-        if connection_type == PrismaticConnection:
-            lower_limits.position = -np.inf
-            upper_limits.position = np.inf
-        elif connection_type == RevoluteConnection:
-            lower_limits.position = -2 * np.pi
-            upper_limits.position = 2 * np.pi
-        else:
-            assert_never(connection_type)
-
-        return DegreeOfFreedomLimits(lower=lower_limits, upper=upper_limits)
 
     def get_new_grandparent(
         self,
@@ -258,6 +233,17 @@ class HasRootKinematicStructureEntity(SemanticAnnotation, ABC):
     def _offline_root_T_entity(
         self, entity: KinematicStructureEntity
     ) -> HomogeneousTransformationMatrix:
+        """
+        Computes root_T_entity without using the world's forward kinematics manager. This is done to avoid having to
+        recompile and compute the forwardkinematics in this case.
+        My reason of adding this is because otherwise, we would not be able to create for example a door and a handle
+        in one modification block, and add the handle to the door in the same block. we would need to close the
+        block, open a new one, and add the handle there. This is possible, but i think usage wise this is a lot nicer.
+
+        :param entity: The entity to compute the root_T_entity for.
+
+        :return: The root_T_entity of the entity.
+        """
         world = entity._world
         future_root_T_self = entity.parent_connection.origin_expression
         parent_entity = entity.parent_kinematic_structure_entity
@@ -415,8 +401,7 @@ class HasApertures(HasRootBody, ABC):
         :param aperture: The aperture whose geometry should be removed.
         """
         world = self._world
-        world._forward_kinematic_manager.recompile()
-        world._forward_kinematic_manager.recompute()
+        world.update_forward_kinematics()
         hole_event = aperture.root.area.as_bounding_box_collection_in_frame(
             self.root
         ).event
@@ -709,9 +694,9 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
 
     @classproperty
     @abstractmethod
-    def physical_opening_of_geometry(self) -> Direction:
+    def hole_direction(self) -> Vector3:
         """
-        The direction of the physical opening of the geometry. For a drawer for example, this would always be Z.
+        The direction of the physical hole of the geometry. For a drawer for example, this would always be Z.
 
         ..warning:: This does not describe the axis along, for example, a drawer opens. Its the physical opening where
         you can put something into the drawer.
@@ -779,7 +764,7 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
             scale.x - wall_thickness,
             scale.y - wall_thickness,
             scale.z - wall_thickness,
-        ).to_simple_event(cls.physical_opening_of_geometry, wall_thickness)
+        ).to_simple_event(cls.hole_direction, wall_thickness)
 
         container_event = outer_box.as_composite_set() - inner_box.as_composite_set()
 

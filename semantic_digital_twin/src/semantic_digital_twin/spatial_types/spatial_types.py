@@ -459,6 +459,7 @@ class HomogeneousTransformationMatrix(
             child_frame=self.child_frame,
         )
 
+
 @dataclass(eq=False, init=False)
 class RotationMatrix(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     """
@@ -1122,6 +1123,24 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
     @classmethod
     def Z(cls, reference_frame: Optional[KinematicStructureEntity] = None) -> Vector3:
         return cls(x=0, y=0, z=1, reference_frame=reference_frame)
+
+    @classmethod
+    def NEGATIVE_X(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=-1, y=0, z=0, reference_frame=reference_frame)
+
+    @classmethod
+    def NEGATIVE_Y(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=0, y=-1, z=0, reference_frame=reference_frame)
+
+    @classmethod
+    def NEGATIVE_Z(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=0, y=0, z=-1, reference_frame=reference_frame)
 
     @classmethod
     def unit_vector(

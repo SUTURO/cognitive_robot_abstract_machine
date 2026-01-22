@@ -440,10 +440,16 @@ class TestFactories(unittest.TestCase):
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
 
-        # Move handle to y=-0.4 (left side)
-        handle.root.parent_connection.parent_T_connection_expression = (
-            HomogeneousTransformationMatrix.from_xyz_rpy(y=-0.4)
-        )
+        world, door = self._setup_door()
+        # Add handle at y=-0.4 (left side of door center)
+        with world.modify_world():
+            handle = Handle.create_with_new_body_in_world(
+                name=PrefixedName("handle"),
+                world=world,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(y=-0.4),
+            )
+            door.add_handle(handle)
+
         world_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
         expected_T_hinge = (
             door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(y=0.5)
@@ -470,6 +476,18 @@ class TestFactories(unittest.TestCase):
             door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(z=1.0)
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
+
+        world, door = self._setup_door()
+        # Add handle
+        with world.modify_world():
+            handle = Handle.create_with_new_body_in_world(
+                name=PrefixedName("handle"),
+                world=world,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    y=0.5, z=0.0
+                ),
+            )
+            door.add_handle(handle)
 
         # handle at z=0.5. Hinge should be at z=-1.0
         handle.root.parent_connection.parent_T_connection_expression = (

@@ -173,15 +173,15 @@ class SubclassJSONSerializer:
         """
         current_value = getattr(self, diff.attribute_name)
         if isinstance(current_value, list):
-            for item in diff.remove:
+            for item in diff.removed_values:
                 current_value.remove(from_json(item, **kwargs))
-            for item in diff.add:
+            for item in diff.added_values:
                 current_value.append(from_json(item, **kwargs))
         else:
             setattr(
                 self,
                 diff.attribute_name,
-                from_json(diff.add[0], **kwargs),
+                from_json(diff.added_values[0], **kwargs),
             )
 
 
@@ -233,12 +233,12 @@ class JSONAttributeDiff(SubclassJSONSerializer):
     The name of the attribute that has changed.
     """
 
-    add: List[Any] = field(default_factory=list)
+    added_values: List[Any] = field(default_factory=list)
     """
     The items that have been added to the attribute.
     """
 
-    remove: List[Any] = field(default_factory=list)
+    removed_values: List[Any] = field(default_factory=list)
     """
     The items that have been removed from the attribute.
     """
@@ -248,16 +248,16 @@ class JSONAttributeDiff(SubclassJSONSerializer):
         return {
             JSON_TYPE_NAME: get_full_class_name(self.__class__),
             "attribute_name": self.attribute_name,
-            "remove": to_json(self.remove),
-            "add": to_json(self.add),
+            "removed_values": to_json(self.removed_values),
+            "added_values": to_json(self.added_values),
         }
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         return cls(
             attribute_name=data["attribute_name"],
-            remove=from_json(data["remove"]),
-            add=from_json(data["add"]),
+            removed_values=from_json(data["removed_values"]),
+            added_values=from_json(data["added_values"]),
         )
 
 
@@ -299,13 +299,17 @@ def _compute_attribute_diff(
     if not isinstance(original_value, list_like_classes):
         if original_value == new_value:
             return None
-        return JSONAttributeDiff(attribute_name=key, add=[from_json(new_value)])
+        return JSONAttributeDiff(
+            attribute_name=key, added_values=[from_json(new_value)]
+        )
 
     add = [from_json(x) for x in new_value if x not in original_value]
     remove = [from_json(x) for x in original_value if x not in new_value]
     if not (add or remove):
         return None
-    return JSONAttributeDiff(attribute_name=key, add=add, remove=remove)
+    return JSONAttributeDiff(
+        attribute_name=key, added_values=add, removed_values=remove
+    )
 
 
 T = TypeVar("T")

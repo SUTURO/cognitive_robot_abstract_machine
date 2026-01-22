@@ -657,7 +657,7 @@ def test_attribute_update_modification_apply_direct():
     mod = AttributeUpdateModification(
         entity_id=anno.id,
         updated_kwargs=[
-            JSONAttributeDiff(attribute_name="value", add=["direct_value"])
+            JSONAttributeDiff(attribute_name="value", added_values=["direct_value"])
         ],
     )
     mod.apply(w)
@@ -666,7 +666,9 @@ def test_attribute_update_modification_apply_direct():
     # Test entity reference update
     mod = AttributeUpdateModification(
         entity_id=anno.id,
-        updated_kwargs=[JSONAttributeDiff(attribute_name="entity", add=[b1.id])],
+        updated_kwargs=[
+            JSONAttributeDiff(attribute_name="entity", added_values=[b1.id])
+        ],
     )
     mod.apply(w)
     assert anno.entity == b1
@@ -674,7 +676,9 @@ def test_attribute_update_modification_apply_direct():
     # Test list update (add)
     mod = AttributeUpdateModification(
         entity_id=anno.id,
-        updated_kwargs=[JSONAttributeDiff(attribute_name="entities", add=[b1.id])],
+        updated_kwargs=[
+            JSONAttributeDiff(attribute_name="entities", added_values=[b1.id])
+        ],
     )
     mod.apply(w)
     assert b1 in anno.entities
@@ -682,7 +686,9 @@ def test_attribute_update_modification_apply_direct():
     # Test list update (remove)
     mod = AttributeUpdateModification(
         entity_id=anno.id,
-        updated_kwargs=[JSONAttributeDiff(attribute_name="entities", remove=[b1.id])],
+        updated_kwargs=[
+            JSONAttributeDiff(attribute_name="entities", removed_values=[b1.id])
+        ],
     )
     mod.apply(w)
     assert b1 not in anno.entities

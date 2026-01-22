@@ -97,18 +97,18 @@ class AttributeUpdateModification(WorldModelModification):
             if isinstance(current_value, list_like_classes):
                 self._apply_to_list(world, current_value, diff)
             else:
-                obj = self._resolve_item(world, diff.add[0])
+                obj = self._resolve_item(world, diff.added_values[0])
                 setattr(entity, diff.attribute_name, obj)
 
     def _apply_to_list(
         self, world: World, current_value: List[Any], diff: JSONAttributeDiff
     ):
-        for raw in diff.remove:
+        for raw in diff.removed_values:
             obj = self._resolve_item(world, raw)
             if obj in current_value:
                 current_value.remove(obj)
 
-        for raw in diff.add:
+        for raw in diff.added_values:
             obj = self._resolve_item(world, raw)
             if obj not in current_value:
                 current_value.append(obj)
@@ -510,6 +510,10 @@ def synchronized_attribute_modification(func):
     Ensures that any modifications to the attributes of an instance of WorldEntityWithID are properly recorded and any
     resultant changes are appended to the current model modification block in the world model manager. Keeps track of
     the pre- and post-modification states of the object to compute the differences and maintain a log of updates.
+
+    ..warning::
+        This only works for WorldEntityWithID which are also completely JSONSerializable without any many-to-many/one objects
+        out side of other WorldEntityWithID
     """
 
     @wraps(func)

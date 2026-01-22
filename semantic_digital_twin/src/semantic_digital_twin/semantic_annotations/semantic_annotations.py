@@ -4,13 +4,12 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Self, Tuple
 
-import numpy as np
-from numpy._typing import NDArray
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
 
 from krrood.ormatic.utils import classproperty
+from krrood.symbolic_math import symbolic_math
 from .mixins import (
     HasSupportingSurface,
     HasRootRegion,
@@ -34,7 +33,6 @@ from ..exceptions import (
 )
 from ..reasoning.predicates import InsideOf
 from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
-from .position_descriptions import Direction
 from ..world import World
 from ..world_description.connections import (
     RevoluteConnection,
@@ -274,20 +272,26 @@ class Door(HasHandle, HasHinge):
             raise MissingSemanticAnnotationError(self.__class__, Handle)
 
         connection = self.handle.root.parent_connection
-        door_P_handle: NDArray[float] = (
-            connection.origin_expression.to_position().to_np()
-        )
+        door_P_handle = connection.origin_expression.to_position()
         scale = self.root.collision.scale
         world_T_door = self.root.global_pose
 
         match opening_axis.to_np().tolist():
             case [0, 1, 0, 0]:
-                sign = np.sign(-1 * door_P_handle[2]) if door_P_handle[2] != 0 else 1
+                sign = (
+                    symbolic_math.sign(-1 * door_P_handle.z)
+                    if door_P_handle.z != 0
+                    else 1
+                )
                 offset = sign * (scale.z / 2)
                 door_T_hinge = HomogeneousTransformationMatrix.from_xyz_rpy(z=offset)
 
             case [0, 0, 1, 0]:
-                sign = np.sign(-1 * door_P_handle[1]) if door_P_handle[1] != 0 else 1
+                sign = (
+                    symbolic_math.sign(-1 * door_P_handle.y)
+                    if door_P_handle.y != 0
+                    else 1
+                )
                 offset = sign * (scale.y / 2)
                 door_T_hinge = HomogeneousTransformationMatrix.from_xyz_rpy(y=offset)
 
@@ -322,10 +326,7 @@ class DoubleDoor(SemanticAnnotation):
         view_point_T_door_0 = world_T_view_point.inverse() @ world_T_door_0
         world_T_door_1 = self.door_1.root.global_pose
         view_point_T_door_1 = world_T_view_point.inverse() @ world_T_door_1
-        if (
-            view_point_T_door_0.to_position().to_np()[1]
-            > view_point_T_door_1.to_position().to_np()[1]
-        ):
+        if view_point_T_door_0.y > view_point_T_door_1.y:
             return self.door_0, self.door_1
         else:
             return self.door_1, self.door_0
@@ -335,8 +336,8 @@ class DoubleDoor(SemanticAnnotation):
 class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace):
 
     @property
-    def physical_opening_of_geometry(self) -> Direction:
-        return Direction.Z
+    def hole_direction(self) -> Vector3:
+        return Vector3.Z()
 
 
 ############################### subclasses to Furniture
@@ -352,8 +353,8 @@ class Table(Furniture, HasSupportingSurface):
 @dataclass(eq=False)
 class Cabinet(Furniture, HasCaseAsRootBody):
     @property
-    def physical_opening_of_geometry(self) -> Direction:
-        return Direction.NEGATIVE_X
+    def hole_direction(self) -> Vector3:
+        return Vector3.NEGATIVE_X()
 
 
 @dataclass(eq=False)

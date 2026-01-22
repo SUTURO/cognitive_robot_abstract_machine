@@ -250,7 +250,9 @@ def test_classes():
 
 
 def test_json_attribute_diff_roundtrip():
-    diff = JSONAttributeDiff(attribute_name="test", add=[1, 2], remove=[3])
+    diff = JSONAttributeDiff(
+        attribute_name="test", added_values=[1, 2], removed_values=[3]
+    )
     data = diff.to_json()
     result = from_json(data)
     assert isinstance(result, JSONAttributeDiff)
@@ -259,8 +261,8 @@ def test_json_attribute_diff_roundtrip():
 
 def test_json_attribute_diff_empty():
     diff = JSONAttributeDiff(attribute_name="test")
-    assert diff.add == []
-    assert diff.remove == []
+    assert diff.added_values == []
+    assert diff.removed_values == []
     data = diff.to_json()
     result = from_json(data)
     assert diff == result
@@ -274,14 +276,14 @@ def test_shallow_diff_json():
     diff_dict = {d.attribute_name: d for d in diffs}
 
     assert "a" in diff_dict
-    assert diff_dict["a"].add == [2]
+    assert diff_dict["a"].added_values == [2]
 
     assert "b" in diff_dict
-    assert set(diff_dict["b"].add) == {3}
-    assert set(diff_dict["b"].remove) == {1}
+    assert set(diff_dict["b"].added_values) == {3}
+    assert set(diff_dict["b"].removed_values) == {1}
 
     assert "c" in diff_dict
-    assert diff_dict["c"].add == ["bar"]
+    assert diff_dict["c"].added_values == ["bar"]
 
 
 def test_update_from_json_diff():
@@ -316,5 +318,5 @@ def test_shallow_diff_json_nested():
     diffs = shallow_diff_json(orig, new)
     assert len(diffs) == 1
     assert diffs[0].attribute_name == "pet"
-    assert isinstance(diffs[0].add[0], Dog)
-    assert diffs[0].add[0].name == "Max"
+    assert isinstance(diffs[0].added_values[0], Dog)
+    assert diffs[0].added_values[0].name == "Max"

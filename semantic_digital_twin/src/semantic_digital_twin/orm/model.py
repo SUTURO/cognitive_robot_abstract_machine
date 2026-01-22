@@ -239,27 +239,43 @@ class PoseMapping(AlternativeMapping[Pose]):
 
 
 @dataclass
+class DegreeOfFreedomLimitsMapping(AlternativeMapping[DegreeOfFreedomLimits]):
+    lower: List[float]
+    upper: List[float]
+
+    @classmethod
+    def from_domain_object(cls, obj: DegreeOfFreedomLimits):
+        return cls(
+            lower=obj.lower.data,
+            upper=obj.upper.data,
+        )
+
+    def to_domain_object(self) -> DegreeOfFreedomLimits:
+        return DegreeOfFreedomLimits(
+            lower=DerivativeMap(data=self.lower), upper=DerivativeMap(data=self.upper)
+        )
+
+
+@dataclass
 class DegreeOfFreedomMapping(AlternativeMapping[DegreeOfFreedom]):
     name: PrefixedName
-    lower_limits: List[float]
-    upper_limits: List[float]
+    limits: DegreeOfFreedomLimits
     id: UUID
 
     @classmethod
     def from_domain_object(cls, obj: DegreeOfFreedom):
         return cls(
             name=obj.name,
-            lower_limits=obj.limits.lower.data,
-            upper_limits=obj.limits.upper.data,
+            limits=obj.limits,
             id=obj.id,
         )
 
     def to_domain_object(self) -> DegreeOfFreedom:
-        lower_limits = DerivativeMap(data=self.lower_limits)
-        upper_limits = DerivativeMap(data=self.upper_limits)
         return DegreeOfFreedom(
             name=self.name,
-            limits=DegreeOfFreedomLimits(lower=lower_limits, upper=upper_limits),
+            limits=DegreeOfFreedomLimits(
+                lower=self.limits.lower, upper=self.limits.upper
+            ),
             id=self.id,
         )
 

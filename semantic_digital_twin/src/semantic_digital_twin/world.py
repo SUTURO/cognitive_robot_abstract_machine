@@ -1814,6 +1814,17 @@ class World:
         """
         return self._forward_kinematic_manager.collision_fks
 
+    def update_forward_kinematics(self) -> None:
+        """
+        Recompile and recompute forward kinematics of the world.
+
+        ..warning::
+            Use this method if you need to live update the forward kinematic inside a with self.modify_world(): block.
+            Use with caution
+        """
+        self._forward_kinematic_manager.recompile()
+        self._forward_kinematic_manager.recompute()
+
     # %% Inverse Kinematics
     def compute_inverse_kinematics(
         self,

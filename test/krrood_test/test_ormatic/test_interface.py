@@ -20,7 +20,7 @@ def test_position(session, database):
     assert p1.y == p1dao.y
     assert p1.z == p1dao.z
 
-    session.add(p1dao)
+    session.added_values(p1dao)
     session.commit()
 
     # krrood_test the content of the database
@@ -43,7 +43,7 @@ def test_position4d(session, database):
     assert p4d.z == p4d_dao.z
     assert p4d.w == p4d_dao.w
 
-    session.add(p4d_dao)
+    session.added_values(p4d_dao)
     session.commit()
 
     # krrood_test the content of the database
@@ -68,7 +68,7 @@ def test_orientation(session, database):
     assert o1.z == o1dao.z
     assert o1.w == o1dao.w
 
-    session.add(o1dao)
+    session.added_values(o1dao)
     session.commit()
 
     # krrood_test the content of the database
@@ -92,7 +92,7 @@ def test_pose(session, database):
     assert isinstance(posedao.position, PositionDAO)
     assert isinstance(posedao.orientation, OrientationDAO)
 
-    session.add(posedao)
+    session.added_values(posedao)
     session.commit()
 
     queried = session.scalars(select(PoseDAO)).one()
@@ -108,7 +108,7 @@ def test_atom(session, database):
     atomdao = AtomDAO.to_dao(atom)
     assert atomdao.element == Element.C
 
-    session.add(atomdao)
+    session.added_values(atomdao)
     session.commit()
 
     queried = session.scalars(select(AtomDAO)).one()
@@ -125,8 +125,8 @@ def test_entity_and_derived(session, database):
     entity_dao = to_dao(entity)
     derived_dao = to_dao(derived)
 
-    session.add(entity_dao)
-    session.add(derived_dao)
+    session.added_values(entity_dao)
+    session.added_values(derived_dao)
     session.commit()
 
     # krrood_test the content of the database
@@ -157,8 +157,8 @@ def test_parent_and_child(session, database):
     assert child_mapped.name == child_dao.name
     assert child_mapped.attribute1 == child_dao.attribute1
 
-    session.add(parent_dao)
-    session.add(child_dao)
+    session.added_values(parent_dao)
+    session.added_values(child_dao)
     session.commit()
 
     # krrood_test the content of the database
@@ -187,7 +187,7 @@ def test_node(session, database):
 
     n2dao = NodeDAO.to_dao(n2)
 
-    session.add(n2dao)
+    session.added_values(n2dao)
     session.commit()
 
     results = session.scalars(select(NodeDAO)).all()
@@ -198,7 +198,7 @@ def test_position_type_wrapper(session, database):
     wrapper = PositionTypeWrapper(Position)
     dao = PositionTypeWrapperDAO.to_dao(wrapper)
     assert dao.position_type == wrapper.position_type
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     result = session.scalars(select(PositionTypeWrapperDAO)).one()
@@ -212,7 +212,7 @@ def test_positions(session, database):
     dao = PositionsDAO.to_dao(positions)
     assert len(dao.positions) == 2
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     positions_results = session.scalars(select(PositionDAO)).all()
@@ -228,7 +228,7 @@ def test_double_position_aggregator(session, database):
     p1, p2, p3 = Position(1, 2, 3), Position(2, 3, 4), Position(3, 4, 5)
     dpa = DoublePositionAggregator([p1, p2], [p1, p3])
     dpa_dao = DoublePositionAggregatorDAO.to_dao(dpa)
-    session.add(dpa_dao)
+    session.added_values(dpa_dao)
     session.commit()
 
     queried_positions = session.scalars(select(PositionDAO)).all()
@@ -245,7 +245,7 @@ def test_kinematic_chain_and_torso(session, database):
     torso = Torso("t", [k1, k2])
     torso_dao = TorsoDAO.to_dao(torso)
 
-    session.add(torso_dao)
+    session.added_values(torso_dao)
     session.commit()
 
     queried_torso = session.scalars(select(TorsoDAO)).one()
@@ -257,7 +257,7 @@ def test_custom_types(session, database):
     ogs_dao = OriginalSimulatedObjectDAO.to_dao(ogs)
     assert ogs.concept == ogs_dao.concept
 
-    session.add(ogs_dao)
+    session.added_values(ogs_dao)
     session.commit()
 
     queried = session.scalars(select(OriginalSimulatedObjectDAO)).one()
@@ -270,7 +270,7 @@ def test_inheriting_from_explicit_mapping(session, database):
 
     entity_dao = DerivedEntityDAO.to_dao(entity)
     assert isinstance(entity_dao, DerivedEntityDAO)
-    session.add(entity_dao)
+    session.added_values(entity_dao)
     session.commit()
 
     queried_entities_og = session.scalars(select(CustomEntityDAO)).all()
@@ -292,7 +292,7 @@ def test_entity_association(session, database):
     assert isinstance(association_dao, EntityAssociationDAO)
     assert isinstance(association_dao.entity, CustomEntityDAO)
 
-    session.add(association_dao)
+    session.added_values(association_dao)
     session.commit()
 
     queried_association = session.scalars(select(EntityAssociationDAO)).one()
@@ -312,7 +312,7 @@ def test_PositionsSubclassWithAnotherPosition(session, database):
     obj = PositionsSubclassWithAnotherPosition([position], ["a", "b", "c"], position)
     dao: PositionsSubclassWithAnotherPositionDAO = to_dao(obj)
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
 
@@ -323,10 +323,10 @@ def test_inheriting_from_inherited_class(session, database):
     position_4d_dao = to_dao(position_4d)
     position_5d_dao = to_dao(position_5d)
 
-    session.add(position_4d_dao)
+    session.added_values(position_4d_dao)
     session.commit()
 
-    session.add(position_5d_dao)
+    session.added_values(position_5d_dao)
     session.commit()
 
     queried_position_5d = session.scalars(select(Position5DDAO)).one()
@@ -349,7 +349,7 @@ def test_backreference_with_mapping(session, database):
     back_ref.reference = ref
 
     dao = to_dao(ref)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
     reconstructed = dao.from_dao()
 
@@ -372,7 +372,7 @@ def test_alternative_mapping_aggregator(session, database):
 
     assert dao.entities1[1] is dao.entities2[0]
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(AlternativeMappingAggregatorDAO)).one()
@@ -386,7 +386,7 @@ def test_container_item(session, database):
     container = ContainerGeneration([i1, i2])
 
     dao = to_dao(container)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried_items = session.scalars(select(ItemWithBackreferenceDAO)).all()
@@ -406,7 +406,7 @@ def test_nested_mappings(session, database):
     shapes = Shapes([shape_1, shape_2, shape_3])
     more_shapes = MoreShapes([shapes, shapes])
     dao = to_dao(more_shapes)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
 
@@ -415,7 +415,7 @@ def test_vector_mapped(session, database):
     vector_mapped = VectorsWithProperty([vector])
     dao = to_dao(vector_mapped)
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(VectorsWithPropertyMappedDAO)).one()
@@ -458,7 +458,7 @@ def test_private_factories(session, database):
 def test_relationship_overloading(session, database):
     obj = RelationshipChild(Position(1, 2, 3))
     dao = to_dao(obj)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(RelationshipParentDAO)).one()
@@ -548,7 +548,7 @@ def test_callable_mapping(session, database):
 def test_uuid(session, database):
     obj = UUIDWrapper(uuid.uuid4())
     dao = to_dao(obj)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(UUIDWrapperDAO)).one()
@@ -559,7 +559,7 @@ def test_list_of_custom_type(session, database):
     obj = UUIDWrapper(uuid.uuid4(), [uuid.uuid4(), uuid.uuid4()])
     dao = to_dao(obj)
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(UUIDWrapperDAO)).one()
@@ -570,7 +570,7 @@ def test_list_of_custom_type(session, database):
 def test_json_integration(session, database):
     obj = JSONWrapper(JSONSerializableClass(1, 2), [JSONSerializableClass(3, 4)])
     dao = to_dao(obj)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(JSONWrapperDAO)).one()
@@ -611,7 +611,7 @@ def test_multiple_inheritance(session, database):
     assert hasattr(dao, "extra_attribute")
     assert hasattr(dao, "mixin_attribute")
     assert hasattr(dao, "primary_attribute")
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(MultipleInheritanceDAO)).one()
@@ -623,7 +623,7 @@ def test_list_of_enum(session, database):
     obj = ListOfEnum([TestEnum.OPTION_A, TestEnum.OPTION_B, TestEnum.OPTION_C])
     dao = to_dao(obj)
 
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     queried = session.scalars(select(ListOfEnumDAO)).one()
@@ -642,7 +642,7 @@ def test_persons(session, database):
     p1.knows.append(p2)
 
     dao = to_dao(p1)
-    session.add(dao)
+    session.added_values(dao)
     session.commit()
 
     q = session.scalar(select(PersonDAO).where(PersonDAO.name == "Alice"))

@@ -374,17 +374,21 @@ class ColorDAO(
     A: Mapped[builtins.float] = mapped_column(use_existing_column=True)
 
 
-class DegreeOfFreedomLimitsDAO(
-    Base,
-    DataAccessObject[
-        semantic_digital_twin.world_description.degree_of_freedom.DegreeOfFreedomLimits
-    ],
+class DegreeOfFreedomLimitsMappingDAO(
+    Base, DataAccessObject[semantic_digital_twin.orm.model.DegreeOfFreedomLimitsMapping]
 ):
 
-    __tablename__ = "DegreeOfFreedomLimitsDAO"
+    __tablename__ = "DegreeOfFreedomLimitsMappingDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
         Integer, primary_key=True, use_existing_column=True
+    )
+
+    lower: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
+    )
+    upper: Mapped[typing.List[builtins.float]] = mapped_column(
+        JSON, nullable=False, use_existing_column=True
     )
 
 
@@ -1690,11 +1694,17 @@ class DegreeOfFreedomMappingDAO(
         use_existing_column=True,
     )
 
-    lower_limits: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
+    limits_id: Mapped[int] = mapped_column(
+        ForeignKey("DegreeOfFreedomLimitsMappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
     )
-    upper_limits: Mapped[typing.List[builtins.float]] = mapped_column(
-        JSON, nullable=False, use_existing_column=True
+
+    limits: Mapped[DegreeOfFreedomLimitsMappingDAO] = relationship(
+        "DegreeOfFreedomLimitsMappingDAO",
+        uselist=False,
+        foreign_keys=[limits_id],
+        post_update=True,
     )
 
     __mapper_args__ = {

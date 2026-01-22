@@ -146,8 +146,8 @@ class MirrorJointPosition(Task):
             self.connections.append(connection)
             target_connection = context.world.get_connection_by_name(target_joint_name)
 
-            ll_vel = connection.dof.lower
-            ul_vel = connection.dof.upper
+            ll_vel = connection.dof.limits.lower
+            ul_vel = connection.dof.limits.upper
             velocity_limit = sm.limit(self.max_velocity, ll_vel, ul_vel)
             self.current_positions.append(connection.position)
             self.goal_positions.append(target_connection.position)
@@ -213,15 +213,15 @@ class JointPositionLimitList(Task):
             )
             self.connections.append(connection)
 
-            ll_pos = connection.dof.lower_limits.position
-            ul_pos = connection.dof.upper_limits.position
+            ll_pos = connection.dof.limits.lower.position
+            ul_pos = connection.dof.limits.upper.position
 
             if ll_pos is not None:
                 lower_limit = min(ul_pos, max(ll_pos, lower_limit))
                 upper_limit = min(ul_pos, max(ll_pos, upper_limit))
 
-            ll_vel = connection.dof.lower_limits.velocity
-            ul_vel = connection.dof.upper_limits.velocity
+            ll_vel = connection.dof.limits.lower.velocity
+            ul_vel = connection.dof.limits.upper.velocity
 
             velocity_limit = min(ul_vel, max(ll_vel, self.max_velocity))
 
@@ -363,7 +363,7 @@ class JointVelocity(Task):
         for connection in self.connections:
             current_joint = connection.dof.variables.position
             try:
-                limit_expr = connection.dof.upper_limits.velocity
+                limit_expr = connection.dof.limits.upper.velocity
                 max_velocity = sm.min(self.max_velocity, limit_expr)
             except IndexError:
                 max_velocity = self.max_velocity
@@ -399,9 +399,9 @@ class AvoidJointLimits(Task):
                 weight = self.weight
                 connection_symbol = connection.dof.variables.position
                 percentage = self.percentage / 100.0
-                lower_limit = connection.dof.lower_limits.position
-                upper_limit = connection.dof.upper_limits.position
-                max_velocity = sm.min(100, connection.dof.upper_limits.velocity)
+                lower_limit = connection.dof.limits.lower.position
+                upper_limit = connection.dof.limits.upper.position
+                max_velocity = sm.min(100, connection.dof.limits.upper.velocity)
 
                 joint_range = upper_limit - lower_limit
                 center = (upper_limit + lower_limit) / 2.0
