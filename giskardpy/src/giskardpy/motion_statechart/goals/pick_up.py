@@ -158,7 +158,7 @@ class PreGraspPose(Goal):
 
         robot_pos = self.manipulator.tool_frame.global_pose
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
-        obj_to_robot.norm()
+        obj_to_robot.scale(1)
         print(f"Object->robot vector on expand: {obj_to_robot}")
 
         # According to perception we can assume that the z axis points up
@@ -178,16 +178,34 @@ class PreGraspPose(Goal):
             ),  # approach along Z -> face is XxY
         ]
 
-        valid_faces = [
-            (v, (d1, d2)) for v, (d1, d2) in faces if min(d1, d2) <= self.gripper_width
-        ]
+        world_z = Vector3.Z(context.world.root)
+        is_obj_vertical = (
+            abs(Vector3.Z(self.object_geometry).dot(world_z)) > VERTICAL_DOT_THRESH
+        )
+
+        valid_faces = []
+        for v, (d1, d2) in faces:
+            # For vertical gripper, check width (horizontal dimension)
+            # For horizontal gripper, check height (vertical dimension)
+            if self.gripper_vertical:
+                # If object is vertical, d2 is height - check d1 (width)
+                # If object is horizontal, d1 is width - check d1
+                valid_dim = d1 if is_obj_vertical else d2
+            else:
+                # If object is vertical, d2 is height - check d2
+                # If object is horizontal, d1 is width - check d2
+                valid_dim = d2 if is_obj_vertical else d1
+
+            if valid_dim <= self.gripper_width:
+                valid_faces.append((v, (d1, d2)))
+
         if not valid_faces:
             raise Exception(
-                "No valid grasp face found (no face has a face-dimension <= gripper width)."
+                "No valid grasp face found (no face has appropriate dimension <= gripper width for current gripper orientation)."
             )
         grasp_axis = max(valid_faces, key=lambda x: abs(x[0].dot(obj_to_robot)))[0]
-
-        grasp_axis.norm()
+        grasp_axis.reference_frame = self.object_geometry
+        grasp_axis.scale(1)
         print(f"Grasp axis: {grasp_axis.to_np()}")
 
         dot_along = grasp_axis.dot(obj_to_robot)
@@ -204,7 +222,7 @@ class PreGraspPose(Goal):
         offset_vector = grasp_axis * (offset_distance * sign)
 
         pre_grasp_point = obj_pose.to_position() + offset_vector
-        pre_grasp_point.reference_frame = context.world.root
+        # pre_grasp_point.reference_frame = context.world.root
 
         self._cart_pose = CartesianPosition(
             root_link=context.world.root,
