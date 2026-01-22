@@ -1170,7 +1170,7 @@ class TestCartesianTasks:
         with hsr_world_setup.modify_world():
             box = Body(
                 name=PrefixedName("muh"),
-                collision=ShapeCollection([Box(scale=Scale(0.1, 0.2, 0.1))]),
+                collision=ShapeCollection([Box(scale=Scale(0.2, 0.1, 0.2))]),
             )
             dof = DegreeOfFreedom(
                 lower_limits=DerivativeMap(data=[None, -1.0, None, None]),
@@ -1183,7 +1183,7 @@ class TestCartesianTasks:
                 child=box,
                 axis=Vector3.Z(reference_frame=hsr_world_setup.root),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=2, z=0.5, y=1, yaw=np.pi / 2
+                    x=2, z=0.5, y=1, yaw=2 * np.pi / 3
                 ),
             )
             hsr_world_setup.add_connection(connection)

@@ -4,6 +4,7 @@ from enum import Enum
 from typing_extensions import Optional, List
 
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
+from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
 from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
@@ -56,7 +57,7 @@ HORIZONTAL_DOT_THRESH = 0.25  # dot with world Z considered horizontal
 @dataclass(repr=False, eq=False)
 class PickUp(Goal):
     # root_link: KinematicStructureEntity = field(kw_only=True)
-    # NOTE: Pickup should be called split, meaning grabbing first and then separately retracting
+    # NOTE: Pickup should be split, meaning grabbing first and then separately retracting
     # because after grasping the object it should get attached to the tool frame in semdt
     manipulator: Manipulator = field(kw_only=True)  # TODO ParallelGripper instead
     object_geometry: Body = field(kw_only=True)
@@ -159,7 +160,6 @@ class PreGraspPose(Goal):
         robot_pos = self.manipulator.tool_frame.global_pose
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
         obj_to_robot.scale(1)
-        print(f"Object->robot vector on expand: {obj_to_robot}")
 
         # According to perception we can assume that the z axis points up
         faces = [
@@ -206,10 +206,14 @@ class PreGraspPose(Goal):
         grasp_axis = max(valid_faces, key=lambda x: abs(x[0].dot(obj_to_robot)))[0]
         grasp_axis.reference_frame = self.object_geometry
         grasp_axis.scale(1)
-        print(f"Grasp axis: {grasp_axis.to_np()}")
 
-        dot_along = grasp_axis.dot(obj_to_robot)
-        sign = 1.0 if dot_along >= Scalar(0.0) else -1.0
+        grasp_axis_world = context.world.transform(
+            spatial_object=grasp_axis, target_frame=context.world.root
+        )
+        grasp_axis_world.reference_frame = context.world.root
+
+        dot_along: Scalar = grasp_axis_world.dot(obj_to_robot)
+        sign = 1.0 if dot_along >= 0.0 else -1.0
 
         if abs(grasp_axis.x) > 0.9:
             half_extent = obj_bbox.depth / 2.0
@@ -217,12 +221,11 @@ class PreGraspPose(Goal):
             half_extent = obj_bbox.width / 2.0
         else:
             half_extent = obj_bbox.height / 2.0
-
         offset_distance = half_extent + PICKUP_PREPOSE_DISTANCE
-        offset_vector = grasp_axis * (offset_distance * sign)
+        offset_vector = grasp_axis_world * (offset_distance * sign)
 
         pre_grasp_point = obj_pose.to_position() + offset_vector
-        # pre_grasp_point.reference_frame = context.world.root
+        pre_grasp_point.reference_frame = context.world.root
 
         self._cart_pose = CartesianPosition(
             root_link=context.world.root,
@@ -234,12 +237,11 @@ class PreGraspPose(Goal):
         align_nodes = []
 
         align_nodes.append(
-            AlignPlanes(
+            Pointing(
                 tip_link=tool_frame,
-                tip_normal=Vector3.Z(tool_frame),
+                goal_point=obj_pose.to_position(),
                 root_link=context.world.root,
-                goal_normal=grasp_axis,
-                name="align_orientation_to_grasp_axis",
+                pointing_axis=Vector3.Z(tool_frame),
             )
         )
 
@@ -278,6 +280,12 @@ class PreGraspPose(Goal):
             self.parallel.observation_variable, self._cart_pose.observation_variable
         )
         return artifacts
+
+    def on_end(self, context: ExecutionContext):
+        super().on_end(context)
+        print(
+            f"Manipulator Pose on end of the motion: {self.manipulator.tool_frame.global_pose.to_np()}"
+        )
 
 
 # def on_end(self, context: ExecutionContext):
@@ -364,6 +372,7 @@ class PullUp(Goal):
             root_link=context.world.root,
             tip_link=self.manipulator.tool_frame,
             goal_point=point,
+            binding_policy=GoalBindingPolicy.Bind_on_start,
         )
         self.add_node(self._cart_position)
 
