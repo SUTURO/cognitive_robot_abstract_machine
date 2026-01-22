@@ -1,13 +1,8 @@
-from time import sleep
-
 import pytest
 from rclpy.duration import Duration
 from rclpy.time import Time
 from tf2_py import LookupException
 
-from semantic_digital_twin.adapters.ros.ros2_to_semdt_converters import (
-    TransformStampedToSemDTConverter,
-)
 from semantic_digital_twin.adapters.ros.semdt_to_ros2_converters import (
     HomogeneousTransformationMatrixToRos2Converter,
 )
