@@ -8,7 +8,6 @@ from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from std_msgs.msg import Header
-from tmc_control_msgs.action import GripperApplyEffort
 from typing_extensions import Type, TypeVar, Generic
 
 import krrood.symbolic_math.symbolic_math as sm
@@ -31,7 +30,7 @@ ActionResult = TypeVar("ActionResult")
 ActionFeedback = TypeVar("ActionFeedback")
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class ActionServerTask(
     MotionStatechartNode,
     ABC,
@@ -94,13 +93,11 @@ class ActionServerTask(
         future.add_done_callback(self.result_callback)
 
     def result_callback(self, future):
-        self._result = future.result().result
-        logger.info(
-            f"Action server {self.action_topic} returned result: {self._result}"
-        )
+        self._result = future.result()
+        logger.info(f"Action server {self.action_topic} done.")
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class NavigateActionServerTask(
     ActionServerTask[
         NavigateToPose,

@@ -30,23 +30,7 @@ class GripperCommandTask(
         goal_msg.effort = self.effort
         self._msg = goal_msg
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
-        super().build_msg(context)
-        artifacts = NodeArtifacts()
-
-        self.action_type = GripperApplyEffort
-        self.action_name = self.action_topic
-
-        logger.info(f"Waiting for action server {self.action_topic}")
-        self._action_client.wait_for_server()
-
-        return artifacts
-
     def on_tick(self, context: ExecutionContext) -> ObservationStateValues:
         if self._result:
-            return (
-                ObservationStateValues.TRUE
-                if self._result.error_code == GripperApplyEffort.Result.NONE
-                else ObservationStateValues.FALSE
-            )
+            return ObservationStateValues.TRUE
         return ObservationStateValues.UNKNOWN
