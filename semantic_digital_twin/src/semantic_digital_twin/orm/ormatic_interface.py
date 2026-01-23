@@ -22,6 +22,7 @@ import semantic_digital_twin.datastructures.prefixed_name
 import semantic_digital_twin.orm.model
 import semantic_digital_twin.reasoning.predicates
 import semantic_digital_twin.robots.abstract_robot
+import semantic_digital_twin.robots.hsrb
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.semantic_annotations
 import semantic_digital_twin.world
@@ -169,6 +170,12 @@ abstractrobotdao_sensor_chains_association = Table(
     Base.metadata,
     Column("source_abstractrobotdao_id", ForeignKey("AbstractRobotDAO.database_id")),
     Column("target_kinematicchaindao_id", ForeignKey("KinematicChainDAO.database_id")),
+)
+hsrbdao_arms_association = Table(
+    "hsrbdao_arms_association",
+    Base.metadata,
+    Column("source_hsrbdao_id", ForeignKey("HSRBDAO.database_id")),
+    Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
 )
 kinematicchaindao_sensors_association = Table(
     "kinematicchaindao_sensors_association",
@@ -840,7 +847,7 @@ class ShapeCollectionDAO(
         use_existing_column=True,
     )
 
-    shapes: Mapped[typing.List[ShapeDAO]] = relationship(
+    shapes: Mapped[builtins.list[ShapeDAO]] = relationship(
         "ShapeDAO",
         secondary="shapecollectiondao_shapes_association",
         primaryjoin="ShapeCollectionDAO.database_id == shapecollectiondao_shapes_association.c.source_shapecollectiondao_id",
@@ -1240,7 +1247,7 @@ class WorldMappingDAO(
         use_existing_column=True,
     )
 
-    kinematic_structure_entities: Mapped[typing.List[KinematicStructureEntityDAO]] = (
+    kinematic_structure_entities: Mapped[builtins.list[KinematicStructureEntityDAO]] = (
         relationship(
             "KinematicStructureEntityDAO",
             secondary="worldmappingdao_kinematic_structure_entities_association",
@@ -1249,21 +1256,21 @@ class WorldMappingDAO(
             cascade="save-update, merge",
         )
     )
-    connections: Mapped[typing.List[ConnectionDAO]] = relationship(
+    connections: Mapped[builtins.list[ConnectionDAO]] = relationship(
         "ConnectionDAO",
         secondary="worldmappingdao_connections_association",
         primaryjoin="WorldMappingDAO.database_id == worldmappingdao_connections_association.c.source_worldmappingdao_id",
         secondaryjoin="ConnectionDAO.database_id == worldmappingdao_connections_association.c.target_connectiondao_id",
         cascade="save-update, merge",
     )
-    semantic_annotations: Mapped[typing.List[SemanticAnnotationDAO]] = relationship(
+    semantic_annotations: Mapped[builtins.list[SemanticAnnotationDAO]] = relationship(
         "SemanticAnnotationDAO",
         secondary="worldmappingdao_semantic_annotations_association",
         primaryjoin="WorldMappingDAO.database_id == worldmappingdao_semantic_annotations_association.c.source_worldmappingdao_id",
         secondaryjoin="SemanticAnnotationDAO.database_id == worldmappingdao_semantic_annotations_association.c.target_semanticannotationdao_id",
         cascade="save-update, merge",
     )
-    degrees_of_freedom: Mapped[typing.List[DegreeOfFreedomMappingDAO]] = relationship(
+    degrees_of_freedom: Mapped[builtins.list[DegreeOfFreedomMappingDAO]] = relationship(
         "DegreeOfFreedomMappingDAO",
         secondary="worldmappingdao_degrees_of_freedom_association",
         primaryjoin="WorldMappingDAO.database_id == worldmappingdao_degrees_of_freedom_association.c.source_worldmappingdao_id",
@@ -3312,7 +3319,7 @@ class HasDoorsDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
+    doors: Mapped[builtins.list[DoorDAO]] = relationship(
         "DoorDAO",
         secondary="hasdoorsdao_doors_association",
         primaryjoin="HasDoorsDAO.database_id == hasdoorsdao_doors_association.c.source_hasdoorsdao_id",
@@ -3345,7 +3352,7 @@ class CupboardDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
+    doors: Mapped[builtins.list[DoorDAO]] = relationship(
         "DoorDAO",
         secondary="cupboarddao_doors_association",
         primaryjoin="CupboardDAO.database_id == cupboarddao_doors_association.c.source_cupboarddao_id",
@@ -3375,7 +3382,7 @@ class HasDrawersDAO(
         use_existing_column=True,
     )
 
-    drawers: Mapped[typing.List[DrawerDAO]] = relationship(
+    drawers: Mapped[builtins.list[DrawerDAO]] = relationship(
         "DrawerDAO",
         secondary="hasdrawersdao_drawers_association",
         primaryjoin="HasDrawersDAO.database_id == hasdrawersdao_drawers_association.c.source_hasdrawersdao_id",
@@ -3408,14 +3415,14 @@ class CabinetDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
+    doors: Mapped[builtins.list[DoorDAO]] = relationship(
         "DoorDAO",
         secondary="cabinetdao_doors_association",
         primaryjoin="CabinetDAO.database_id == cabinetdao_doors_association.c.source_cabinetdao_id",
         secondaryjoin="DoorDAO.database_id == cabinetdao_doors_association.c.target_doordao_id",
         cascade="save-update, merge",
     )
-    drawers: Mapped[typing.List[DrawerDAO]] = relationship(
+    drawers: Mapped[builtins.list[DrawerDAO]] = relationship(
         "DrawerDAO",
         secondary="cabinetdao_drawers_association",
         primaryjoin="CabinetDAO.database_id == cabinetdao_drawers_association.c.source_cabinetdao_id",
@@ -3451,14 +3458,14 @@ class DresserDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
+    doors: Mapped[builtins.list[DoorDAO]] = relationship(
         "DoorDAO",
         secondary="dresserdao_doors_association",
         primaryjoin="DresserDAO.database_id == dresserdao_doors_association.c.source_dresserdao_id",
         secondaryjoin="DoorDAO.database_id == dresserdao_doors_association.c.target_doordao_id",
         cascade="save-update, merge",
     )
-    drawers: Mapped[typing.List[DrawerDAO]] = relationship(
+    drawers: Mapped[builtins.list[DrawerDAO]] = relationship(
         "DrawerDAO",
         secondary="dresserdao_drawers_association",
         primaryjoin="DresserDAO.database_id == dresserdao_drawers_association.c.source_dresserdao_id",
@@ -3494,14 +3501,14 @@ class WardrobeDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[typing.List[DoorDAO]] = relationship(
+    doors: Mapped[builtins.list[DoorDAO]] = relationship(
         "DoorDAO",
         secondary="wardrobedao_doors_association",
         primaryjoin="WardrobeDAO.database_id == wardrobedao_doors_association.c.source_wardrobedao_id",
         secondaryjoin="DoorDAO.database_id == wardrobedao_doors_association.c.target_doordao_id",
         cascade="save-update, merge",
     )
-    drawers: Mapped[typing.List[DrawerDAO]] = relationship(
+    drawers: Mapped[builtins.list[DrawerDAO]] = relationship(
         "DrawerDAO",
         secondary="wardrobedao_drawers_association",
         primaryjoin="WardrobeDAO.database_id == wardrobedao_drawers_association.c.source_wardrobedao_id",
@@ -3803,28 +3810,28 @@ class AbstractRobotDAO(
     base: Mapped[BaseDAO] = relationship(
         "BaseDAO", uselist=False, foreign_keys=[base_id], post_update=True
     )
-    manipulators: Mapped[typing.List[ManipulatorDAO]] = relationship(
+    manipulators: Mapped[builtins.set[ManipulatorDAO]] = relationship(
         "ManipulatorDAO",
         secondary="abstractrobotdao_manipulators_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_manipulators_association.c.source_abstractrobotdao_id",
         secondaryjoin="ManipulatorDAO.database_id == abstractrobotdao_manipulators_association.c.target_manipulatordao_id",
         cascade="save-update, merge",
     )
-    sensors: Mapped[typing.List[SensorDAO]] = relationship(
+    sensors: Mapped[builtins.set[SensorDAO]] = relationship(
         "SensorDAO",
         secondary="abstractrobotdao_sensors_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensors_association.c.source_abstractrobotdao_id",
         secondaryjoin="SensorDAO.database_id == abstractrobotdao_sensors_association.c.target_sensordao_id",
         cascade="save-update, merge",
     )
-    manipulator_chains: Mapped[typing.List[KinematicChainDAO]] = relationship(
+    manipulator_chains: Mapped[builtins.set[KinematicChainDAO]] = relationship(
         "KinematicChainDAO",
         secondary="abstractrobotdao_manipulator_chains_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_manipulator_chains_association.c.source_abstractrobotdao_id",
         secondaryjoin="KinematicChainDAO.database_id == abstractrobotdao_manipulator_chains_association.c.target_kinematicchaindao_id",
         cascade="save-update, merge",
     )
-    sensor_chains: Mapped[typing.List[KinematicChainDAO]] = relationship(
+    sensor_chains: Mapped[builtins.set[KinematicChainDAO]] = relationship(
         "KinematicChainDAO",
         secondary="abstractrobotdao_sensor_chains_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensor_chains_association.c.source_abstractrobotdao_id",
@@ -3841,6 +3848,41 @@ class AbstractRobotDAO(
     __mapper_args__ = {
         "polymorphic_identity": "AbstractRobotDAO",
         "inherit_condition": database_id == AgentDAO.database_id,
+    }
+
+
+class HSRBDAO(
+    AbstractRobotDAO, DataAccessObject[semantic_digital_twin.robots.hsrb.HSRB]
+):
+
+    __tablename__ = "HSRBDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(AbstractRobotDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    neck_id: Mapped[int] = mapped_column(
+        ForeignKey("NeckDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    neck: Mapped[NeckDAO] = relationship(
+        "NeckDAO", uselist=False, foreign_keys=[neck_id], post_update=True
+    )
+    arms: Mapped[builtins.list[ArmDAO]] = relationship(
+        "ArmDAO",
+        secondary="hsrbdao_arms_association",
+        primaryjoin="HSRBDAO.database_id == hsrbdao_arms_association.c.source_hsrbdao_id",
+        secondaryjoin="ArmDAO.database_id == hsrbdao_arms_association.c.target_armdao_id",
+        cascade="save-update, merge",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "HSRBDAO",
+        "inherit_condition": database_id == AbstractRobotDAO.database_id,
     }
 
 
@@ -3933,7 +3975,7 @@ class KinematicChainDAO(
     manipulator: Mapped[ManipulatorDAO] = relationship(
         "ManipulatorDAO", uselist=False, foreign_keys=[manipulator_id], post_update=True
     )
-    sensors: Mapped[typing.List[SensorDAO]] = relationship(
+    sensors: Mapped[builtins.set[SensorDAO]] = relationship(
         "SensorDAO",
         secondary="kinematicchaindao_sensors_association",
         primaryjoin="KinematicChainDAO.database_id == kinematicchaindao_sensors_association.c.source_kinematicchaindao_id",
@@ -4790,7 +4832,7 @@ class WorldModelModificationBlockDAO(
         Integer, primary_key=True, use_existing_column=True
     )
 
-    modifications: Mapped[typing.List[WorldModelModificationDAO]] = relationship(
+    modifications: Mapped[builtins.list[WorldModelModificationDAO]] = relationship(
         "WorldModelModificationDAO",
         secondary="worldmodelmodificationblockdao_modifications_association",
         primaryjoin="WorldModelModificationBlockDAO.database_id == worldmodelmodificationblockdao_modifications_association.c.source_worldmodelmodificationblockdao_id",
