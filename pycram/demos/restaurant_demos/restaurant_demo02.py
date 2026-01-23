@@ -17,13 +17,14 @@ from pycram.robot_plans import (
 )
 from pycram.ros_utils.force_torque_sensor import ForceTorqueSensor
 from pycram.failures import SensorMonitoringCondition
+from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 ###########################################################################
 # import tf
 # from tf.transformations import quaternion_matrix
 from collections import OrderedDict
 from std_msgs.msg import String
-from pycram.datastructures.pose import Pose
+from pycram.datastructures.pose import PoseStamped
 from pycram.process_module import real_robot
 
 ###########################################################################
@@ -49,7 +50,9 @@ def _sleep_ros(seconds: float) -> None:
     robot,
     kitchen,
 ) = startup()
-# text_to_img_publisher = TextToImagePublisher()
+
+text_to_img_publisher = TextToImagePublisher(node=_demo_node)
+
 _demo_node.get_logger().info("Waiting for action server")
 _demo_node.get_logger().info("You can start your demo now")
 response = [None, None]
@@ -226,12 +229,12 @@ def demo(step: int):
                 customers.append(customer)
 
             marker.publish(
-                Pose.from_pose_stamped(drive_pose),
+                PoseStamped.from_pose_stamped(drive_pose),
                 color=[1, 1, 0, 1],
                 name="human_waving_pose",
             )
             marker.publish(
-                Pose.from_pose_stamped(adjusted_pose),
+                PoseStamped.from_pose_stamped(adjusted_pose),
                 color=[1, 0, 0, 1],
                 name="adjusted_pose",
             )
@@ -245,7 +248,9 @@ def demo(step: int):
         if step <= 2:  # Order step
             image_switch_publisher.pub_now(ImageEnum.ORDER.value)
             MoveTorsoAction([0.1]).resolve().perform()
-            LookAtAction([Pose([robot.pose.position.x, robot.pose.position.y, 0.8])])
+            LookAtAction(
+                [PoseStamped([robot.pose.position.x, robot.pose.position.y, 0.8])]
+            )
             _sleep_ros(1)
             # Timmi = CustomerDescription(id=1, pose=start_pose)
             # customer = Timmi
@@ -275,7 +280,7 @@ def demo(step: int):
             print("order", customer.order)
             if len(customer.order) == 1:
                 # TalkingMotion(f"Please prepare the order {customer.order[0][1]} {customer.order[0][0]}").perform()
-                text_to_img_publisher.pub_now(
+                text_to_img_publisher.publish_text(
                     f"The order: {customer.order[0][1]} {customer.order[0][0]}"
                 )
                 _sleep_ros(2)
@@ -287,7 +292,7 @@ def demo(step: int):
                     # TalkingMotion(f"{n[1]} {n[0]} ").perform()
                     _sleep_ros(1)
                     txt_order += f" {n[1]} {n[0]} " + "\n"
-                text_to_img_publisher.pub_now(txt_order)
+                text_to_img_publisher.publish_text(txt_order)
                 _sleep_ros(2)
                 image_switch_publisher.pub_now(ImageEnum.GENERATED_TEXT.value)
             # TalkingMotion("Please put the order into the tray in my gripper").perform()
