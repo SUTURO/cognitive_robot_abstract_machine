@@ -1355,7 +1355,6 @@ class MujocoBuilder(MultiSimBuilder):
 
         :param original_mesh_file_path: filepath to the original .dae mesh
         :param stl_file_path: filepath to save the new .stl mesh to
-        :return: True if the .stl mesh was created, False otherwise.
         """
         logger.info(
             f"Converting Collada mesh to STL for MuJoCo: {original_mesh_file_path}"
