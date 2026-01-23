@@ -25,6 +25,7 @@ from pycram.robot_plans import (
     MoveTorsoActionDescription,
     PickUpActionDescription,
 )
+from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelSynchronizer,
@@ -51,6 +52,8 @@ print(node)
 thread = threading.Thread(target=executor.spin, daemon=True, name="rclpy-executor")
 thread.start()
 time.sleep(1)
+
+tti_pub = TextToImagePublisher()
 
 hsrb_world = fetch_world_from_service(node)
 print(hsrb_world.bodies)
@@ -138,11 +141,13 @@ print(perceived_objects)
 with real_robot:
     SequentialPlan(
         context,
+        ParkArmsActionDescription(arm=Arms.LEFT),
         PickUpActionDescription(
             arm=Arms.LEFT,
             object_designator=hsrb_world.get_body_by_name("milk"),
             grasp_description=grasp,
         ),
+        # ParkArmsActionDescription(arm=Arms.LEFT)
     ).perform()
 
     # plan1.perform()

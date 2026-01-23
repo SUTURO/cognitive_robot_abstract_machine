@@ -177,6 +177,10 @@ class PickUpAction(ActionDescription):
         gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
         gripper_action = tmc.GripperActionClient()
 
+        self.object_designator.global_pose.y = (
+            self.object_designator.global_pose.y + 0.01
+        )
+
         SequentialPlan(
             self.context,
             CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
@@ -202,13 +206,13 @@ class PickUpAction(ActionDescription):
 
         # Attach the object to the end effector
         with self.world.modify_world():
-            self.world.remove_connection(self.object_designator.parent_connection)
             self.world.add_connection(
                 FixedConnection(parent=end_effector, child=self.object_designator)
             )
 
         lift_to_pose = PoseStamped().from_spatial_type(end_effector.global_pose)
         lift_to_pose.pose.position.z += 0.10
+
         SequentialPlan(
             self.context,
             MoveTCPMotion(
