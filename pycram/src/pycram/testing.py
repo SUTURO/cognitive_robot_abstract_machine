@@ -22,7 +22,9 @@ from .robot_descriptions.pr2_states import *
 logger = logging.getLogger(__name__)
 
 try:
-    from semantic_digital_twin.adapters.ros.viz_marker import VizMarkerPublisher
+    from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+        VizMarkerPublisher,
+    )
 except ImportError:
     logger.info(
         "Could not import VizMarkerPublisher. This is probably because you are not running ROS."

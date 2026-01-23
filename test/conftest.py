@@ -165,6 +165,7 @@ def pr2_world_setup():
     pr2 = os.path.join(urdf_dir, "pr2_calibrated_with_ft.urdf")
     pr2_parser = URDFParser.from_file(file_path=pr2)
     world_with_pr2 = pr2_parser.parse()
+    PR2.from_world(world_with_pr2)
     with world_with_pr2.modify_world():
         pr2_root = world_with_pr2.root
         localization_body = Body(name=PrefixedName("odom_combined"))
@@ -173,7 +174,6 @@ def pr2_world_setup():
             parent=localization_body, child=pr2_root, world=world_with_pr2
         )
         world_with_pr2.add_connection(c_root_bf)
-        PR2.from_world(world_with_pr2)
 
     return world_with_pr2
 

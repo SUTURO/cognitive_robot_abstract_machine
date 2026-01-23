@@ -7,6 +7,7 @@ from geometry_msgs.msg import TransformStamped
 from rclpy.node import Node
 from rclpy.publisher import Publisher
 from tf2_msgs.msg import TFMessage
+from typing_extensions import Self
 
 from krrood.symbolic_math.symbolic_math import (
     Matrix,
@@ -16,6 +17,7 @@ from krrood.symbolic_math.symbolic_math import (
 from ...callbacks.callback import StateChangeCallback, ModelChangeCallback
 from ...world import World
 from ...world_description.world_entity import KinematicStructureEntity
+from ...robots.abstract_robot import AbstractRobot
 
 
 @dataclass
@@ -134,6 +136,21 @@ class TFPublisher(StateChangeCallback):
         )
         self.tf_model_cb.notify()
         self._notify()
+
+    @classmethod
+    def create_with_ignore_robot(cls, robot: AbstractRobot, node: Node) -> Self:
+        """
+        Creates a TF publisher that ignores the robot's kinematic structure.
+        Useful, if the robot is already publishing some tf.
+        :param robot: The robot for which to create the TF publisher.
+        :param node: The ROS2 node used to create the publisher.
+        """
+        ignored_bodies = set(robot.bodies)
+        return cls(
+            node=node,
+            world=robot._world,
+            ignored_kinematic_structure_entities=ignored_bodies,
+        )
 
     def _notify(self):
         self.tf_model_cb.update_tf_message()

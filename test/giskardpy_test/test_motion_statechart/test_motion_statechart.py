@@ -88,7 +88,9 @@ from krrood.symbolic_math.symbolic_math import (
     FloatVariable,
 )
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
-from semantic_digital_twin.adapters.ros.viz_marker import VizMarkerPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )

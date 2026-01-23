@@ -3,12 +3,10 @@ from dataclasses import dataclass, field
 
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy
-from std_msgs.msg import ColorRGBA
-from typing_extensions import ClassVar
 from visualization_msgs.msg import MarkerArray
 
-from .msg_converter import SemDTToRos2Converter
-from ...callbacks.callback import ModelChangeCallback
+from ..msg_converter import SemDTToRos2Converter
+from ....callbacks.callback import ModelChangeCallback
 
 
 @dataclass

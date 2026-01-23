@@ -7,7 +7,9 @@ from visualization_msgs.msg import MarkerArray, Marker
 
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
-from semantic_digital_twin.adapters.ros.viz_marker import VizMarkerPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.connections import OmniDrive
 
