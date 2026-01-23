@@ -1,6 +1,9 @@
 import unittest
 from time import sleep
 
+import pytest
+
+from semantic_digital_twin.exceptions import IncorrectScaleError
 from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types.spatial_types import (
@@ -164,10 +167,24 @@ class TestFactories(unittest.TestCase):
         )
         drawer_transform = HomogeneousTransformationMatrix()
 
+        with pytest.raises(IncorrectScaleError) as e_info:
+            door_factory = DoorFactory(
+                name=PrefixedName("door"),
+                handle_factory=HandleFactory(name=PrefixedName("door_handle")),
+                scale=Scale(1.05, 1.0, 1.0),  # x < y and z
+                semantic_position=SemanticPositionDescription(
+                    horizontal_direction_chain=[
+                        HorizontalSemanticDirection.RIGHT,
+                        HorizontalSemanticDirection.FULLY_CENTER,
+                    ],
+                    vertical_direction_chain=[VerticalSemanticDirection.FULLY_CENTER],
+                ),
+            )
+
         door_factory = DoorFactory(
             name=PrefixedName("door"),
             handle_factory=HandleFactory(name=PrefixedName("door_handle")),
-            scale=Scale(1.0, 1.0, 1.0),
+            scale=Scale(0.05, 1.0, 1.0),  # x < y and z
             semantic_position=SemanticPositionDescription(
                 horizontal_direction_chain=[
                     HorizontalSemanticDirection.RIGHT,

@@ -41,6 +41,7 @@ class MoveTorsoAction(ActionDescription):
         SequentialPlan(
             self.context,
             MoveJointsMotion(joint_state.joint_names, joint_state.joint_positions),
+            # MoveGripperMotion(motion=GripperState.CLOSE, gripper=Arms.LEFT)
         ).perform()
 
     def validate(

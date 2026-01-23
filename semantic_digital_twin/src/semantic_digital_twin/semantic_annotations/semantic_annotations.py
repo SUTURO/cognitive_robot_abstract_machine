@@ -627,3 +627,27 @@ class LiquidCap(HasBody):
     """
     A liquid cap.
     """
+
+@dataclass(eq=False)
+class Drink(SemanticAnnotation):
+    """
+    A Semantic annotation representing a drink item.
+    """
+    body: Body
+
+
+@dataclass(eq=False)
+class Cola(Drink):
+    ...
+
+@dataclass(eq=False)
+class Fanta(Drink):
+    ...
+
+@dataclass(eq=False)
+class Water(Drink):
+    ...
+
+@dataclass(eq=False)
+class Beer(Drink):
+    ...

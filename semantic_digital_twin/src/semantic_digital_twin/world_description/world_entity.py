@@ -45,6 +45,8 @@ from ..adapters.world_entity_kwargs_tracker import (
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..exceptions import ReferenceFrameMismatchError
+if TYPE_CHECKING:
+    from ..semantic_annotations.semantic_annotations import Drink
 from ..spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -866,8 +868,7 @@ class Human(Agent):
     can treat human agents differently from robots if needed.
     """
 
-    ...
-
+    favourite_drink: Optional[Type[Drink]] = field(default=None, kw_only=True)
 
 @dataclass(eq=False)
 class SemanticEnvironmentAnnotation(RootedSemanticAnnotation):

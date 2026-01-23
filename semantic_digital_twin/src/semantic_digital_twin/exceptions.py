@@ -140,6 +140,15 @@ class MissingWorldModificationContextError(UsageError):
     def __post_init__(self):
         self.message = f"World function '{self.function.__name__}' was called without a 'with world.modify_world():' context manager."
 
+class IncorrectScaleError(ValueError):
+    """
+    An exception raised when the scale of a DoorFactory is incorrect.
+    """
+    def __init__(self, scale):
+        self.scale = scale
+        super().__init__(
+        f"Scale {scale} is invalid: x must be smaller than y and z."
+        )
 
 @dataclass
 class DuplicateWorldEntityError(UsageError):

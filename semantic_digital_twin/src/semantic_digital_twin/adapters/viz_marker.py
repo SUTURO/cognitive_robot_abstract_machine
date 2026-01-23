@@ -60,7 +60,7 @@ class VizMarkerPublisher(StateChangeCallback):
 
     def __post_init__(self):
         """
-        Initializes the publisher and registers the callback to the world.
+        Initializes the publisher and regis ters the callback to the world.
         """
         super().__post_init__()
         self.pub = self.node.create_publisher(MarkerArray, self.topic_name, 10)
@@ -85,6 +85,8 @@ class VizMarkerPublisher(StateChangeCallback):
         :return: An Array of Visualization Marker
         """
         marker_array = MarkerArray()
+        if self.world.world_is_being_modified:
+            return marker_array
         for body in self.world.bodies:
             for i, collision in enumerate(body.collision):
                 msg = Marker()

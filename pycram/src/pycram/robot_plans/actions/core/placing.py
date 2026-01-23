@@ -7,6 +7,7 @@ from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from .pick_up import ReachActionDescription
 from ....config.action_conf import ActionConfig
 from ...motions.gripper import MoveTCPMotion, MoveGripperMotion, ReachMotion
@@ -19,9 +20,10 @@ from ....datastructures.enums import (
 from ....datastructures.grasp import GraspDescription
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
+from ....external_interfaces import tmc
 from ....failures import ObjectNotPlacedAtTargetLocation, ObjectStillInContact
 from ....has_parameters import has_parameters
-from ....language import SequentialPlan
+from ....language import SequentialPlan, CodePlan
 from ....robot_description import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....utils import translate_pose_along_local_axis
@@ -37,7 +39,7 @@ class PlaceAction(ActionDescription):
 
     object_designator: Body
     """
-    Object designator_description describing the object that should be place
+    Object designator_description describing the object that should be placed
     """
     target_location: PoseStamped
     """
@@ -56,16 +58,19 @@ class PlaceAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
+        gripper_action = tmc.GripperActionClient()
+
         SequentialPlan(
             self.context,
             ReachActionDescription(
                 self.target_location,
                 self.arm,
                 GraspDescription(
-                    ApproachDirection.FRONT, VerticalAlignment.NoAlignment
+                    ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
                 ),
             ),
-            MoveGripperMotion(GripperState.OPEN, self.arm),
+            CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
         ).perform()
 
         # Detaches the object from the robot

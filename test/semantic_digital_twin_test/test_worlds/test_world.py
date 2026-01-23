@@ -1127,3 +1127,10 @@ def test_world_state_trajectory(world_setup):
     world._notify_model_change()
     with pytest.raises(WrongWorldModelVersion):
         traj.append(world.state, time + dt)
+
+
+def test_merge_into_empty_world(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    world2 = deepcopy(world)
+    world2.clear()
+    world2.merge_world(world)

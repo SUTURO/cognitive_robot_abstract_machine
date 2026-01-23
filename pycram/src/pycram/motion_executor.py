@@ -2,6 +2,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Any
 
+from giskardpy.executor import Executor
+
 from giskardpy.motion_statechart.data_types import LifeCycleValues
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import EndMotion

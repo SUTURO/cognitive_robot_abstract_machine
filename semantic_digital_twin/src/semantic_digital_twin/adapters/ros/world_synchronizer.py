@@ -175,6 +175,7 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         """
         Applies the missed messages to the world.
         """
+
         self._skip_next_world_callback = True
         with self.world.modify_world():
             for msg in self.missed_messages:
@@ -312,7 +313,6 @@ class ModelReloadSynchronizer(Synchronizer):
 
     def __post_init__(self):
         super().__post_init__()
-        assert self.session is not None
 
     def publish_reload_model(self):
         """
@@ -349,6 +349,5 @@ class ModelReloadSynchronizer(Synchronizer):
 
         :param new_world: The new world instance to replace the current world.
         """
-        with self.world.modify_world():
-            self.world.clear()
-            self.world.merge_world(new_world)
+        self.world.clear()
+        self.world.merge_world(new_world)

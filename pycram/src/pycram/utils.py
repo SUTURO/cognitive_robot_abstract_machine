@@ -227,6 +227,10 @@ def axis_angle_to_quaternion(axis: List, angle: float) -> Tuple:
     return tuple((x, y, z, w))
 
 
+def quat_np_list(q):
+    return [np.float64(v) for v in q]
+
+
 class suppress_stdout_stderr(object):
     """
     A context manager for doing a "deep suppression" of stdout and stderr in
