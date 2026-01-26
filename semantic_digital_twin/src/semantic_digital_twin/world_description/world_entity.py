@@ -43,7 +43,9 @@ from ..adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from ..datastructures.prefixed_name import PrefixedName
-from ..exceptions import ReferenceFrameMismatchError
+from ..exceptions import (
+    ReferenceFrameMismatchError,
+)
 from ..spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -338,6 +340,40 @@ class KinematicStructureEntity(WorldEntityWithID, ABC):
             connection_type
         )
 
+    @classmethod
+    @abstractmethod
+    def from_shape_collection(
+        cls, name: PrefixedName, shape_collection: ShapeCollection
+    ) -> Self: ...
+
+    @classmethod
+    def from_3d_points(
+        cls,
+        name: PrefixedName,
+        points_3d: List[Point3],
+        minimum_thickness: float = 0.005,
+        sv_ratio_tol: float = 1e-7,
+    ) -> Self:
+        """
+        Constructs a Region from a list of 3D points by creating a convex hull around them.
+        The points are analyzed to determine if they are approximately planar. If they are,
+        a minimum thickness is added to ensure the region has a non-zero volume.
+
+        :param name: Prefixed name for the region.
+        :param points_3d: List of 3D points.
+        :param reference_frame: Optional reference frame.
+        :param minimum_thickness: Minimum thickness to add if points are near-planar.
+        :param sv_ratio_tol: Tolerance for determining planarity based on singular value ratio.
+
+        :return: Region object.
+        """
+        area_mesh = TriangleMesh.from_3d_points(
+            points_3d,
+            minimum_thickness=minimum_thickness,
+            sv_ratio_tol=sv_ratio_tol,
+        )
+        return cls.from_shape_collection(name, ShapeCollection([area_mesh]))
+
 
 @dataclass(eq=False)
 class Body(KinematicStructureEntity):
@@ -388,6 +424,12 @@ class Body(KinematicStructureEntity):
         self.collision.reference_frame = self
         self.collision.transform_all_shapes_to_own_frame()
         self.visual.transform_all_shapes_to_own_frame()
+
+    @classmethod
+    def from_shape_collection(
+        cls, name: PrefixedName, shape_collection: ShapeCollection
+    ) -> Self:
+        return cls(name=name, collision=shape_collection, visual=shape_collection)
 
     @property
     def combined_mesh(self) -> Optional[trimesh.Trimesh]:
@@ -556,87 +598,17 @@ class Region(KinematicStructureEntity):
     def __hash__(self):
         return id(self)
 
+    @classmethod
+    def from_shape_collection(
+        cls, name: PrefixedName, shape_collection: ShapeCollection
+    ):
+        return cls(name=name, area=shape_collection)
+
     @property
     def combined_mesh(self) -> Optional[trimesh.Trimesh]:
         if not self.area:
             return None
         return self.area.combined_mesh
-
-    @classmethod
-    def from_3d_points(
-        cls,
-        name: PrefixedName,
-        points_3d: List[Point3],
-        reference_frame: Optional[KinematicStructureEntity] = None,
-        minimum_thickness: float = 0.005,
-        sv_ratio_tol: float = 1e-7,
-    ) -> Self:
-        """
-        Constructs a Region from a list of 3D points by creating a convex hull around them.
-        The points are analyzed to determine if they are approximately planar. If they are,
-        a minimum thickness is added to ensure the region has a non-zero volume.
-
-        :param name: Prefixed name for the region.
-        :param points_3d: List of 3D points.
-        :param reference_frame: Optional reference frame.
-        :param minimum_thickness: Minimum thickness to add if points are near-planar.
-        :param sv_ratio_tol: Tolerance for determining planarity based on singular value ratio.
-
-        :return: Region object.
-        """
-        points = np.asarray([point.to_np()[:3] for point in points_3d], dtype=float)
-        points = np.unique(points, axis=0)
-        assert (
-            len(points) >= 3
-        ), "At least 4 unique points are required to define a 3D region."
-
-        centered_points = points - points.mean(axis=0, keepdims=True)
-        assert np.any(centered_points), "Points must not be all identical."
-
-        # We compute the principal axes of the point cloud using SVD.
-        # This allows us to reason about the geometric thickness of our point cloud.
-        # The axis with the smallest variance, located at the last index if our `principal_axis` is our `normal`
-        # indicating the direction of the region's thickness.
-        _, variance, principal_axis = np.linalg.svd(
-            centered_points, full_matrices=False
-        )
-        smallest_variance_axis = principal_axis[-1]  # this is our normal
-        unit_vector_normal = smallest_variance_axis / np.linalg.norm(
-            smallest_variance_axis
-        )
-
-        # We compute the thickness, peak-to-peak (max - min), along the normal direction, to get the thickness of
-        # the region.
-        thickness_in_normal_direction = np.ptp(centered_points @ unit_vector_normal)
-        is_near_planar = variance[0] > 0 and variance[-1] / variance[0] < sv_ratio_tol
-        thickness_padding = (
-            minimum_thickness / 2
-            if thickness_in_normal_direction < minimum_thickness or is_near_planar
-            else 0.0
-        )
-
-        # We do not provide any 2d shapes, since they would be very weird to handle with raytracing etc.
-        # Thus we decided that in near-planar cases we add a minimum thickness to ensure we get a 3d shape.
-        if thickness_padding > 0:
-            P_aug = np.vstack(
-                [
-                    points + thickness_padding * unit_vector_normal,
-                    points - thickness_padding * unit_vector_normal,
-                ]
-            )
-        else:
-            P_aug = points
-
-        hull = trimesh.points.PointCloud(P_aug).convex_hull
-        hull.remove_unreferenced_vertices()
-        hull.update_faces(hull.nondegenerate_faces())
-        hull.process()
-
-        area_mesh = TriangleMesh(
-            mesh=hull,
-            origin=HomogeneousTransformationMatrix(reference_frame=reference_frame),
-        )
-        return cls(name=name, area=ShapeCollection([area_mesh]))
 
     def to_json(self) -> Dict[str, Any]:
         result = super().to_json()
@@ -664,7 +636,7 @@ GenericKinematicStructureEntity = TypeVar(
 GenericWorldEntity = TypeVar("GenericWorldEntity", bound=WorldEntity)
 
 
-@dataclass
+@dataclass(eq=False)
 class SemanticAnnotation(WorldEntityWithID):
     """
     Represents a semantic annotation on a set of bodies in the world.

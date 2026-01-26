@@ -36,6 +36,7 @@ def urdf_context():
 
 # ---- Plan graph tests (no robot/world side effects needed) ----
 
+
 def test_plan_construction(urdf_context):
     world, context = urdf_context
     node = PlanNode()
@@ -116,6 +117,7 @@ def test_context_creation(urdf_context):
 
 
 # ---- PlanNode tests (pure graph behavior) ----
+
 
 def test_plan_node_creation(urdf_context):
     world, context = urdf_context
@@ -213,6 +215,7 @@ def test_plan_node_subtree(urdf_context):
 
 # ---- Tests interacting with simulated robot/world ----
 
+
 def test_interrupt_plan(immutable_model_world):
     world, robot_view, context = immutable_model_world
 
@@ -271,7 +274,9 @@ def test_pause_plan(immutable_model_world):
         ParallelPlan(context, Plan(code_node, context), robot_plan).perform()
 
     assert (
-        world.state[world.get_degree_of_freedom_by_name("torso_lift_joint").name].position
+        world.state[
+            world.get_degree_of_freedom_by_name("torso_lift_joint").name
+        ].position
         == 0.3
     )
 

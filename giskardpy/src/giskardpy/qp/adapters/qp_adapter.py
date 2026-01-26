@@ -221,26 +221,26 @@ class ProblemDataPart(ABC):
         if not v.has_position_limits():
             lower_limits.position = upper_limits.position = None
         else:
-            lower_limits.position = v.lower_limits.position
-            upper_limits.position = v.upper_limits.position
+            lower_limits.position = v.limits.lower.position
+            upper_limits.position = v.limits.upper.position
 
         # %% vel limits
-        lower_limits.velocity = v.lower_limits.velocity
-        upper_limits.velocity = v.upper_limits.velocity
+        lower_limits.velocity = v.limits.lower.velocity
+        upper_limits.velocity = v.limits.upper.velocity
         if self.config.prediction_horizon == 1:
             return sm.Vector([lower_limits.velocity]), sm.Vector(
                 [upper_limits.velocity]
             )
 
         # %% acc limits
-        if v.lower_limits.acceleration is None:
+        if v.limits.lower.acceleration is None:
             lower_limits.acceleration = -np.inf
         else:
-            lower_limits.acceleration = v.lower_limits.acceleration
-        if v.upper_limits.acceleration is None:
+            lower_limits.acceleration = v.limits.lower.acceleration
+        if v.limits.upper.acceleration is None:
             upper_limits.acceleration = np.inf
         else:
-            upper_limits.acceleration = v.upper_limits.acceleration
+            upper_limits.acceleration = v.limits.upper.acceleration
 
         # %% jerk limits
         if upper_limits.jerk is None:
@@ -252,8 +252,8 @@ class ProblemDataPart(ABC):
             )
             lower_limits.jerk = -upper_limits.jerk
         else:
-            upper_limits.jerk = v.upper_limits.jerk
-            lower_limits.jerk = v.lower_limits.jerk
+            upper_limits.jerk = v.limits.upper.jerk
+            lower_limits.jerk = v.limits.lower.jerk
 
         try:
             lb, ub = b_profile(
@@ -377,7 +377,7 @@ class Weights(ProblemDataPart):
                     ):
                         continue
                     normalized_weight = self.normalize_dof_weight(
-                        limit=v.upper_limits.data[derivative],
+                        limit=v.limits.upper.data[derivative],
                         base_weight=self.config.get_dof_weight(v.name, derivative),
                         t=t,
                         derivative=derivative,

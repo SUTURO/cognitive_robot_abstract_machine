@@ -1125,6 +1125,24 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         return cls(x=0, y=0, z=1, reference_frame=reference_frame)
 
     @classmethod
+    def NEGATIVE_X(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=-1, y=0, z=0, reference_frame=reference_frame)
+
+    @classmethod
+    def NEGATIVE_Y(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=0, y=-1, z=0, reference_frame=reference_frame)
+
+    @classmethod
+    def NEGATIVE_Z(
+        cls, reference_frame: Optional[KinematicStructureEntity] = None
+    ) -> Vector3:
+        return cls(x=0, y=0, z=-1, reference_frame=reference_frame)
+
+    @classmethod
     def unit_vector(
         cls,
         x: sm.ScalarData = 0,

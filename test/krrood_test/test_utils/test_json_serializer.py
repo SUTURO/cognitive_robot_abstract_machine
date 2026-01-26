@@ -17,6 +17,8 @@ from krrood.adapters.json_serializer import (
     SubclassJSONSerializer,
     to_json,
     from_json,
+    JSONAttributeDiff,
+    shallow_diff_json,
 )
 from krrood.utils import get_full_class_name
 
@@ -29,6 +31,7 @@ class Animal(SubclassJSONSerializer):
 
     name: str
     age: int
+    owners: list[str] = field(default_factory=list)
 
     def to_json(self):
         data = super().to_json()
@@ -36,6 +39,7 @@ class Animal(SubclassJSONSerializer):
             {
                 "name": self.name,
                 "age": self.age,
+                "owners": self.owners,
             }
         )
         return data
@@ -45,6 +49,7 @@ class Animal(SubclassJSONSerializer):
         return cls(
             name=(data["name"]),
             age=(data["age"]),
+            owners=(data["owners"]),
         )
 
 
@@ -71,6 +76,7 @@ class Dog(Animal):
             name=(data["name"]),
             age=(data["age"]),
             breed=(data["breed"]),
+            owners=(data["owners"]),
         )
 
 
@@ -240,6 +246,79 @@ def test_classes():
     data = to_json(obj)
     result = from_json(data)
     assert result == obj
+
+
+def test_json_attribute_diff_roundtrip():
+    diff = JSONAttributeDiff(
+        attribute_name="test", added_values=[1, 2], removed_values=[3]
+    )
+    data = diff.to_json()
+    result = from_json(data)
+    assert isinstance(result, JSONAttributeDiff)
+    assert diff == result
+
+
+def test_json_attribute_diff_empty():
+    diff = JSONAttributeDiff(attribute_name="test")
+    assert diff.added_values == []
+    assert diff.removed_values == []
+    data = diff.to_json()
+    result = from_json(data)
+    assert diff == result
+
+
+def test_shallow_diff_json():
+    orig = {"a": 1, "b": [1, 2], "c": "foo"}
+    new = {"a": 2, "b": [2, 3], "c": "bar"}
+    diffs = shallow_diff_json(orig, new)
+
+    diff_dict = {d.attribute_name: d for d in diffs}
+
+    assert "a" in diff_dict
+    assert diff_dict["a"].added_values == [2]
+
+    assert "b" in diff_dict
+    assert set(diff_dict["b"].added_values) == {3}
+    assert set(diff_dict["b"].removed_values) == {1}
+
+    assert "c" in diff_dict
+    assert diff_dict["c"].added_values == ["bar"]
+
+
+def test_update_from_json_diff():
+    dog = Dog(
+        name="Rex",
+        age=5,
+        breed="Shepherd",
+        owners=["Alice", "Bob"],
+    )
+    orig_json = dog.to_json()
+    new_json = orig_json.copy()
+    new_json["name"] = "Max"
+    new_json["age"] = 6
+    new_json["owners"] = ["Alice", "Charlie"]
+
+    diffs = shallow_diff_json(orig_json, new_json)
+
+    dog.update_from_json_diff(diffs)
+
+    assert dog.name == "Max"
+    assert dog.age == 6
+    assert dog.owners == ["Alice", "Charlie"]
+
+
+def test_shallow_diff_json_nested():
+    dog1 = Dog(name="Rex", age=5)
+    dog2 = Dog(name="Max", age=6)
+
+    orig = {"pet": dog1.to_json()}
+    new = {"pet": dog2.to_json()}
+
+    diffs = shallow_diff_json(orig, new)
+    assert len(diffs) == 1
+    assert diffs[0].attribute_name == "pet"
+    assert isinstance(diffs[0].added_values[0], Dog)
+    assert diffs[0].added_values[0].name == "Max"
 
 
 def test_nparray():

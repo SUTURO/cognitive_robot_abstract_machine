@@ -581,8 +581,8 @@ class AccessingLocation(LocationDesignatorDescription):
             )
         )[0]
 
-        lower_limit = container_connection.dof.lower_limits.position
-        upper_limit = container_connection.dof.upper_limits.position
+        lower_limit = container_connection.dof.limits.lower.position
+        upper_limit = container_connection.dof.limits.upper.position
 
         init_pose = link_pose_for_joint_config(
             params_box.handle, {container_connection.dof.name.name: lower_limit}

@@ -10,7 +10,6 @@ from typing_extensions import (
     Type,
     TYPE_CHECKING,
     Callable,
-    Tuple,
     Union,
     Any,
 )
@@ -21,12 +20,16 @@ from .datastructures.prefixed_name import PrefixedName
 
 if TYPE_CHECKING:
     from .world import World
+    from .world_description.geometry import Scale
     from .world_description.world_entity import (
         SemanticAnnotation,
         WorldEntity,
         KinematicStructureEntity,
     )
     from .spatial_types.spatial_types import FloatVariable, SymbolicMathType
+    from .spatial_types import Vector3
+    from .semantic_annotations.mixins import HasRootKinematicStructureEntity
+    from .world_description.degree_of_freedom import DegreeOfFreedomLimits
 
 
 @dataclass
@@ -123,6 +126,107 @@ class UsageError(LogicalError):
     """
     An exception raised when an incorrect usage of the API is encountered.
     """
+
+
+@dataclass
+class InvalidConnectionLimits(UsageError):
+    """
+    Raised when the lower limit is not less than the upper limit for a degree of freedom.
+    """
+
+    name: PrefixedName
+    """
+    The name of the degree of freedom.
+    """
+
+    limits: DegreeOfFreedomLimits
+    """
+    The invalid limits.
+    """
+
+    def __post_init__(self):
+        self.message = f"Lower limit for {self.name} must be less than upper limit. Given limits: {self.limits}."
+
+
+@dataclass
+class MismatchingWorld(UsageError):
+    """
+    Raised when two entities belong to different worlds.
+    """
+
+    expected_world: World
+    """
+    The expected world.
+    """
+
+    given_world: World
+    """
+    The given world.
+    """
+
+    def __post_init__(self):
+        self.message = f"The two entities have mismatching worlds. Expected world: {self.expected_world}, given world: {self.given_world}"
+
+
+@dataclass
+class MissingSemanticAnnotationError(UsageError):
+    """
+    Raised when a semantic annotation is required but missing.
+    """
+
+    semantic_annotation_class: Type[SemanticAnnotation]
+    """
+    The semantic annotation class that requires another semantic annotation.
+    """
+
+    missing_semantic_annotation_class: Type[SemanticAnnotation]
+    """
+    The missing semantic annotation class.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"The semantic annotation of type {self.missing_semantic_annotation_class.__name__} is required"
+            f" by {self.semantic_annotation_class.__name__}, but is missing."
+        )
+
+
+@dataclass
+class InvalidPlaneDimensions(UsageError):
+    """
+    Raised when the depth of a plane is not less than its width or height.
+    """
+
+    scale: Scale
+    """
+    The scale of the plane.
+    """
+
+    clazz: Type
+    """
+    The class for which the dimensions are invalid.
+    """
+
+    def __post_init__(self):
+        self.message = f"The Dimensions {self.scale} are invalid for the class {self.clazz.__name__}"
+
+
+@dataclass
+class InvalidHingeActiveAxis(UsageError):
+    """
+    Raised when an invalid axis is provided.
+    """
+
+    axis: Vector3
+    """
+    The invalid axis.
+    """
+
+    def __post_init__(self):
+        self.message = (
+            f"Axis {self.axis} provided when trying to calculate the hinge position is invalid. "
+            f"If you think this is incorrect, consider extending Door.calculate_world_T_hinge_based_on_handle"
+        )
 
 
 @dataclass
