@@ -90,7 +90,7 @@ class WorldWithOmniDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(urdf=self.urdf)
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 
