@@ -28,19 +28,19 @@ class MiddlewareWrapper(abc.ABC):
 class NoMiddleware(MiddlewareWrapper):
 
     def loginfo(self, msg: str):
-        logger.info(f"{msg}")
+        logger.info(msg)
 
     def logwarn(self, msg: str):
-        logger.warning(f"{msg}")
+        logger.warning(msg)
 
     def logerr(self, msg: str):
-        logger.error(f"{msg}")
+        logger.error(msg)
 
     def logdebug(self, msg: str):
-        logger.debug(f"{msg}")
+        logger.debug(msg)
 
     def logfatal(self, msg: str):
-        logger.fatal(f"{msg}")
+        logger.fatal(msg)
 
     def resolve_iri(cls, path: str) -> str:
         return path

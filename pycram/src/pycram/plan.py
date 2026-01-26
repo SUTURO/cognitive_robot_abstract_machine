@@ -215,7 +215,7 @@ class Plan:
         node_to_insert_before: PlanNode = None,
     ):
         """
-        Shits the layer indices of nodes in the layer such that the index for the child node is free and does not collide
+        Shifts the layer indices of nodes in the layer such that the index for the child node is free and does not collide
         with another index.
         If a node_to_insert_after is given the index of all nodes after the given node will be shifted by one.
         if an node_to_insert_before is given the index of all nodes after the given node will be shifted by one plus the

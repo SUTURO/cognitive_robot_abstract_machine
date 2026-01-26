@@ -55,7 +55,7 @@ from .world_description.connections import (
     ActiveConnection,
 )
 from .world_description.connections import HasUpdateState
-from .world_description.degree_of_freedom import DegreeOfFreedom
+from .world_description.degree_of_freedom import DegreeOfFreedom, DegreeOfFreedomLimits
 from .world_description.visitors import CollisionBodyCollector, ConnectionCollector
 from .world_description.world_entity import (
     Connection,
@@ -695,6 +695,12 @@ class World:
         body: KinematicStructureEntity,
     ):
         return self.add_kinematic_structure_entity(body)
+
+    def add_region(
+        self,
+        region: KinematicStructureEntity,
+    ):
+        return self.add_kinematic_structure_entity(region)
 
     def add_kinematic_structure_entity(
         self,
@@ -1808,6 +1814,19 @@ class World:
         """
         return self._forward_kinematic_manager.collision_fks
 
+    def update_forward_kinematics(self) -> None:
+        """
+        Recompile and recompute forward kinematics of the world.
+
+        ..warning::
+            Use this method if you need to live update the forward kinematic inside a with self.modify_world(): block.
+            Use with caution, as this only works if the world structure is not currently broken, and thus may lead to
+            crashes if its not the case. Also using this in a method that is called a lot, it may cause performance
+            issues because of unnecessary recompilations.
+        """
+        self._forward_kinematic_manager.recompile()
+        self._forward_kinematic_manager.recompute()
+
     # %% Inverse Kinematics
     def compute_inverse_kinematics(
         self,
@@ -1925,8 +1944,10 @@ class World:
             for dof in self.degrees_of_freedom:
                 new_dof = DegreeOfFreedom(
                     name=dof.name,
-                    lower_limits=dof.lower_limits,
-                    upper_limits=dof.upper_limits,
+                    limits=DegreeOfFreedomLimits(
+                        lower=dof.limits.lower,
+                        upper=dof.limits.upper,
+                    ),
                     id=dof.id,
                 )
                 new_world.add_degree_of_freedom(new_dof)

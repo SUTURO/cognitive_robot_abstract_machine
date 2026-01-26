@@ -181,6 +181,16 @@ class ShapeCollection(SubclassJSONSerializer):
         )
         return ShapeCollection(new_shapes, new_reference_frame)
 
+    @property
+    def scale(self):
+        return (
+            self.as_bounding_box_collection_at_origin(
+                HomogeneousTransformationMatrix(reference_frame=self.reference_frame)
+            )
+            .bounding_box()
+            .scale
+        )
+
 
 @dataclass
 class BoundingBoxCollection(ShapeCollection):
