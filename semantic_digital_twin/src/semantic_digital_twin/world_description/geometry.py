@@ -327,6 +327,11 @@ class FileMesh(Mesh):
         mesh.visual.vertex_colors = trimesh.visual.color.to_rgba(self.color.to_rgba())
         return mesh
 
+    def to_triangle_mesh(self) -> TriangleMesh:
+        return TriangleMesh(
+            mesh=self.mesh, origin=self.origin, color=self.color, scale=self.scale
+        )
+
     def to_json(self) -> Dict[str, Any]:
         json = {
             **super().to_json(),
@@ -373,10 +378,14 @@ class TriangleMesh(Mesh):
     The loaded mesh object.
     """
 
+    @property
+    def file_name(self) -> str:
+        return self.file.name
+
     @cached_property
     def file(
         self, dirname: str = "/tmp", file_type: str = "obj"
-    ) -> tempfile.NamedTemporaryFile:
+    ) -> tempfile._TemporaryFileWrapper:
         f = tempfile.NamedTemporaryFile(dir=dirname, delete=False)
         if file_type == "obj":
             self.mesh.export(f.name, file_type="obj")

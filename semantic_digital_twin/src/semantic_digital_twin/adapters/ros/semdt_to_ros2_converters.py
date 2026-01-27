@@ -16,7 +16,14 @@ from ...spatial_types import (
     Quaternion,
 )
 from ...spatial_types.spatial_types import Pose
-from ...world_description.geometry import Box, Cylinder, Sphere, Color, FileMesh
+from ...world_description.geometry import (
+    Box,
+    Cylinder,
+    Sphere,
+    Color,
+    FileMesh,
+    TriangleMesh,
+)
 
 
 @dataclass
@@ -207,6 +214,22 @@ class FileMeshToRos2Converter(ShapeToRos2Converter[FileMesh]):
         marker = super().convert(data)
         marker.type = visualization_msgs.Marker.MESH_RESOURCE
         marker.mesh_resource = "file://" + data.filename
+        marker.scale.x = data.scale.x
+        marker.scale.y = data.scale.y
+        marker.scale.z = data.scale.z
+        marker.mesh_use_embedded_materials = True
+        marker.color = ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0)
+        return marker
+
+
+@dataclass
+class TriangleMeshToRos2Converter(ShapeToRos2Converter[TriangleMesh]):
+
+    @classmethod
+    def convert(cls, data: TriangleMesh) -> Marker:
+        marker = super().convert(data)
+        marker.type = visualization_msgs.Marker.MESH_RESOURCE
+        marker.mesh_resource = "file://" + data.file.name
         marker.scale.x = data.scale.x
         marker.scale.y = data.scale.y
         marker.scale.z = data.scale.z

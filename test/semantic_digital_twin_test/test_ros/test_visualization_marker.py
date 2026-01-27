@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass, field
 from time import sleep
 
@@ -5,13 +6,20 @@ from rclpy.duration import Duration
 from rclpy.time import Time
 from visualization_msgs.msg import MarkerArray, Marker
 
+from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.world_description.connections import OmniDrive
+from semantic_digital_twin.world_description.connections import (
+    OmniDrive,
+    FixedConnection,
+)
+from semantic_digital_twin.world_description.geometry import FileMesh
+from semantic_digital_twin.world_description.world_entity import Body
 
 
 @dataclass
@@ -100,3 +108,34 @@ def test_visualization_marker_pr2(rclpy_node, pr2_world_state_reset):
     else:
         assert False, "Callback timed out"
     assert len(callback.last_msg.markers) == 54
+
+
+def test_trimesh(rclpy_node):
+    world = STLParser(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "semantic_digital_twin",
+            "resources",
+            "stl",
+            "milk.stl",
+        )
+    ).parse()
+    visual: FileMesh = world.root.visual.shapes[0]
+    world.root.visual.shapes[0] = visual.to_triangle_mesh()
+    with world.modify_world():
+        body2 = Body(name=PrefixedName("body2"))
+        body_C_body2 = FixedConnection(parent=world.root, child=body2)
+        world.add_connection(body_C_body2)
+    tf_wrapper = TFWrapper(node=rclpy_node)
+    tf_publisher = TFPublisher(node=rclpy_node, world=world)
+    viz = VizMarkerPublisher(world=world, node=rclpy_node, use_visuals=True)
+
+    assert tf_wrapper.wait_for_transform(
+        str(world.root.name),
+        str(body2.name),
+        timeout=Duration(seconds=1.0),
+        time=Time(),
+    )
