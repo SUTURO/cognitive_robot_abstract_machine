@@ -100,45 +100,6 @@ alternative_mappings = [
     if am.original_class() in all_classes
 ]
 
-def _patch_ormatic_interface_make_idempotent(file_path: str) -> None:
-    """
-    Patch the generated ormatic_interface.py to be import-idempotent.
-
-    Some CI/pytest environments may cause the ORM module to be executed more than once
-    in the same process. Clearing Base.metadata prevents duplicate Table registration
-    errors in SQLAlchemy.
-    """
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    marker = "class Base(DeclarativeBase):"
-    if marker not in content:
-        return
-
-    # Insert directly after the Base class block header and its body start; easiest robust
-    # approach: insert after the first occurrence of "class Base(DeclarativeBase):"
-    # and after the next blank line following that class definition.
-    # We do a simple, safe insertion after the first occurrence of "class Base..."
-    # by inserting after the first double newline that follows it.
-    idx = content.find(marker)
-    if idx == -1:
-        return
-
-    # Only patch once
-    patch_snippet = "\n# Make module import-idempotent (required for some test runners)\nBase.metadata.clear()\n"
-    if "Base.metadata.clear()" in content:
-        return
-
-    # Find end of Base class definition by locating the first occurrence of "\n\n"
-    # after the marker; this is stable in generated files.
-    after_marker = content.find("\n\n", idx)
-    if after_marker == -1:
-        return
-
-    new_content = content[: after_marker + 2] + patch_snippet + content[after_marker + 2 :]
-
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write(new_content)
 
 def generate_orm():
     """
@@ -165,11 +126,7 @@ def generate_orm():
     )
     with open(os.path.join(path, "ormatic_interface.py"), "w") as f:
         instance.to_sqlalchemy_file(f)
-    # Make generated ORM module idempotent for test runners:
-    # In some CI/pytest setups the module can be executed multiple times in the same
-    # process, which would otherwise lead to "Table ... already defined" errors.
-    ormatic_path = os.path.join(path, "ormatic_interface.py")
-    _patch_ormatic_interface_make_idempotent(ormatic_path)
+
 
 if __name__ == "__main__":
     generate_orm()
