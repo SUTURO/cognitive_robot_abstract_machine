@@ -373,37 +373,60 @@ class Produce(Food):
 
     pass
 
+@dataclass(eq=False)
+class Fruit(Produce):
+    """
+    Fruit.
+    """
+
+    ...
 
 @dataclass(eq=False)
-class Tomato(Produce):
+class Vegetable(Produce):
+    """
+    Vegetable.
+    """
+
+    ...
+
+
+@dataclass(eq=False)
+class Tomato(Vegetable):
     """
     A tomato.
     """
 
 
 @dataclass(eq=False)
-class Lettuce(Produce):
+class Lettuce(Vegetable):
     """
     Lettuce.
     """
 
 
 @dataclass(eq=False)
-class Apple(Produce):
+class Carrot(Vegetable):
+    """
+    A carrot.
+    """
+
+
+@dataclass(eq=False)
+class Apple(Fruit):
     """
     An apple.
     """
 
 
 @dataclass(eq=False)
-class Banana(Produce):
+class Banana(Fruit):
     """
     A banana.
     """
 
 
 @dataclass(eq=False)
-class Orange(Produce):
+class Orange(Fruit):
     """
     An orange.
     """

@@ -6,7 +6,7 @@ import numpy as np
 import trimesh.boolean
 from krrood.entity_query_language.predicate import (
     Predicate,
-    Symbol,
+    Symbol, symbolic_function,
 )
 from random_events.interval import Interval
 from typing_extensions import List, TYPE_CHECKING, Iterable, Type
@@ -183,7 +183,7 @@ def reachable(pose: HomogeneousTransformationMatrix, root: Body, tip: Body) -> b
         return False
     return True
 
-
+@symbolic_function
 def is_supported_by(
     supported_body: Body, supporting_body: Body, max_intersection_height: float = 0.1
 ) -> bool:
@@ -196,6 +196,7 @@ def is_supported_by(
     If the intersection is higher than this value, the check returns False due to unhandled clipping.
     :return: True if the second object is supported by the first object, False otherwise
     """
+
     if Below(supported_body, supporting_body, supported_body.global_pose)():
         return False
     bounding_box_supported_body = (
