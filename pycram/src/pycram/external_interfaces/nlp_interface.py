@@ -129,6 +129,9 @@ class NlpInterface(ABC):
         if response is None:
             return None
 
+        if not response:
+            return None
+
         if filter_for is None:
             return response
 
@@ -141,7 +144,7 @@ class NlpInterface(ABC):
 
             case _:
                 for elem in response[2]:
-                    if elem[0] == filter_for:
+                    if elem[0] == filter_for.value:
                         return elem[1]
 
                 return None
