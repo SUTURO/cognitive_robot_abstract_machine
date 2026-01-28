@@ -55,7 +55,11 @@ time.sleep(1)
 
 tti_pub = TextToImagePublisher()
 
+print("yay")
 hsrb_world = fetch_world_from_service(node)
+print("hey")
+time.sleep(5)
+
 print(hsrb_world.bodies)
 model_sync = ModelSynchronizer(world=hsrb_world, node=node)
 print(model_sync)
@@ -141,7 +145,7 @@ print(perceived_objects)
 with real_robot:
     SequentialPlan(
         context,
-        ParkArmsActionDescription(arm=Arms.LEFT),
+        # ParkArmsActionDescription(arm=Arms.LEFT),
         PickUpActionDescription(
             arm=Arms.LEFT,
             object_designator=hsrb_world.get_body_by_name("milk"),

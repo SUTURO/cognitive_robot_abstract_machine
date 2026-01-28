@@ -27,7 +27,7 @@ def perceive_and_spawn_all_objects(hsrb_world):
     for perceived_object in perceived_objects_result:
         object_size = perceived_object.shape_size[0].dimensions
         object_pose = perceived_object.pose[0].pose
-        object_name = f"{perceived_object.type}"
+        object_name = "milk"
         object_to_spawn = add_box(
             object_name, (object_size.x, object_size.y, object_size.z)
         )
