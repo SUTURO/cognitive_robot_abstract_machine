@@ -26,6 +26,9 @@ from ..world_description.world_entity import (
     Body,
 )
 
+from dataclasses import dataclass, field
+from typing import Optional, Tuple
+
 
 @dataclass(eq=False)
 class IsPerceivable:
@@ -38,6 +41,23 @@ class IsPerceivable:
     The exact class label of the perceived object.
     """
 
+@dataclass(eq=False)
+class HasDestination:
+    """
+    A mixin class for semantic annotations that can have one or multiple preferred destinations.
+
+    Destinations are expressed as semantic annotation class names (strings), e.g.:
+    ("Fridge", "GarbageBin").
+
+    This is used by Knowledge queries to answer:
+    "Where should this object be brought?"
+    """
+
+    destination_class_names: list[type] = field(default_factory=list, init=False)
+    """
+    List of semantic annotation class names representing suitable destinations.
+    If empty, no destination is known.
+    """
 
 @dataclass(eq=False)
 class Handle(HasBody): ...
@@ -348,12 +368,11 @@ class Cereal(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Milk(Container, Food, IsPerceivable):
+class Milk(Container, Food, IsPerceivable, HasDestination):
     """
     A container of milk.
     """
-
-    ...
+    destination_class_names: list[type[SemanticAnnotation]] = field(default_factory=lambda: [Fridge], init=False)
 
 
 @dataclass(eq=False)
