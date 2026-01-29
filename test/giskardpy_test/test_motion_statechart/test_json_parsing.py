@@ -35,6 +35,7 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
     TestNestedGoal,
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.utils.utils import limits_from_urdf_joint
 from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
     trinary_logic_not,
@@ -51,7 +52,10 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -167,7 +171,8 @@ def test_executing_json_parsed_statechart():
         ll = DerivativeMap()
         ll.velocity = -1
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "a"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "a"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip = RevoluteConnection(
@@ -176,7 +181,8 @@ def test_executing_json_parsed_statechart():
         world.add_connection(root_C_tip)
 
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "b"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "b"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip2 = RevoluteConnection(

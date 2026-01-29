@@ -478,7 +478,10 @@ class WrappedTable:
             self.create_json_column(wrapped_field)
 
         # handle one to many relationships
-        elif wrapped_field.is_one_to_many_relationship:
+        elif (
+            wrapped_field.is_one_to_many_relationship
+            and wrapped_field.type_endpoint in self.ormatic.mapped_classes
+        ):
             logger.info(f"Parsing as one to many relationship.")
             self.create_one_to_many_relationship(wrapped_field)
         else:
@@ -623,9 +626,7 @@ class WrappedTable:
 
         # create a relationship with a list using the association table
         rel_name = f"{wrapped_field.field.name}"
-        rel_type = (
-            f"Mapped[{module_and_class_name(List)}[{target_wrapped_table.tablename}]]"
-        )
+        rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{target_wrapped_table.tablename}]]"
         # Provide explicit join conditions to disambiguate self-referential associations
         primaryjoin = f"{self.tablename}.{self.primary_key_name} == {association_table_name}.c.{left_fk_name}"
         secondaryjoin = f"{target_wrapped_table.tablename}.{target_wrapped_table.primary_key_name} == {association_table_name}.c.{right_fk_name}"

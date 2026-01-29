@@ -698,8 +698,8 @@ def test_copy_dof(world_setup):
     for dof in world.degrees_of_freedom:
         new_dof = world_copy.get_degree_of_freedom_by_id(dof.id)
         assert dof.id == new_dof.id
-        assert dof.lower_limits == new_dof.lower_limits
-        assert dof.upper_limits == new_dof.upper_limits
+        assert dof.limits.lower == new_dof.limits.lower
+        assert dof.limits.upper == new_dof.limits.upper
 
 
 def test_copy_pr2_world_state_reset(pr2_world_state_reset):
@@ -831,36 +831,36 @@ def test_overwrite_dof_limits(world_setup):
     connection: PrismaticConnection = world.get_connections_by_type(
         PrismaticConnection
     )[0]
-    assert connection.dof.lower_limits.velocity == -1
-    assert connection.dof.upper_limits.velocity == 1
+    assert connection.dof.limits.lower.velocity == -1
+    assert connection.dof.limits.upper.velocity == 1
 
     new_limits = DerivativeMap([0.69, 0.42, 1337, 23])
 
     connection.raw_dof._overwrite_dof_limits(
         new_lower_limits=new_limits * -1, new_upper_limits=new_limits
     )
-    assert connection.dof.lower_limits.position == -new_limits.position
-    assert connection.dof.upper_limits.position == new_limits.position
-    assert connection.dof.lower_limits.velocity == -new_limits.velocity
-    assert connection.dof.upper_limits.velocity == new_limits.velocity
-    assert connection.dof.lower_limits.acceleration == -new_limits.acceleration
-    assert connection.dof.upper_limits.acceleration == new_limits.acceleration
-    assert connection.dof.lower_limits.jerk == -new_limits.jerk
-    assert connection.dof.upper_limits.jerk == new_limits.jerk
+    assert connection.dof.limits.lower.position == -new_limits.position
+    assert connection.dof.limits.upper.position == new_limits.position
+    assert connection.dof.limits.lower.velocity == -new_limits.velocity
+    assert connection.dof.limits.upper.velocity == new_limits.velocity
+    assert connection.dof.limits.lower.acceleration == -new_limits.acceleration
+    assert connection.dof.limits.upper.acceleration == new_limits.acceleration
+    assert connection.dof.limits.lower.jerk == -new_limits.jerk
+    assert connection.dof.limits.upper.jerk == new_limits.jerk
 
     new_limits2 = DerivativeMap([3333, 3333, 3333, 3333])
 
     connection.raw_dof._overwrite_dof_limits(
         new_lower_limits=new_limits2 * -1, new_upper_limits=new_limits2
     )
-    assert connection.dof.lower_limits.position == -new_limits.position
-    assert connection.dof.upper_limits.position == new_limits.position
-    assert connection.dof.lower_limits.velocity == -new_limits.velocity
-    assert connection.dof.upper_limits.velocity == new_limits.velocity
-    assert connection.dof.lower_limits.acceleration == -new_limits.acceleration
-    assert connection.dof.upper_limits.acceleration == new_limits.acceleration
-    assert connection.dof.lower_limits.jerk == -new_limits.jerk
-    assert connection.dof.upper_limits.jerk == new_limits.jerk
+    assert connection.dof.limits.lower.position == -new_limits.position
+    assert connection.dof.limits.upper.position == new_limits.position
+    assert connection.dof.limits.lower.velocity == -new_limits.velocity
+    assert connection.dof.limits.upper.velocity == new_limits.velocity
+    assert connection.dof.limits.lower.acceleration == -new_limits.acceleration
+    assert connection.dof.limits.upper.acceleration == new_limits.acceleration
+    assert connection.dof.limits.lower.jerk == -new_limits.jerk
+    assert connection.dof.limits.upper.jerk == new_limits.jerk
 
 
 def test_overwrite_dof_limits_mimic(world_setup):
@@ -883,12 +883,12 @@ def test_overwrite_dof_limits_mimic(world_setup):
 
     # when the multiplier is negative, the vel limits shouldn't be swapped
     assert np.isclose(
-        mimic_connection.dof.lower_limits.velocity,
-        connection.dof.lower_limits.velocity * 2,
+        mimic_connection.dof.limits.lower.velocity,
+        connection.dof.limits.lower.velocity * 2,
     )
     assert np.isclose(
-        mimic_connection.dof.upper_limits.velocity,
-        connection.dof.upper_limits.velocity * 2,
+        mimic_connection.dof.limits.upper.velocity,
+        connection.dof.limits.upper.velocity * 2,
     )
 
     new_limits = DerivativeMap([0.69, 0.42, 1337, 23])
@@ -906,32 +906,32 @@ def test_overwrite_dof_limits_mimic(world_setup):
     # Position limits: swapped due to negative multiplier, then scaled and offset applied
     # Lower becomes: new_limits.position * (-2) + 23 = 0.69 * (-2) + 23 = -1.38 + 23 = 21.62
     # Upper becomes: (new_limits * -1).position * (-2) + 23 = -0.69 * (-2) + 23 = 1.38 + 23 = 24.38
-    assert np.isclose(mimic_connection.dof.lower_limits.position, 21.62)
-    assert np.isclose(mimic_connection.dof.upper_limits.position, 24.38)
+    assert np.isclose(mimic_connection.dof.limits.lower.position, 21.62)
+    assert np.isclose(mimic_connection.dof.limits.upper.position, 24.38)
 
     # Velocity limits: only multiplier applied (no offset), but absolute value for limits
     # Since we're dealing with limits, velocity should use abs(multiplier) = 2
     assert np.isclose(
-        mimic_connection.dof.lower_limits.velocity, (new_limits * -1).velocity * 2
+        mimic_connection.dof.limits.lower.velocity, (new_limits * -1).velocity * 2
     )
     assert np.isclose(
-        mimic_connection.dof.upper_limits.velocity, new_limits.velocity * 2
+        mimic_connection.dof.limits.upper.velocity, new_limits.velocity * 2
     )
 
     # Acceleration limits: only multiplier applied (no offset), absolute value for limits
     assert np.isclose(
-        mimic_connection.dof.lower_limits.acceleration,
+        mimic_connection.dof.limits.lower.acceleration,
         (new_limits * -1).acceleration * 2,
     )
     assert np.isclose(
-        mimic_connection.dof.upper_limits.acceleration, new_limits.acceleration * 2
+        mimic_connection.dof.limits.upper.acceleration, new_limits.acceleration * 2
     )
 
     # Jerk limits: only multiplier applied (no offset), absolute value for limits
     assert np.isclose(
-        mimic_connection.dof.lower_limits.jerk, (new_limits * -1).jerk * 2
+        mimic_connection.dof.limits.lower.jerk, (new_limits * -1).jerk * 2
     )
-    assert np.isclose(mimic_connection.dof.upper_limits.jerk, new_limits.jerk * 2)
+    assert np.isclose(mimic_connection.dof.limits.upper.jerk, new_limits.jerk * 2)
 
     # limits are only applied if the new ones are lower
     new_limits2 = DerivativeMap([3333, 3333, 3333, 3333])
@@ -940,34 +940,34 @@ def test_overwrite_dof_limits_mimic(world_setup):
         new_lower_limits=new_limits2 * -1, new_upper_limits=new_limits2
     )
 
-    assert np.isclose(mimic_connection.dof.lower_limits.position, 21.62)
-    assert np.isclose(mimic_connection.dof.upper_limits.position, 24.38)
+    assert np.isclose(mimic_connection.dof.limits.lower.position, 21.62)
+    assert np.isclose(mimic_connection.dof.limits.upper.position, 24.38)
 
     assert np.isclose(
-        mimic_connection.dof.lower_limits.velocity, (new_limits * -1).velocity * 2
+        mimic_connection.dof.limits.lower.velocity, (new_limits * -1).velocity * 2
     )
     assert np.isclose(
-        mimic_connection.dof.upper_limits.velocity, new_limits.velocity * 2
+        mimic_connection.dof.limits.upper.velocity, new_limits.velocity * 2
     )
 
     assert np.isclose(
-        mimic_connection.dof.lower_limits.acceleration,
+        mimic_connection.dof.limits.lower.acceleration,
         (new_limits * -1).acceleration * 2,
     )
     assert np.isclose(
-        mimic_connection.dof.upper_limits.acceleration, new_limits.acceleration * 2
+        mimic_connection.dof.limits.upper.acceleration, new_limits.acceleration * 2
     )
 
     assert np.isclose(
-        mimic_connection.dof.lower_limits.jerk, (new_limits * -1).jerk * 2
+        mimic_connection.dof.limits.lower.jerk, (new_limits * -1).jerk * 2
     )
-    assert np.isclose(mimic_connection.dof.upper_limits.jerk, new_limits.jerk * 2)
+    assert np.isclose(mimic_connection.dof.limits.upper.jerk, new_limits.jerk * 2)
 
 
 def test_missing_world_modification_context(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
     with pytest.raises(MissingWorldModificationContextError):
-        world.add_semantic_annotation(Handle(body=l1))
+        world.add_semantic_annotation(Handle(root=l1))
 
 
 def test_dof_removal_simple():
@@ -1127,3 +1127,10 @@ def test_world_state_trajectory(world_setup):
     world._notify_model_change()
     with pytest.raises(WrongWorldModelVersion):
         traj.append(world.state, time + dt)
+
+
+def test_merge_into_empty_world(world_setup):
+    world, _, _, _, _, _ = world_setup
+    world2 = deepcopy(world)
+    world2.clear()
+    world2.merge_world(world)
