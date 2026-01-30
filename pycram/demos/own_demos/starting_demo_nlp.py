@@ -2,6 +2,7 @@ from typing import Any
 
 import rclpy
 
+import nlp_human_robot_interaction
 # import gpsr_01 # Uncomment if GPSR module is needed
 from pycram.external_interfaces.nlp_interface import NlpInterface
 import subprocess
@@ -225,8 +226,9 @@ def main():
 
                 # Run the challenge logic depending on NLP response
                 match nlp.filter_response(nlp.last_output, ""):
+                    # for milestone 2 demo
                     case "Receptionist":
-                        print("Insert code here.......")
+                        nlp_human_robot_interaction.main()
                     case "GPSR" | "GPS" | "GPS R":
                         print("Insert GPSR code here.......")
                         # gpsr_01.main()
