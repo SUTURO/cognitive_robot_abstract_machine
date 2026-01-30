@@ -9,9 +9,11 @@ from rclpy.executors import SingleThreadedExecutor
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move
-from pycram.ros import VizMarkerPublisher
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 from pycram_ros_setup import setup_ros_node
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.robots.hsrb import HSRB
 from pycram.alternative_motion_mappings import hsrb_motion_mapping
 
@@ -33,7 +35,7 @@ context = Context(
     hsrb_world, hsrb_world.get_semantic_annotations_by_type(HSRB)[0], ros_node=node
 )
 
-VizMarkerPublisher()
+VizMarkerPublisher(hsrb_world, node)
 
 # Drive to positions
 text_pub = TextToImagePublisher()
