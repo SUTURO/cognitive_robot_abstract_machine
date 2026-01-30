@@ -832,7 +832,7 @@ class Bed(Furniture):
 
 
 @dataclass(eq=False)
-class Sofa(Furniture):
+class Sofa(Furniture, HasSupportingSurface):
     """
     A sofa.
     """
