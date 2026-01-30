@@ -6,8 +6,6 @@ from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from semantic_digital_twin.adapters.pose_publisher import PosePublisher
-from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
 from ...motions.gripper import MoveGripperMotion, MoveTCPMotion
@@ -17,17 +15,14 @@ from ....datastructures.enums import (
     GripperState,
     MovementType,
     FindBodyInRegionMethod,
-    ApproachDirection,
-    VerticalAlignment,
 )
 from ....datastructures.grasp import GraspDescription
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
-from ....external_interfaces import tmc
 from ....failures import ObjectNotGraspedError
 from ....failures import ObjectNotInGraspingArea
 from ....has_parameters import has_parameters
-from ....language import SequentialPlan, CodePlan
+from ....language import SequentialPlan
 from ....robot_description import RobotDescription
 from ....robot_description import ViewManager
 from ....robot_plans.actions.base import ActionDescription
@@ -72,25 +67,20 @@ class ReachAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
-        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
-        end_effector = gripper.tool_frame
-        # end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
-        grasp = GraspDescription(
-            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
-        ).calculate_grasp_orientation(gripper.front_facing_orientation.to_np())
+        end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
         target_pose = (
-            self.grasp_description.get_grasp_pose(gripper, self.object_designator)
+            self.grasp_description.get_grasp_pose(end_effector, self.object_designator)
             if self.object_designator
             else self.target_pose
         )
         target_pre_pose = translate_pose_along_local_axis(
             target_pose,
-            gripper.front_facing_axis.to_np()[:3],
+            end_effector.front_facing_axis.to_np()[:3],
             ActionConfig.pick_up_prepose_distance,
         )
-        # PosePublisher(pose=target_pre_pose.to_spatial_type(), node=self.context.ros_node, world=self.world)
+
         SequentialPlan(
             self.context,
             MoveTCPMotion(target_pre_pose, self.arm, allow_gripper_collision=False),
@@ -174,16 +164,9 @@ class PickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
-        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
-        gripper_action = tmc.GripperActionClient()
-
-        self.object_designator.global_pose.y = (
-            self.object_designator.global_pose.y + 0.01
-        )
-
         SequentialPlan(
             self.context,
-            CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
+            MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
             ReachActionDescription(
                 target_pose=PoseStamped.from_spatial_type(
                     self.object_designator.global_pose
@@ -192,27 +175,23 @@ class PickUpAction(ActionDescription):
                 arm=self.arm,
                 grasp_description=self.grasp_description,
             ),
-            CodePlan(self.context, gripper_action.send_goal, {"effort": -0.8}),
+            MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
         ).perform()
-
-        # grasp=gripper.front_facing_orientation
-
-        # for arm_chain in self.robot_view.manipulator_chains:
-        grasp = GraspDescription(
-            ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False
-        )
-        end_effector = gripper.tool_frame
-        # end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
+        end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
         # Attach the object to the end effector
         with self.world.modify_world():
+            self.world.remove_connection(self.object_designator.parent_connection)
             self.world.add_connection(
-                FixedConnection(parent=end_effector, child=self.object_designator)
+                FixedConnection(
+                    parent=end_effector.tool_frame, child=self.object_designator
+                )
             )
 
-        lift_to_pose = PoseStamped().from_spatial_type(end_effector.global_pose)
+        lift_to_pose = PoseStamped().from_spatial_type(
+            end_effector.tool_frame.global_pose
+        )
         lift_to_pose.pose.position.z += 0.10
-
         SequentialPlan(
             self.context,
             MoveTCPMotion(

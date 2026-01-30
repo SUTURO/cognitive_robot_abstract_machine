@@ -63,7 +63,7 @@ class HSRMoveTCPSim(MoveTCPMotion, AlternativeMotion[HSRB]):
         ]
         return CartesianPose(
             root_link=self.world.root,
-            tip_link=tip.tool_frame,
+            tip_link=tip,
             goal_pose=self.target.to_spatial_type(),
         )
 
