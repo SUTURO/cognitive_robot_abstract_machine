@@ -12,6 +12,8 @@ from time import sleep
 import time
 import requests
 
+import milestone2_demo
+
 
 class NlpInterfaceStartingDemo(NlpInterface):
     """
@@ -228,7 +230,7 @@ def main():
                 match nlp.filter_response(nlp.last_output, ""):
                     # for milestone 2 demo
                     case "Receptionist":
-                        nlp_human_robot_interaction.main()
+                        milestone2_demo.main()
                     case "GPSR" | "GPS" | "GPS R":
                         print("Insert GPSR code here.......")
                         # gpsr_01.main()
