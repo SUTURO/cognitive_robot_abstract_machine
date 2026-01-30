@@ -1319,6 +1319,18 @@ class World:
             self.add_semantic_annotation(semantic_annotation)
 
     # %% Subgraph Targeting
+    def attach_with_fixed_connection(
+        self, new_parent: KinematicStructureEntity, new_child: KinematicStructureEntity
+    ):
+        """
+        Remounts a kinematic structure entity as a child of another kinematic structure entity with a fixed connection
+
+        :param new_parent: The new parent of the kinematic structure entity.
+        :param new_child: The new child of the kinematic structure entity.
+        """
+        self.remove_connection(new_child.parent_connection)
+        self.add_connection(FixedConnection(parent=new_parent, child=new_child))
+
     def get_connections_of_branch(
         self, root: KinematicStructureEntity
     ) -> List[Connection]:

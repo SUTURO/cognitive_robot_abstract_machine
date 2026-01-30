@@ -1129,6 +1129,22 @@ def test_world_state_trajectory(world_setup):
         traj.append(world.state, time + dt)
 
 
+def test_attach_with_fixed_connection(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    # Initial state: l2 is child of l1 via PrismaticConnection
+    assert l2.parent_connection.parent == l1
+    assert isinstance(l2.parent_connection, PrismaticConnection)
+
+    with world.modify_world():
+        world.attach_with_fixed_connection(new_parent=bf, new_child=l2)
+
+    # New state: l2 is child of bf via FixedConnection
+    assert l2.parent_connection.parent == bf
+    assert isinstance(l2.parent_connection, FixedConnection)
+    assert l2 in world.compute_child_kinematic_structure_entities(bf)
+    assert l2 not in world.compute_child_kinematic_structure_entities(l1)
+
+
 def test_merge_into_empty_world(world_setup):
     world, _, _, _, _, _ = world_setup
     world2 = deepcopy(world)
