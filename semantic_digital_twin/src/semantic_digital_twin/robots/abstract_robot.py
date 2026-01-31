@@ -24,6 +24,7 @@ from krrood.adapters.json_serializer import (
 from ..collision_checking.collision_detector import CollisionCheck
 from ..datastructures.joint_state import GripperState, JointState
 from ..datastructures.prefixed_name import PrefixedName
+from ..exceptions import NoJointStateWithType
 from ..spatial_types.derivatives import DerivativeMap
 from ..spatial_types.spatial_types import (
     Vector3,
@@ -64,9 +65,32 @@ class SemanticRobotAnnotation(RootedSemanticAnnotation, ABC):
     The robot this semantic annotation belongs to
     """
 
+    joint_states: List[JointState] = field(default_factory=list)
+    """
+    Fixed joint states that are defined for this manipulator, like open and close. 
+    """
+
     def __post_init__(self):
         if self._world is not None:
             self._world.add_semantic_annotation(self)
+
+    def add_joint_state(self, joint_state: JointState):
+        """
+        Adds a joint state to this semantic annotation.
+        """
+        self.joint_states.append(joint_state)
+        joint_state.assign_to_robot(self._robot)
+
+    def get_joint_state_by_type(self, state_type: JointStateType) -> JointState:
+        """
+        Returns a JointState for a given joint state type.
+        :param state_type: The state type to search for
+        :return: The joint state with the given type
+        """
+        for j in self.joint_states:
+            if j.state_type == state_type:
+                return j
+        raise NoJointStateWithType(state_type)
 
     @abstractmethod
     def assign_to_robot(self, robot: AbstractRobot):
@@ -167,10 +191,6 @@ class KinematicChain(SemanticRobotAnnotation, ABC):
         for sensor in self.sensors:
             robot.add_sensor(sensor)
 
-    def add_joint_state(self, joint_state: JointState):
-        self.joint_states.append(joint_state)
-        joint_state.assign_to_robot(self._robot)
-
     def __hash__(self):
         """
         Returns the hash of the kinematic chain, which is based on the root and tip bodies.
@@ -212,11 +232,6 @@ class Manipulator(SemanticRobotAnnotation, ABC):
     The axis of the manipulator's tool frame that is facing forward.
     """
 
-    joint_states: List[GripperState] = field(default_factory=list)
-    """
-    Fixed joint states that are defined for this manipulator, like open and close. 
-    """
-
     def assign_to_robot(self, robot: AbstractRobot):
         """
         Assigns the manipulator to the given robot. This method ensures that the manipulator is only assigned
@@ -229,10 +244,6 @@ class Manipulator(SemanticRobotAnnotation, ABC):
         if self._robot is not None:
             return
         self._robot = robot
-
-    def add_joint_state(self, joint_state: JointState):
-        self.joint_states.append(joint_state)
-        joint_state.assign_to_robot(self._robot)
 
     def __hash__(self):
         """

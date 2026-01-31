@@ -271,23 +271,20 @@ hsrbdao_arms_association = Table(
     Column("source_hsrbdao_id", ForeignKey("HSRBDAO.database_id")),
     Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
 )
+semanticrobotannotationdao_joint_states_association = Table(
+    "semanticrobotannotationdao_joint_states_association",
+    Base.metadata,
+    Column(
+        "source_semanticrobotannotationdao_id",
+        ForeignKey("SemanticRobotAnnotationDAO.database_id"),
+    ),
+    Column("target_jointstatedao_id", ForeignKey("JointStateDAO.database_id")),
+)
 kinematicchaindao_sensors_association = Table(
     "kinematicchaindao_sensors_association",
     Base.metadata,
     Column("source_kinematicchaindao_id", ForeignKey("KinematicChainDAO.database_id")),
     Column("target_sensordao_id", ForeignKey("SensorDAO.database_id")),
-)
-kinematicchaindao_joint_states_association = Table(
-    "kinematicchaindao_joint_states_association",
-    Base.metadata,
-    Column("source_kinematicchaindao_id", ForeignKey("KinematicChainDAO.database_id")),
-    Column("target_jointstatedao_id", ForeignKey("JointStateDAO.database_id")),
-)
-manipulatordao_joint_states_association = Table(
-    "manipulatordao_joint_states_association",
-    Base.metadata,
-    Column("source_manipulatordao_id", ForeignKey("ManipulatorDAO.database_id")),
-    Column("target_jointstatedao_id", ForeignKey("JointStateDAO.database_id")),
 )
 worldmodelmodificationblockdao_modifications_association = Table(
     "worldmodelmodificationblockdao_modifications_association",
@@ -1358,8 +1355,8 @@ class MoveGripperMotionDAO(
         use_existing_column=True,
     )
 
-    motion: Mapped[pycram.datastructures.enums.GripperState] = mapped_column(
-        use_existing_column=True
+    motion: Mapped[semantic_digital_twin.datastructures.definitions.JointStateType] = (
+        mapped_column(use_existing_column=True)
     )
     gripper: Mapped[pycram.datastructures.enums.Arms] = mapped_column(
         use_existing_column=True
@@ -1542,9 +1539,9 @@ class MoveTorsoActionDAO(
         use_existing_column=True,
     )
 
-    torso_state: Mapped[pycram.datastructures.enums.TorsoState] = mapped_column(
-        use_existing_column=True
-    )
+    torso_state: Mapped[
+        semantic_digital_twin.datastructures.definitions.JointStateType
+    ] = mapped_column(use_existing_column=True)
 
     __mapper_args__ = {
         "polymorphic_identity": "MoveTorsoActionDAO",
@@ -2751,8 +2748,8 @@ class SetGripperActionDAO(
     gripper: Mapped[pycram.datastructures.enums.Arms] = mapped_column(
         use_existing_column=True
     )
-    motion: Mapped[pycram.datastructures.enums.GripperState] = mapped_column(
-        use_existing_column=True
+    motion: Mapped[semantic_digital_twin.datastructures.definitions.JointStateType] = (
+        mapped_column(use_existing_column=True)
     )
 
     __mapper_args__ = {
@@ -6565,6 +6562,14 @@ class SemanticRobotAnnotationDAO(
         use_existing_column=True,
     )
 
+    joint_states: Mapped[builtins.list[JointStateDAO]] = relationship(
+        "JointStateDAO",
+        secondary="semanticrobotannotationdao_joint_states_association",
+        primaryjoin="SemanticRobotAnnotationDAO.database_id == semanticrobotannotationdao_joint_states_association.c.source_semanticrobotannotationdao_id",
+        secondaryjoin="JointStateDAO.database_id == semanticrobotannotationdao_joint_states_association.c.target_jointstatedao_id",
+        cascade="save-update, merge",
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "SemanticRobotAnnotationDAO",
         "inherit_condition": database_id == RootedSemanticAnnotationDAO.database_id,
@@ -6606,13 +6611,6 @@ class KinematicChainDAO(
         secondary="kinematicchaindao_sensors_association",
         primaryjoin="KinematicChainDAO.database_id == kinematicchaindao_sensors_association.c.source_kinematicchaindao_id",
         secondaryjoin="SensorDAO.database_id == kinematicchaindao_sensors_association.c.target_sensordao_id",
-        cascade="save-update, merge",
-    )
-    joint_states: Mapped[builtins.list[JointStateDAO]] = relationship(
-        "JointStateDAO",
-        secondary="kinematicchaindao_joint_states_association",
-        primaryjoin="KinematicChainDAO.database_id == kinematicchaindao_joint_states_association.c.source_kinematicchaindao_id",
-        secondaryjoin="JointStateDAO.database_id == kinematicchaindao_joint_states_association.c.target_jointstatedao_id",
         cascade="save-update, merge",
     )
 
@@ -6777,13 +6775,6 @@ class ManipulatorDAO(
         uselist=False,
         foreign_keys=[front_facing_axis_id],
         post_update=True,
-    )
-    joint_states: Mapped[builtins.list[JointStateDAO]] = relationship(
-        "JointStateDAO",
-        secondary="manipulatordao_joint_states_association",
-        primaryjoin="ManipulatorDAO.database_id == manipulatordao_joint_states_association.c.source_manipulatordao_id",
-        secondaryjoin="JointStateDAO.database_id == manipulatordao_joint_states_association.c.target_jointstatedao_id",
-        cascade="save-update, merge",
     )
 
     __mapper_args__ = {
