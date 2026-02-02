@@ -27,9 +27,12 @@ if TYPE_CHECKING:
         WorldEntity,
         KinematicStructureEntity,
     )
-    from .spatial_types.spatial_types import FloatVariable, SymbolicMathType
+    from .spatial_types.spatial_types import (
+        FloatVariable,
+        SymbolicMathType,
+        SpatialType,
+    )
     from .spatial_types import Vector3
-    from .semantic_annotations.mixins import HasRootKinematicStructureEntity
     from .world_description.degree_of_freedom import DegreeOfFreedomLimits
 
 
@@ -286,6 +289,22 @@ class ReferenceFrameMismatchError(SpatialTypesError):
 
     def __post_init__(self):
         self.message = f"Reference frames {self.frame1.name} and {self.frame2.name} are not the same."
+
+
+@dataclass
+class MissingReferenceFrameError(SpatialTypesError):
+    """
+    Represents an error that occurs when a spatial type lacks a reference frame, even though its required for the
+    current operation
+    """
+
+    spatial_type: SpatialType
+    """
+    Spatial type that lacks a reference frame.
+    """
+
+    def __post_init__(self):
+        self.message = f"Spatial type {self.spatial_type} has no reference frame."
 
 
 @dataclass
