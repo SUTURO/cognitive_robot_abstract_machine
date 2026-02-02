@@ -70,8 +70,10 @@ class MoveTorsoAction(ActionDescription):
     @classmethod
     def description(
         cls, torso_state: Union[Iterable[TorsoState], TorsoState]
-    ) -> PartialDesignator[Type[MoveTorsoAction]]:
-        return PartialDesignator(MoveTorsoAction, torso_state=torso_state)
+    ) -> PartialDesignator[MoveTorsoAction]:
+        return PartialDesignator[MoveTorsoAction](
+            MoveTorsoAction, torso_state=torso_state
+        )
 
 
 @has_parameters
@@ -112,8 +114,10 @@ class SetGripperAction(ActionDescription):
         cls,
         gripper: Union[Iterable[Arms], Arms],
         motion: Union[Iterable[GripperState], GripperState] = None,
-    ) -> PartialDesignator[Type[SetGripperAction]]:
-        return PartialDesignator(SetGripperAction, gripper=gripper, motion=motion)
+    ) -> PartialDesignator[SetGripperAction]:
+        return PartialDesignator[SetGripperAction](
+            SetGripperAction, gripper=gripper, motion=motion
+        )
 
 
 @has_parameters
@@ -166,8 +170,8 @@ class ParkArmsAction(ActionDescription):
     @classmethod
     def description(
         cls, arm: Union[Iterable[Arms], Arms]
-    ) -> PartialDesignator[Type[ParkArmsAction]]:
-        return PartialDesignator(cls, arm=arm)
+    ) -> PartialDesignator[ParkArmsAction]:
+        return PartialDesignator[ParkArmsAction](cls, arm=arm)
 
 
 @has_parameters
@@ -283,8 +287,8 @@ class CarryAction(ActionDescription):
         tip_axis: Optional[AxisIdentifier] = None,
         root_link: Optional[str] = None,
         root_axis: Optional[AxisIdentifier] = None,
-    ) -> PartialDesignator[Type[CarryAction]]:
-        return PartialDesignator(
+    ) -> PartialDesignator[CarryAction]:
+        return PartialDesignator[CarryAction](
             cls,
             arm=arm,
             align=align,

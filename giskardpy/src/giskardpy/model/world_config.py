@@ -68,7 +68,7 @@ class WorldWithFixedRobot(WorldConfig):
     def setup_world(self):
         map = Body(name=self.root_name)
 
-        urdf_parser = URDFParser(urdf=self.urdf)
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.urdf_view.from_world(world_with_robot)
         self.robot_root = world_with_robot.root
@@ -95,7 +95,7 @@ class WorldWithOmniDriveRobot(WorldConfig):
         )
         self.world.add_connection(self.localization)
 
-        urdf_parser = URDFParser(urdf=self.urdf)
+        urdf_parser = URDFParser(urdf=self.urdf, prefix="")
         world_with_robot = urdf_parser.parse()
         self.robot = self.urdf_view.from_world(world_with_robot)
 
@@ -168,7 +168,12 @@ class WorldWithDiffDriveRobot(WorldConfig):
 
 @dataclass
 class WorldFromDatabaseConfig(WorldConfig):
+    """
+    This world config loads a world from the semantic digital twin database at the given primary key.
+    """
+
     primary_key: int = 1
+    """Primary key of the world in the semantic digital twin database."""
 
     def setup_collision_config(self):
         pass
