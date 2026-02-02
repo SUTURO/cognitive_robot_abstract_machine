@@ -94,7 +94,7 @@ def module_and_class_name(t: Union[Type, _SpecialForm]) -> str:
     return f"{t.__module__}.{t.__name__}"
 
 
-def get_package_root(module: types.ModuleType):
+def get_package_root(module: types.ModuleType) -> str:
     """
     Get the root of a python package by searching upwards until the pyproject.toml file is found.
 
