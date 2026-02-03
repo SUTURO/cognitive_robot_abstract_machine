@@ -1183,7 +1183,7 @@ class Muesli(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Corn(Food, IsPerceivable):
+class Corn(Fruit, IsPerceivable):
     """
     A can of corn.
     """
