@@ -21,7 +21,7 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
 )
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
-    CartesianPosition,
+    CartesianPosition, CartesianOrientation,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
@@ -89,7 +89,7 @@ class PickUp(Goal):
                     grasp_magic=grasp_magic,
                 ),
                 CloseHand(manipulator=self.manipulator, ft=self.ft),
-                PullUp(manipulator=self.manipulator, ft=self.ft),
+                # PullUp(manipulator=self.manipulator, object_geometry=self.object_geometry, ft=self.ft),
             ]
         )
         self.add_node(self.sequence)
@@ -452,6 +452,7 @@ class CloseHand(Goal):
 @dataclass(repr=False, eq=False)
 class PullUp(Goal):
     manipulator: ParallelGripper = field(kw_only=True)
+    object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
 
     def expand(self, context: BuildContext) -> None:
@@ -463,13 +464,19 @@ class PullUp(Goal):
             self.add_node(self._ft)
             self.add_node(self._cm)
 
-        point = self.manipulator.tool_frame.global_pose.to_position() + Vector3(0, 0, 0.15, reference_frame=context.world.root)
+        point = self.object_geometry.global_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root)
         self._cart_position = CartesianPosition(
             root_link=context.world.root,
             tip_link=self.manipulator.tool_frame,
             goal_point=point,
         )
+        self._keep_orientation = CartesianOrientation(
+            root_link=context.world.root,
+            tip_link=self.object_geometry,
+            goal_orientation=self.object_geometry.global_pose.to_rotation_matrix()
+        )
         self.add_node(self._cart_position)
+        self.add_node(self._keep_orientation)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)

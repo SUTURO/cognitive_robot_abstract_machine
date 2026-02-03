@@ -7,7 +7,7 @@ from typing import Type
 import numpy as np
 import pytest
 
-from giskardpy.motion_statechart.goals.pick_up import PickUp
+from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp
 from giskardpy.data_types.exceptions import DuplicateNameException
 from giskardpy.executor import Executor, SimulationPacer
 from giskardpy.model.collision_matrix_manager import CollisionRequest
@@ -2036,7 +2036,7 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
             child=box,
             axis=Vector3.Z(reference_frame=hsr_world_setup.root),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=2, y=1, z=0.5, yaw=1.5 * np.pi / 2
+                x=2, y=1, z=0.5, yaw=2.5 * np.pi / 2
             ),
         )
         hsr_world_setup.add_connection(connection)
@@ -2045,8 +2045,8 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
     msc_tp = MotionStatechart()
     tp = SetOdometry(
-        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=3, y=1, z=0, yaw=0,
-                                                               reference_frame=hsr_world_setup.root, ),
+        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=3, y=1, z=0, yaw=2*np.pi/2,
+                                                               reference_frame=hsr_world_setup.root),
     )
     msc_tp.add_node(tp)
     msc_tp.add_node(EndMotion.when_true(tp))
@@ -2062,61 +2062,28 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
         "base_footprint"
     )
 
-    # pre = Sequence(
-    #     [
-    #         tp,
-    #         PickUp(manipulator=hand, object_geometry=box)
-    #     ]
-    # )
     pre = PickUp(manipulator=hand, object_geometry=box)
     msc.add_node(pre)
 
-    # msc.add_node(
-    #     sequence := Sequence(
-    #         [
-    #             Parallel(
-    #                 [
-    #                     CartesianOrientation(
-    #                         root_link=hsr_world_setup.root,
-    #                         tip_link=hand.tool_frame,
-    #                         goal_orientation=orientation_goal,
-    #                     ),
-    #                     CartesianPosition(
-    #                         root_link=hsr_world_setup.root,
-    #                         tip_link=hand.tool_frame,
-    #                         goal_point=hsr_world_setup.bodies[
-    #                             -1
-    #                         ].global_pose.to_position(),
-    #                     ),
-    #                 ]
-    #             ),
-    #             Parallel(
-    #                 [
-    #                     CartesianPose(
-    #                         root_link=hsr_world_setup.root,
-    #                         tip_link=hand.tool_frame,
-    #                         goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-    #                             x=0.2, reference_frame=hand.tool_frame
-    #                         ),
-    #                         binding_policy=GoalBindingPolicy.Bind_on_start,
-    #                     ),
-    #                     CartesianPose(
-    #                         root_link=hand.tool_frame,
-    #                         tip_link=box,
-    #                         goal_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-    #                             reference_frame=hand.tool_frame
-    #                         ),
-    #                     ),
-    #                 ]
-    #             ),
-    #         ]
-    #     )
-    # )
     msc.add_node(EndMotion.when_true(pre))
     kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()
-    msc.draw("muh.pdf")
+
+    with hsr_world_setup.modify_world():
+        old_connection = hsr_world_setup.get_connection(parent=hsr_world_setup.root, child=box)
+        hsr_world_setup.remove_connection(old_connection)
+        root_T_box = hsr_world_setup.transform(target_frame=hand.tool_frame, spatial_object=box.global_pose)
+        new_connection = FixedConnection(
+            parent=hand.tool_frame, child=box, parent_T_connection_expression=root_T_box
+        )
+        hsr_world_setup.add_connection(new_connection)
+
+    msc_pickup = MotionStatechart()
+    msc_pickup.add_node(PullUp(manipulator=hand, object_geometry=box))
+    kin_sim_pickup = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim_pickup.compile(motion_statechart=msc_pickup)
+    kin_sim_pickup.tick_until_end()
 
 
 def test_transition_triggers():
