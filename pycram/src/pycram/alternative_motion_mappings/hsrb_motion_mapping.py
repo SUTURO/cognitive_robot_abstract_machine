@@ -1,5 +1,7 @@
-from nav2_msgs.action import NavigateToPose
-
+try:
+    from nav2_msgs.action import NavigateToPose
+except ModuleNotFoundError:
+    NavigateToPose = None
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import (
     NavigateActionServerTask,
@@ -63,7 +65,7 @@ class HSRMoveTCPSim(MoveTCPMotion, AlternativeMotion[HSRB]):
         ]
         return CartesianPose(
             root_link=self.world.root,
-            tip_link=tip.tool_frame,
+            tip_link=tip,
             goal_pose=self.target.to_spatial_type(),
         )
 

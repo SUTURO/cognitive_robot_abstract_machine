@@ -4,6 +4,7 @@ import logging
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from itertools import product
+from typing import Dict, Any
 
 from typing_extensions import (
     Iterable,
@@ -15,6 +16,7 @@ from typing_extensions import (
     List,
 )
 
+from krrood.adapters.json_serializer import SubclassJSONSerializer
 from ..collision_checking.collision_detector import CollisionCheck
 from ..spatial_types.derivatives import DerivativeMap
 from ..spatial_types.spatial_types import (

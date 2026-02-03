@@ -7,6 +7,7 @@ from krrood.class_diagrams import ClassDiagram
 from krrood.ormatic.ormatic import ORMatic
 from krrood.ormatic.utils import get_classes_of_ormatic_interface, classes_of_module
 from krrood.utils import recursive_subclasses
+from pycram.plan import BaseActionNode
 from semantic_digital_twin.world import WorldModelManager
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.world_description.world_modification import (
@@ -89,10 +90,11 @@ classes |= {
     PlanNode,
     SequentialNode,
     RepeatNode,
-    ResolvedActionNode,
+    ActionNode,
     Plan,
     PlanEdge,
     LanguageNode,
+    BaseActionNode,
 }
 classes |= set(classes_of_module(pycram.language))
 classes -= {WorldModelManager}

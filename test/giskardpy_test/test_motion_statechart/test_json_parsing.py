@@ -35,13 +35,14 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
     TestNestedGoal,
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.utils.utils import limits_from_urdf_joint
 from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
     trinary_logic_not,
     trinary_logic_or,
 )
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
-    KinematicStructureEntityKwargsTracker,
+    WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot
@@ -51,7 +52,10 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
 from semantic_digital_twin.world_description.world_entity import Body
 
 
@@ -75,7 +79,7 @@ def test_CollisionRequest(pr2_world_setup: World):
     json_data = collision_request.to_json()
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
-    tracker = KinematicStructureEntityKwargsTracker.from_world(pr2_world_setup)
+    tracker = WorldEntityWithIDKwargsTracker.from_world(pr2_world_setup)
     kwargs = tracker.create_kwargs()
     collision_request_copy = CollisionRequest.from_json(new_json_data, **kwargs)
     assert collision_request_copy.type_ == collision_request.type_
@@ -167,7 +171,8 @@ def test_executing_json_parsed_statechart():
         ll = DerivativeMap()
         ll.velocity = -1
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "a"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "a"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip = RevoluteConnection(
@@ -176,7 +181,8 @@ def test_executing_json_parsed_statechart():
         world.add_connection(root_C_tip)
 
         dof = DegreeOfFreedom(
-            name=PrefixedName("dof", "b"), lower_limits=ll, upper_limits=ul
+            name=PrefixedName("dof", "b"),
+            limits=DegreeOfFreedomLimits(lower=ll, upper=ul),
         )
         world.add_degree_of_freedom(dof)
         root_C_tip2 = RevoluteConnection(
@@ -262,7 +268,7 @@ def test_cart_goal_simple(pr2_world_setup: World):
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
-    tracker = KinematicStructureEntityKwargsTracker.from_world(pr2_world_setup)
+    tracker = WorldEntityWithIDKwargsTracker.from_world(pr2_world_setup)
     kwargs = tracker.create_kwargs()
     msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
 
@@ -295,6 +301,7 @@ def test_compressed_copy_can_be_plotted(pr2_world_setup: World):
     end = EndMotion()
     msc.add_node(end)
     end.start_condition = cart_goal.observation_variable
+    msc.add_node(CancelMotion.when_true(cart_goal))
 
     msc._expand_goals(BuildContext.empty())
     json_data = msc.create_structure_copy().to_json()
@@ -302,6 +309,9 @@ def test_compressed_copy_can_be_plotted(pr2_world_setup: World):
     new_json_data = json.loads(json_str)
 
     msc_copy = MotionStatechart.from_json(new_json_data)
+    msc_copy._add_transitions()
+    assert isinstance(msc_copy.nodes[-2], EndMotion)
+    assert isinstance(msc_copy.nodes[-1], CancelMotion)
     msc_copy.draw("muh.pdf")
 
 
@@ -377,7 +387,7 @@ def test_unreachable_cart_goal(pr2_world_setup):
     json_str = json.dumps(json_data)
     new_json_data = json.loads(json_str)
 
-    tracker = KinematicStructureEntityKwargsTracker.from_world(pr2_world_setup)
+    tracker = WorldEntityWithIDKwargsTracker.from_world(pr2_world_setup)
     kwargs = tracker.create_kwargs()
     msc_copy = MotionStatechart.from_json(new_json_data, **kwargs)
 
@@ -389,3 +399,31 @@ def test_unreachable_cart_goal(pr2_world_setup):
     kin_sim.compile(motion_statechart=msc_copy)
 
     kin_sim.tick_until_end()
+
+
+def test_duplicate_condition():
+    """
+    Tests if two condition with the same name and type will be preserved.
+    """
+    msc = MotionStatechart()
+    msc.add_nodes(
+        [
+            node1 := ConstTrueNode(),
+            node2 := ConstTrueNode(),
+            node3 := ConstTrueNode(),
+            end := EndMotion(),
+        ]
+    )
+    node2.start_condition = node1.observation_variable
+    node3.start_condition = node1.observation_variable
+    end.start_condition = trinary_logic_and(
+        node2.observation_variable, node3.observation_variable
+    )
+
+    json_data = msc.to_json()
+    json_str = json.dumps(json_data)
+    new_json_data = json.loads(json_str)
+
+    msc_copy = MotionStatechart.from_json(new_json_data)
+    msc_copy._add_transitions()
+    assert len(msc_copy.unique_edges) == 3
