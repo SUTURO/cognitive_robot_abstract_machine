@@ -1051,9 +1051,17 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
     """
     Parameters for ordering the results of the query object descriptor.
     """
+    _distinct_on: Tuple[Selectable, ...] = field(default=(), init=False)
+    """
+    Parameters for distinct results of the query object descriptor.
+    """
     _results_mapping: List[ResultMapping] = field(init=False, default_factory=list)
     """
     Mapping functions that map the results of the query object descriptor to a new set of results.
+    """
+    _seen_results: Optional[SeenSet] = field(init=False, default=None)
+    """
+    A set of seen results, used when distinct is called in the query object descriptor.
     """
 
     def __post_init__(self):
@@ -1108,7 +1116,7 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         self._order_by = OrderByParams(variable, descending, key)
         return self
 
-    def _order(self, results: Iterable[Bindings] = None) -> Iterable[Bindings]:
+    def _order(self, results: Iterator[OperationResult] = None) -> List[OperationResult]:
         """
         Order the results by the given order variable.
 
@@ -1116,56 +1124,68 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         :return: The ordered results.
         """
 
-        def key(result: Bindings) -> Any:
+        def key(result: OperationResult) -> Any:
             variable_value = result[self._order_by.variable._var_._id_]
             if self._order_by.key:
                 return self._order_by.key(variable_value)
             else:
                 return variable_value
 
-        results = sorted(
+        return sorted(
             results,
             key=key,
             reverse=self._order_by.descending,
         )
-        return results
 
     def distinct(
         self,
-        *on: Selectable[T],
-    ) -> Self:
+        *on: TypingUnion[Selectable, Any],
+    ) -> TypingUnion[Self, T]:
         """
         Apply distinctness constraint to the query object descriptor results.
 
         :param on: The variables to be used for distinctness.
         :return: This query object descriptor.
         """
-        on_ids = (
-            tuple([v._binding_id_ for v in on])
-            if on
-            else tuple([v._binding_id_ for v in self._selected_variables])
-        )
-        seen_results = SeenSet(keys=on_ids)
-
-        def get_distinct_results(
-            results_gen: Iterator[Bindings],
-        ) -> Iterator[Bindings]:
-            for res in results_gen:
-                for i, id_ in enumerate(on_ids):
-                    if id_ in res:
-                        continue
-                    var_value = on[i]._evaluate__(copy(res), parent=self)
-                    res[id_] = next(var_value).value
-                bindings = (
-                    res if not on else {k: v for k, v in res.items() if k in on_ids}
-                )
-                if seen_results.check(bindings):
-                    continue
-                yield res
-                seen_results.add(bindings)
-
-        self._results_mapping.append(get_distinct_results)
+        self._distinct_on = on if on else self._selected_variables
+        self._seen_results = SeenSet(keys=self._distinct_on_ids)
+        self._results_mapping.append(self._get_distinct_results__)
         return self
+
+    @cached_property
+    def _distinct_on_ids(self) -> Tuple[int, ...]:
+        """
+        Get the IDs of variables used for distinctness.
+        """
+        return tuple(k._var_._id_ for k in self._distinct_on)
+
+    def _get_distinct_results__(
+        self, results_gen: Iterable[Dict[int, Any]]
+    ) -> Iterable[Dict[int, Any]]:
+        """
+        Apply distinctness constraint to the query object descriptor results.
+
+        :param results_gen: Generator of result dictionaries.
+        :return: Generator of distinct result dictionaries.
+        """
+        for res in results_gen:
+            self._update_res_with_distinct_on_variables__(res)
+            if self._seen_results.check(res):
+                continue
+            self._seen_results.add(res)
+            yield res
+
+    def _update_res_with_distinct_on_variables__(self, res: Dict[int, Any]):
+        """
+        Update the result dictionary with values from distinct-on variables if not already present.
+
+        :param res: The result dictionary to update.
+        """
+        for i, id_ in enumerate(self._distinct_on_ids):
+            if id_ in res:
+                continue
+            var_value = self._distinct_on[i]._evaluate__(copy(res), parent=self)
+            res[id_] = next(var_value).value
 
     def grouped_by(self, *variables: Selectable) -> TypingUnion[Self, T]:
         """
@@ -1179,20 +1199,22 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         sources: Optional[Bindings] = None,
         parent: Optional[SymbolicExpression] = None,
     ) -> Iterable[OperationResult]:
-        sources = sources or {}
+        """
+        Evaluate the query descriptor by constraining values, updating conclusions,
+        and selecting variables.
+        """
         self._eval_parent_ = parent
-        constrained_values = self.get_constrained_values(sources)
-        if self._variables_to_group_by_:
-            constrained_values = self.update_with_selected_variables(constrained_values)
-            constrained_values = self._group_results_(constrained_values)
-        for values in constrained_values:
-            if not self._variables_to_group_by_:
-                values = self.update_with_selected_variables((v for v in [values]))
-            for result in self._apply_results_mapping((v for v in [values])):
-                if self._variables_to_group_by_:
-                    yield values
-                else:
-                    yield OperationResult({**values, **result}, False, self)
+        sources = sources or {}
+
+        results_generator = self._generate_results__(sources)
+
+        if self._order_by:
+            yield from self._order(results_generator)
+        else:
+            yield from results_generator
+
+        if self._seen_results is not None:
+            self._seen_results.clear()
 
     def update_with_selected_variables(
         self, constrained_values: Iterator[Bindings]
@@ -1202,6 +1224,24 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
             if self.any_selected_variable_is_inferred_and_unbound(values):
                 continue
             yield from self._evaluate_selected_variables(values)
+
+    def _generate_results__(self, sources: Dict[int, Any]) -> Iterator[OperationResult]:
+        """
+        Internal generator to process constrained values and selected variables.
+        """
+        for values in self.get_constrained_values(sources):
+
+            self.evaluate_conclusions_and_update_bindings(values)
+
+            if self.any_selected_variable_is_inferred_and_unbound(values):
+                continue
+
+            selected_vars_bindings = self._evaluate_selected_variables(values.bindings)
+
+            yield from (
+                OperationResult({**values.bindings, **result}, False, self)
+                for result in self._apply_results_mapping(selected_vars_bindings)
+            )
 
     def _group_results_(
         self, results: Iterator[Bindings]
@@ -1357,8 +1397,6 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         """
         for result_mapping in self._results_mapping:
             results = result_mapping(results)
-        if self._order_by:
-            results = self._order(results)
         return results
 
     @cached_property
