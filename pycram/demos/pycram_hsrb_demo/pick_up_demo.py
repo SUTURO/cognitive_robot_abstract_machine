@@ -68,6 +68,14 @@ print(model_sync)
 state_sync = StateSynchronizer(world=hsrb_world, node=node)
 
 
+def add_box(name: str, scale_xyz: tuple[float, float, float]):
+    body = Body(
+        name=PrefixedName(name),
+        collision=ShapeCollection([Box(scale=Scale(*scale_xyz))]),
+    )
+    return body
+
+
 def test_spawning(hsrb_world):
     object_name = f"milk"
     object_to_spawn = add_box("milk", (0.1, 0.1, 0.3))
@@ -101,16 +109,7 @@ context = Context(
 
 grasp = GraspDescription(ApproachDirection.FRONT, VerticalAlignment.NoAlignment, False)
 
-
-def add_box(name: str, scale_xyz: tuple[float, float, float]):
-    body = Body(
-        name=PrefixedName(name),
-        collision=ShapeCollection([Box(scale=Scale(*scale_xyz))]),
-    )
-    return body
-
-
-VizMarkerPublisher(hsrb_world, node, throttle_state_updates=5)
+VizMarkerPublisher(hsrb_world, node)
 
 # perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
 # print(perceived_objects)
@@ -141,11 +140,13 @@ with real_robot:
     SequentialPlan(
         context,
         ParkArmsActionDescription(arm=Arms.LEFT),
-        PickUpActionDescription(
-            arm=Arms.LEFT,
-            object_designator=hsrb_world.get_body_by_name("milk"),
-            grasp_description=grasp,
-        ),
+        MoveTorsoActionDescription(TorsoState.HIGH),
+        MoveTorsoActionDescription(TorsoState.LOW),
+        # PickUpActionDescription(
+        #     arm=Arms.LEFT,
+        #     object_designator=hsrb_world.get_body_by_name("milk"),
+        #     grasp_description=grasp,
+        # ),
         ParkArmsActionDescription(arm=Arms.LEFT),
     ).perform()
 
