@@ -307,7 +307,7 @@ class ViewDependentSpatialRelation(PointSpatialRelation, ABC):
 
     def _signed_distance_along_direction(self, index: int) -> float:
         """
-        Calculate the spatial relation between self.body and self.other with respect to a given
+        Calculate the spatial relation between self.point and self.other with respect to a given
         reference point (self.point_of_semantic_annotation) and a specified axis index. This function computes the
         signed distance along a specified direction derived from the reference point
         to compare the positions of the centers of mass of the two bodies.
