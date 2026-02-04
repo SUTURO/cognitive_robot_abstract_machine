@@ -31,7 +31,9 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelSynchronizer,
     StateSynchronizer,
 )
-from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -66,6 +68,32 @@ print(model_sync)
 state_sync = StateSynchronizer(world=hsrb_world, node=node)
 
 
+def test_spawning(hsrb_world):
+    object_name = f"milk"
+    object_to_spawn = add_box("milk", (0.1, 0.1, 0.3))
+    env_world = load_environment()
+
+    with hsrb_world.modify_world():
+        hsrb_world.merge_world(env_world)
+        hsrb_world.add_connection(
+            FixedConnection(
+                parent=hsrb_world.root,
+                child=object_to_spawn,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.51,
+                    y=1.9,
+                    z=0.5,
+                    # quat_x=1.0,
+                    # quat_y=6.22,
+                    # quat_z=0.8,
+                    yaw=np.pi / 2,
+                ),
+            )
+        )
+
+
+test_spawning(hsrb_world)
+
 # Setup context
 context = Context(
     hsrb_world, hsrb_world.get_semantic_annotations_by_type(HSRB)[0], ros_node=node
@@ -82,43 +110,10 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
     return body
 
 
-def perceive_and_spawn_all_objects(hsrb_world):
-    perceived_objects_result = robokudo.query_all_objects().res
-    perceived_objects = {}
-    for perceived_object in perceived_objects_result:
-        object_size = perceived_object.shape_size[0].dimensions
-        object_pose = perceived_object.pose[0].pose
-        object_name = f"milk"
-        object_to_spawn = add_box(
-            object_name, (object_size.x, object_size.y, object_size.z)
-        )
-        env_world = load_environment()
-        perceived_objects[object_name] = object_to_spawn
-
-        with hsrb_world.modify_world():
-            hsrb_world.merge_world(env_world)
-            hsrb_world.add_connection(
-                FixedConnection(
-                    parent=hsrb_world.root,
-                    child=object_to_spawn,
-                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                        x=object_pose.position.x,
-                        y=object_pose.position.y,
-                        z=object_pose.position.z,
-                        # quat_x=1.0,
-                        # quat_y=6.22,
-                        # quat_z=0.8,
-                        yaw=np.pi / 2,
-                    ),
-                )
-            )
-    return perceived_objects
-
-
 VizMarkerPublisher(hsrb_world, node, throttle_state_updates=5)
 
-perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
-print(perceived_objects)
+# perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
+# print(perceived_objects)
 
 
 # plan1 = SequentialPlan(
@@ -145,13 +140,13 @@ print(perceived_objects)
 with real_robot:
     SequentialPlan(
         context,
-        # ParkArmsActionDescription(arm=Arms.LEFT),
+        ParkArmsActionDescription(arm=Arms.LEFT),
         PickUpActionDescription(
             arm=Arms.LEFT,
             object_designator=hsrb_world.get_body_by_name("milk"),
             grasp_description=grasp,
         ),
-        # ParkArmsActionDescription(arm=Arms.LEFT)
+        ParkArmsActionDescription(arm=Arms.LEFT),
     ).perform()
 
     # plan1.perform()
