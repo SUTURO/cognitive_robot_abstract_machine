@@ -3,10 +3,11 @@ from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
 from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.pick_up import CloseHand
-from giskardpy.motion_statechart.goals.templates import Sequence
+from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts, CancelMotion
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import ForceImpactMonitor
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition, CartesianPose
+from krrood.symbolic_math.symbolic_math import trinary_logic_or
 from semantic_digital_twin.robots.abstract_robot import Manipulator
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -35,13 +36,15 @@ class Place(Sequence):
     def __post_init__(self):
         super().__post_init__()
         # Note: Retracting seperate from placing
-        approach = ApproachPlacement(manipulator=self.manipulator, object_geometry=self.object_geometry, goal_pose=self.goal_pose, ft=self.ft)
+        approach = ApproachPlacement(manipulator=self.manipulator, object_geometry=self.object_geometry,
+                                     goal_pose=self.goal_pose, ft=self.ft)
         close_gripper = CloseHand(ft=self.ft, simulated=self.simulated)
         retracting = Retracting(manipulator=self.manipulator)
 
         self.nodes.append(approach)
         self.nodes.append(close_gripper)
         self.nodes.append(retracting)
+
 
 @dataclass(repr=False, eq=False)
 class ApproachPlacement(Goal):
@@ -54,11 +57,30 @@ class ApproachPlacement(Goal):
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
 
-        self.object_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry, goal_pose=self.goal_pose)
-        self.add_node(self.object_goal)
+        if self.goal_pose.reference_frame != context.world.root:
+            self.goal_pose = context.world.transform(spatial_object=self.goal_pose, target_frame=context.world.root)
+
+        pre_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
+            point=self.goal_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root),
+            rotation_matrix=self.goal_pose.to_rotation_matrix(),
+            reference_frame=context.world.root
+        )
+        pre_pose_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry, goal_pose=pre_pose)
+
+        self.object_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry,
+                                         goal_pose=self.goal_pose)
+        if self.ft:
+            # Detect when the object hits the surface
+            self.ft_monitor = ForceImpactMonitor(threshold=5, topic_name="ft_irgendwas")
+            self.add_node(self.ft_monitor)
+
+        self.add_node(Sequence([pre_pose_goal, self.object_goal]))
 
     def build(self, context: BuildContext) -> NodeArtifacts:
-        artifacts =  super().build(context)
+        artifacts = super().build(context)
+        if self.ft:
+            artifacts.observation = trinary_logic_or(self.ft_monitor.observation_variable,
+                                                     self.object_goal.observation_variable)
         artifacts.observation = self.object_goal.observation_variable
         return artifacts
 
