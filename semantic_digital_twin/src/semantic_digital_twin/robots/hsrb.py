@@ -153,20 +153,22 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
                 maximal_height=0.99483,
                 _world=world,
             )
-
+            sensors = {
+                head_center_camera,
+                head_r_camera,
+                head_l_camera,
+                head_rgbd_camera,
+            }
             neck = Neck(
                 name=PrefixedName("neck", prefix=hsrb.name.name),
-                sensors={
-                    head_center_camera,
-                    head_r_camera,
-                    head_l_camera,
-                    head_rgbd_camera,
-                },
+                sensors=sensors,
                 root=world.get_body_by_name("head_pan_link"),
                 tip=world.get_body_by_name("head_tilt_link"),
                 _world=world,
             )
             hsrb.add_neck(neck)
+            for sensor in sensors:
+                hsrb.add_sensor(sensor)
 
             # Create torso
             torso = Torso(

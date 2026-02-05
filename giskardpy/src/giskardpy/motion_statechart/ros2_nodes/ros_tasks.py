@@ -34,7 +34,7 @@ ActionResult = TypeVar("ActionResult")
 ActionFeedback = TypeVar("ActionFeedback")
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class ActionServerTask(
     MotionStatechartNode,
     ABC,
@@ -97,13 +97,11 @@ class ActionServerTask(
         future.add_done_callback(self.result_callback)
 
     def result_callback(self, future):
-        self._result = future.result().result
-        logger.info(
-            f"Action server {self.action_topic} returned result: {self._result}"
-        )
+        self._result = future.result()
+        logger.info(f"Action server {self.action_topic} done.")
 
 
-@dataclass
+@dataclass(eq=False, repr=False)
 class NavigateActionServerTask(
     ActionServerTask[
         NavigateToPose,
@@ -189,3 +187,83 @@ class NavigateActionServerTask(
                 else ObservationStateValues.FALSE
             )
         return ObservationStateValues.UNKNOWN
+
+
+# @dataclass
+# class GripperActionServerTask(ActionServerTask[
+#         NavigateToPose,
+#         NavigateToPose.Goal,
+#         NavigateToPose.Result,
+#         NavigateToPose.Feedback,
+#     ]
+# ):
+#     """
+#     Task für die Grippersteuerung über einen Action Server, um den Effort anzuwenden (öffnen/schließen des Grippers).
+#     """
+#
+#     gripper_effort: float
+#     """
+#     Der Effort-Wert für den Gripper. Positive Werte öffnen den Gripper, negative schließen ihn.
+#     """
+#
+#     action_topic: str
+#     """
+#     Der Topicname für den Gripper Action Server.
+#     """
+#
+#     _action_client: ActionClient = None
+#     _send_goal_future = None
+#     _msg = None
+#
+#     def build_msg(self):
+#         """
+#         Baut die Gripper Action Goal Nachricht mit dem gewünschten Effort.
+#         """
+#         msg = GripperApplyEffort.Goal()
+#         msg.effort = self.gripper_effort  # Setze den Effort (positiv für Öffnen, negativ für Schließen)
+#         self._msg = msg
+#
+#     def build(self, node):
+#         """
+#         Baut den Action Client und sendet das Ziel (Goal).
+#         """
+#         self._action_client = ActionClient(node, GripperApplyEffort, self.action_topic)
+#
+#         # Warten, bis der Action Server bereit ist
+#         node.get_logger().info(f"Waiting for action server {self.action_topic}")
+#         self._action_client.wait_for_server(timeout_sec=5.0)
+#
+#         # Goal-Nachricht für den Gripper
+#         goal_msg = GripperApplyEffort.Goal()
+#         goal_msg.effort = self.gripper_effort
+#         self._send_goal_future = self._action_client.send_goal_async(goal_msg, feedback_callback=self.feedback_callback)
+#         self._send_goal_future.add_done_callback(self.goal_response_callback)
+#
+#     def goal_response_callback(self, future):
+#         """
+#         Callback, wenn der Action Server auf das Ziel reagiert.
+#         """
+#         result = future.result()
+#         if result.accepted:
+#             print('Goal accepted by the action server.')
+#         else:
+#             print('Goal rejected by the action server.')
+#
+#     def feedback_callback(self, feedback):
+#         """
+#         Callback, um Feedback vom Action Server zu erhalten.
+#         """
+#         print(f"Feedback received: {feedback.feedback}")
+#
+#     def on_tick(self):
+#         """
+#         Überprüft, ob das Ziel erfolgreich abgeschlossen wurde.
+#         """
+#         if self._send_goal_future.done():
+#             result = self._send_goal_future.result()
+#             if result:
+#                 if result.status == 3:  # Erfolgreiche Ausführung
+#                     return True
+#                 else:
+#                     return False
+#         return None

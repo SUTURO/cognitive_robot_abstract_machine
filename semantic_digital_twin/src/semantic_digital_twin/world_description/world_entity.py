@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, Field
 from dataclasses import fields
 from functools import lru_cache, cached_property
+from typing import get_type_hints
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -25,6 +26,7 @@ from typing_extensions import (
     Any,
     Self,
     ClassVar,
+    get_origin,
 )
 from typing_extensions import List, Optional, TYPE_CHECKING, Tuple
 from typing_extensions import Set
@@ -36,6 +38,7 @@ from krrood.adapters.json_serializer import (
 )
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.entity_query_language.predicate import Symbol
+from krrood.ormatic.dao import _get_type_hints_cached
 from krrood.symbolic_math.symbolic_math import Matrix
 from .geometry import TriangleMesh
 from .inertial_properties import Inertial
@@ -45,6 +48,7 @@ from ..adapters.world_entity_kwargs_tracker import (
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..exceptions import ReferenceFrameMismatchError
+
 if TYPE_CHECKING:
     from ..semantic_annotations.semantic_annotations import Drink
 from ..exceptions import (
@@ -200,9 +204,14 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
 
             current_data = data[k]
             if isinstance(current_data, list):
-                current_result = [
-                    cls._item_from_json(data, **kwargs) for data in current_data
-                ]
+                if v.type.startswith("Set"):
+                    container_type = set
+                else:
+                    container_type = list
+
+                current_result = container_type(
+                    [cls._item_from_json(data, **kwargs) for data in current_data]
+                )
             else:
                 current_result = cls._item_from_json(current_data, **kwargs)
             init_args[k] = current_result
@@ -839,6 +848,7 @@ class Human(Agent):
     """
 
     favourite_drink: Optional[Type[Drink]] = field(default=None, kw_only=True)
+
 
 @dataclass(eq=False)
 class SemanticEnvironmentAnnotation(RootedSemanticAnnotation):

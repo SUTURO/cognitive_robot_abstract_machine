@@ -7,7 +7,7 @@ from typing_extensions import TYPE_CHECKING, Iterable, Iterator, Union
 
 from ..datastructures.enums import ObjectType
 from ..datastructures.partial_designator import PartialDesignator
-from ..external_interfaces.robokudo import *
+from ..external_interfaces.robokudo_ros1 import *
 from ..plan import Plan
 from ..utils import is_iterable
 

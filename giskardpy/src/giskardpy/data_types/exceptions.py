@@ -35,5 +35,5 @@ class SelfCollisionViolatedException(PlanningException):
     pass
 
 
-class ForceTorqueSaysNoException(Exception):
+class ForceTorqueSaysNoException(GiskardException):
     pass
