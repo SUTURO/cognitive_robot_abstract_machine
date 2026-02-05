@@ -882,6 +882,14 @@ class QueryObjectDescriptor(SymbolicExpression[T], ABC):
         for variable in self._selected_variables:
             variable._var_._node_.enclosed = True
 
+    def tolist(self) -> List[T]:
+        """
+        Map the results of the query object descriptor to a list of the selected variable values.
+
+        :return: A list of the selected variable values.
+        """
+        return list(An(_child_=self).evaluate())
+
     def where(self, *conditions: ConditionType) -> Self:
         """
         Set the conditions that describe the query object. The conditions are chained using AND.
@@ -1317,7 +1325,7 @@ class Variable(CanBehaveLikeAVariable[T]):
         sources = sources or {}
         if self._id_ in sources:
             yield self._build_operation_result_and_update_truth_value_(sources)
-        elif self._domain_:
+        elif self._domain_source_ is not None:
             yield from self._iterator_over_domain_values_(sources)
         elif self._is_inferred_ or self._predicate_type_:
             yield from self._instantiate_using_child_vars_and_yield_results_(sources)
