@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
@@ -24,12 +25,12 @@ from ....datastructures.pose import PoseStamped
 from ....failures import ObjectNotGraspedError
 from ....failures import ObjectNotInGraspingArea
 from ....has_parameters import has_parameters
-from ....language import SequentialPlan
+from ....language import SequentialPlan, CodePlan
 from ....robot_description import RobotDescription
 from ....robot_description import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....utils import translate_pose_along_local_axis
-
+from pycram.external_interfaces.tmc import GripperActionClient
 logger = logging.getLogger(__name__)
 
 
@@ -156,9 +157,18 @@ class PickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
+        gripper_action = GripperActionClient()
+
+        self.object_designator.global_pose.y = (
+            self.object_designator.global_pose.y + 0.01
+        )
+
         SequentialPlan(
             self.context,
-            # TODO: add Codeplan from sprint-2
+            # Comment this in if you are opening gripper on toya, she is currently interacting with her gripper via GripperActionClient
+            # CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
+
             # This opening function is Simulation only
             MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
             ReachActionDescription(
@@ -169,8 +179,9 @@ class PickUpAction(ActionDescription):
                 arm=self.arm,
                 grasp_description=self.grasp_description,
             ),
+            # Comment this in if you are closing gripper on toya, she is currently interacting with her gripper via GripperActionClient
+            # CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
 
-            # TODO: add Codeplan from sprint-2
             # This close function is Simulation only
             MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
         ).perform()
