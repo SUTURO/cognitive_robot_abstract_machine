@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -22,7 +23,8 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
 )
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
-    CartesianPosition, CartesianOrientation,
+    CartesianPosition,
+    CartesianOrientation,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
@@ -51,6 +53,8 @@ class HSRGripper(Enum):
     close_gripper = 0
 
 
+logger = logging.getLogger(__name__)
+
 PICKUP_PREPOSE_DISTANCE = 0.03
 HSR_GRIPPER_WIDTH = 0.15
 PULLUP_HEIGHT = 0.1
@@ -65,9 +69,11 @@ class PickUp(Goal):
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+    simulated_execution: bool = field(default=True, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
+        logger.warn(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         grasp_magic = BoxGraspMagic(
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
@@ -76,7 +82,7 @@ class PickUp(Goal):
         )
         self.sequence = Sequence(
             [
-                OpenHand(),
+                OpenHand(simulated_execution=self.simulated_execution),
                 PreGraspPose(
                     manipulator=self.manipulator,
                     object_geometry=self.object_geometry,
@@ -89,8 +95,12 @@ class PickUp(Goal):
                     gripper_width=HSR_GRIPPER_WIDTH,
                     grasp_magic=grasp_magic,
                 ),
-                CloseHand(ft=self.ft),
-                # PullUp(manipulator=self.manipulator, object_geometry=self.object_geometry, ft=self.ft),
+                CloseHand(ft=self.ft, simulated_execution=self.simulated_execution),
+                PullUp(
+                    manipulator=self.manipulator,
+                    object_geometry=self.object_geometry,
+                    ft=self.ft,
+                ),
             ]
         )
         self.add_node(self.sequence)
@@ -103,10 +113,10 @@ class PickUp(Goal):
 
 @dataclass(repr=False, eq=False)
 class OpenHand(Goal):
-    simulated: bool = field(kw_only=True, default=True)
+    simulated_execution: bool = field(kw_only=True, default=True)
 
     def expand(self, context: BuildContext) -> None:
-        if self.simulated:
+        if self.simulated_execution:
             self.open_gripper = JointPositionList(
                 goal_state=JointState.from_str_dict(
                     {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
@@ -114,7 +124,7 @@ class OpenHand(Goal):
             )
         else:
             self.open_gripper = GripperCommandTask(
-                action_topic="/gripper_controller/grasp", effort=-0.8
+                action_topic="/gripper_controller/grasp", effort=0.8
             )
         self.add_node(self.open_gripper)
 
@@ -210,6 +220,8 @@ class GraspMagic(ABC):
         obj_to_robot.scale(1)
 
         grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
+
+        logger.warn(f"grasp_axis: {grasp_axis.to_np()}")
 
         return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
 
@@ -321,6 +333,10 @@ class BoxGraspMagic(GraspMagic):
             obj_to_robot,
             PICKUP_PREPOSE_DISTANCE,
         )
+
+        logger.warn(f"-------------------")
+        logger.warn(f"Pre grasp point: {pre_grasp_point}")
+        logger.warn(f"-------------------")
 
         cart_pose = CartesianPosition(
             root_link=context.world.root,
@@ -436,10 +452,10 @@ class Grasping(Goal):
 @dataclass(repr=False, eq=False)
 class CloseHand(Goal):
     ft: bool = field(kw_only=True, default=False)
-    simulated: bool = field(kw_only=True, default=True)
+    simulated_execution: bool = field(kw_only=True, default=True)
 
     def expand(self, context: BuildContext) -> None:
-        if self.simulated:
+        if self.simulated_execution:
             self.close_gripper = JointPositionList(
                 goal_state=JointState.from_str_dict(
                     {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
@@ -448,7 +464,7 @@ class CloseHand(Goal):
         else:
             self.close_gripper = GripperCommandTask(
                 action_topic="/gripper_controller/grasp",
-                effort=0.8,
+                effort=-0.8,
             )
         self.add_node(self.close_gripper)
 
@@ -473,7 +489,9 @@ class PullUp(Goal):
             self.add_node(self._ft)
             self.add_node(self._cm)
 
-        point = self.object_geometry.global_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root)
+        point = self.object_geometry.global_pose.to_position() + Vector3(
+            0, 0, 0.2, reference_frame=context.world.root
+        )
         self._cart_position = CartesianPosition(
             root_link=context.world.root,
             tip_link=self.manipulator.tool_frame,
@@ -481,8 +499,8 @@ class PullUp(Goal):
         )
         self._keep_orientation = CartesianOrientation(
             root_link=context.world.root,
-            tip_link=self.object_geometry,
-            goal_orientation=self.object_geometry.global_pose.to_rotation_matrix()
+            tip_link=self.manipulator.tool_frame,  # self.object_geometry,
+            goal_orientation=self.manipulator.tool_frame.global_pose.to_rotation_matrix(),  # self.object_geometry.global_pose.to_rotation_matrix()
         )
         self.add_node(self._cart_position)
         self.add_node(self._keep_orientation)
