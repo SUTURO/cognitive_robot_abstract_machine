@@ -19,6 +19,17 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 
 world = setup_world()
 
+try:
+    import rclpy
+
+    rclpy.init()
+    from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
+
+    v = VizMarkerPublisher(world, rclpy.create_node("viz_marker"))
+except ImportError:
+    pass
+
+
 spoon = STLParser(
     os.path.join(
         os.path.dirname(__file__), "..", "..", "resources", "objects", "spoon.stl"

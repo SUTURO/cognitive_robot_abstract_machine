@@ -46,7 +46,7 @@ def default_paths() -> WorldSetupPaths:
     return WorldSetupPaths(
         hsrb_urdf=_here("..", "..", "resources", "robots", "hsrb.urdf"),
         milk_stl=_here("..", "..", "resources", "objects", "milk.stl"),
-        cereal_stl=_here("..", "..", "resources", "objects", "breakfast_cereal.stl"),
+        cereal_stl=_here( "..", "..", "resources", "objects", "breakfast_cereal.stl"),
     )
 
 

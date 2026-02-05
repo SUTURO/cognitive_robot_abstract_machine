@@ -185,3 +185,16 @@ def test_pr2_semantic_annotation(rclpy_node, pr2_world_state_reset):
     assert [sa.name for sa in pr2_world_state_reset.semantic_annotations] == [
         sa.name for sa in pr2_world_copy.semantic_annotations
     ]
+
+
+def test_hsr_semantic_annotation(rclpy_node, hsr_world_setup):
+    PR2.from_world(pr2_world_state_reset)
+    fetcher = FetchWorldServer(node=rclpy_node, world=pr2_world_state_reset)
+
+    pr2_world_copy = fetch_world_from_service(
+        rclpy_node,
+    )
+
+    assert [sa.name for sa in pr2_world_state_reset.semantic_annotations] == [
+        sa.name for sa in pr2_world_copy.semantic_annotations
+    ]

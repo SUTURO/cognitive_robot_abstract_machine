@@ -53,14 +53,14 @@ class VizMarkerPublisher(StateChangeCallback):
     The reference frame of the visualization marker.
     """
 
-    throttle_state_updates: int = 1
+    throttle_state_updates: int = 5
     """
     Only published every n-th state update.
     """
 
     def __post_init__(self):
         """
-        Initializes the publisher and registers the callback to the world.
+        Initializes the publisher and regis ters the callback to the world.
         """
         super().__post_init__()
         self.pub = self.node.create_publisher(MarkerArray, self.topic_name, 10)
