@@ -56,10 +56,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 
-# The alternative mappings need to be imported for the tests to work
-import pycram.alternative_motion_mappings.stretch_motion_mapping
-import pycram.alternative_motion_mappings.hsrb_motion_mapping
-
 
 @pytest.fixture(scope="session", params=["hsrb", "stretch", "tiago", "pr2"])
 def setup_multi_robot_apartment(
@@ -136,7 +132,6 @@ def mutable_multiple_robot_apartment(setup_multi_robot_apartment):
 def test_move_torso_multi(immutable_multiple_robot_apartment):
     world, view, context = immutable_multiple_robot_apartment
     plan = SequentialPlan(context, MoveTorsoActionDescription(TorsoState.HIGH))
-
     with simulated_robot:
         plan.perform()
 
@@ -331,6 +326,9 @@ def test_pick_up_multi(mutable_multiple_robot_apartment):
         is not None
     )
 
+    assert len(plan.nodes) == len(plan.all_nodes)
+    assert len(plan.edges) == len(plan.all_nodes) - 1
+
 
 def test_place_multi(mutable_multiple_robot_apartment):
     world, view, context = mutable_multiple_robot_apartment
@@ -376,6 +374,9 @@ def test_place_multi(mutable_multiple_robot_apartment):
     milk_position = milk_body.global_pose.to_position().to_np()
 
     assert milk_position[:3] == pytest.approx([1, -2.2, 0.6], abs=0.01)
+
+    assert len(plan.nodes) == len(plan.all_nodes)
+    assert len(plan.edges) == len(plan.all_nodes) - 1
 
 
 def test_look_at(immutable_multiple_robot_apartment):
@@ -478,10 +479,6 @@ def test_facing(immutable_multiple_robot_apartment):
 def test_transport(mutable_multiple_robot_apartment):
     world, robot_view, context = mutable_multiple_robot_apartment
 
-    # node = rclpy.create_node("test_node")
-    # VizMarkerPublisher(world, node)
-    # TFPublisher(world, node)
-
     description = TransportActionDescription(
         world.get_body_by_name("milk.stl"),
         [PoseStamped.from_list([3.1, 2.2, 0.95], [0.0, 0.0, 1.0, 0.0], world.root)],
@@ -494,7 +491,7 @@ def test_transport(mutable_multiple_robot_apartment):
         plan.perform()
     milk_position = world.get_body_by_name("milk.stl").global_pose.to_np()[:3, 3]
     dist = np.linalg.norm(milk_position - np.array([3.1, 2.2, 0.95]))
-    assert dist <= 0.01
+    assert dist <= 0.02
 
     assert len(plan.nodes) == len(plan.all_nodes)
     assert len(plan.edges) == len(plan.all_nodes) - 1

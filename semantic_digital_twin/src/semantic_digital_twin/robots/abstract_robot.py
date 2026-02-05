@@ -479,6 +479,11 @@ class AbstractRobot(Agent):
         default_factory=lambda: CollisionCheckingConfig(buffer_zone_distance=0.05),
     )
 
+    full_body_controlled: bool = field(default=False, kw_only=True)
+    """
+    Whether this robots needs full-body control to be able to operate effectively 
+    """
+
     @abstractmethod
     def setup_collision_config(self):
         """

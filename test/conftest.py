@@ -321,11 +321,13 @@ def simple_apartment_setup():
         box = Body(
             name=PrefixedName("box"),
             collision=ShapeCollection([Box(scale=Scale(1, 1, 1))]),
+            visual=ShapeCollection([Box(scale=Scale(1, 1, 1))]),
         )
 
         box_2 = Body(
             name=PrefixedName("box_2"),
             collision=ShapeCollection([Box(scale=Scale(1, 1, 1))]),
+            visual=ShapeCollection([Box(scale=Scale(1, 1, 1))]),
         )
 
         box_1_connection = FixedConnection(
@@ -346,18 +348,22 @@ def simple_apartment_setup():
         wall1 = Body(
             name=PrefixedName("wall_1"),
             collision=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
+            visual=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
         )
         wall2 = Body(
             name=PrefixedName("wall_2"),
             collision=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
+            visual=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
         )
         wall3 = Body(
             name=PrefixedName("wall_3"),
             collision=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
+            visual=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
         )
         wall4 = Body(
             name=PrefixedName("wall_4"),
             collision=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
+            visual=ShapeCollection([Box(scale=Scale(8, 0.1, 2))]),
         )
 
         wall_1_connection = FixedConnection(
