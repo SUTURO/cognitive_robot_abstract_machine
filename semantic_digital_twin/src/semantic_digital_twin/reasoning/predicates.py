@@ -3,6 +3,7 @@ from abc import ABC
 from dataclasses import dataclass
 
 import numpy as np
+import math
 import trimesh.boolean
 from krrood.entity_query_language.predicate import (
     Predicate,
@@ -182,6 +183,13 @@ def reachable(pose: HomogeneousTransformationMatrix, root: Body, tip: Body) -> b
     except UnreachableException as e:
         return False
     return True
+
+@symbolic_function
+def compute_euclidean_distance_2d(body1: Body, body2: Body):
+    return math.dist(
+        body1.global_pose.to_position().to_list()[:2],
+        body2.global_pose.to_position().to_list()[:2],
+    )
 
 @symbolic_function
 def is_supported_by(
