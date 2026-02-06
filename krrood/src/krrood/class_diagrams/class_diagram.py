@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 from abc import ABC
 from copy import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, make_dataclass
 from dataclasses import field, InitVar
 from functools import cached_property, lru_cache
-from typing import get_args
+from typing import get_args, get_origin, _GenericAlias
 
 import rustworkx as rx
 
@@ -24,6 +25,8 @@ from typing_extensions import (
     Iterable,
     Type,
     TYPE_CHECKING,
+    TypeVar,
+    get_type_hints,
 )
 
 
@@ -185,19 +188,27 @@ class WrappedSpecializedGeneric(WrappedClass):
     Specialization of WrappedClass for completely parameterized generic types, e.g. Generic[float].
     """
 
-    def _get_introspector(self) -> AttributeIntrospector:
-        return SpecializedGenericDataclassIntrospector()
-
-    @property
-    def type_arguments(self) -> Tuple[Type, ...]:
-        """
-        :return: The type arguments of the generic type.
-        """
-        return get_args(self.clazz)
-
-    @property
-    def name(self):
-        return f"{self.clazz.__name__}_{'_'.join(map(str, self.type_arguments))}"
+    @cached_property
+    def fields(self) -> List[WrappedField]:
+        specialized_dataclass = make_specialized_dataclass(self.clazz)
+        introspector = self._get_introspector()
+        wrapped_fields: list[WrappedField] = []
+        try:
+            discovered = introspector.discover(specialized_dataclass)
+            for item in discovered:
+                wf = WrappedField(
+                    self,
+                    item.field,
+                    public_name=item.public_name,
+                    property_descriptor=item.property_descriptor,
+                )
+                # Map under the public attribute name
+                self._wrapped_field_name_map_[item.public_name] = wf
+                wrapped_fields.append(wf)
+            return wrapped_fields
+        except TypeError as e:
+            logging.error(f"Error parsing class {self.clazz}: {e}")
+            raise ParseError(e) from e
 
 
 @dataclass
@@ -222,7 +233,7 @@ class ClassDiagram:
         self._dependency_graph = rx.PyDiGraph()
         for clazz in classes:
             self.add_node(WrappedClass(clazz=clazz))
-        self._create_nodes_for_specialized_generic_type_hints()
+        # self._create_nodes_for_specialized_generic_type_hints()
         self._create_all_relations()
 
     def get_associations_with_condition(
@@ -702,3 +713,91 @@ class ClassDiagram:
 
                 node = WrappedSpecializedGeneric(wrapped_field.type_endpoint)
                 self.add_node(node)
+
+
+@lru_cache()
+def make_specialized_dataclass(alias: _GenericAlias) -> Type:
+    """
+    Build a concrete dataclass for a fully specialized generic alias, e.g., GenericClass[float].
+
+    The class is intended for internal use only and should never be used directly.
+
+    :param alias: The fully specialized generic alias to build a dataclass for.
+    :return: A concrete dataclass corresponding to the provided alias.
+    """
+
+    # get the template class
+    template_class = get_origin(alias)
+    if template_class is None:
+        raise TypeError(f"{alias!r} is not a specialized generic alias")
+    if not dataclasses.is_dataclass(template_class):
+        raise TypeError(f"Origin {template_class!r} is not a dataclass")
+
+    # Map TypeVar -> concrete argument
+    args = get_args(alias)
+    params: Tuple[TypeVar, ...] = template_class.__parameters__
+    substitution = dict(zip(params, args))
+
+    def resolve(tp):
+        # Resolve string forward refs if any using origin’s module
+        if isinstance(tp, str):
+            # Try to resolve later via get_type_hints if resolution fails here
+            return tp
+
+        if isinstance(tp, TypeVar):
+            return substitution.get(tp, tp)
+        o = get_origin(tp)
+        if o is None:
+            return tp
+        return o[tuple(resolve(a) for a in get_args(tp))]
+
+    # Preserve dataclass parameters
+    params_obj = template_class.__dataclass_params__
+
+    # Build field specs by copying defaults/metadata and substituting types
+    new_fields = []
+    for f in dataclasses.fields(template_class):
+        new_type = resolve(f.type)
+        # Copy defaults and flags
+        kwargs = dict(
+            default=f.default,
+            default_factory=f.default_factory,
+            init=f.init,
+            repr=f.repr,
+            hash=f.hash,
+            compare=f.compare,
+            kw_only=getattr(f, "kw_only", False),
+            metadata=(f.metadata or {}) | {"__origin_field__": f},
+        )
+        # Remove MISSING to satisfy make_dataclass
+        if kwargs["default"] is dataclasses.MISSING:
+            kwargs.pop("default")
+        if kwargs["default_factory"] is dataclasses.MISSING:
+            kwargs.pop("default_factory")
+        new_fields.append((f.name, new_type, field(**kwargs)))
+
+    # Name and namespace
+    arg_names = [getattr(a, "__name__", repr(a)) for a in args]
+    name = f"{template_class.__name__}_{'_'.join(arg_names)}"
+    namespace = {
+        "__origin__": template_class,
+        "__args__": args,
+        "__alias__": alias,
+        "__module__": template_class.__module__,  # better pickling/story in repr
+    }
+
+    # create the specialized concrete class
+    specialized_class = dataclasses.make_dataclass(
+        name,
+        fields=new_fields,
+        bases=(template_class,),
+        namespace=namespace,
+        frozen=params_obj.frozen,
+        eq=params_obj.eq,
+        order=params_obj.order,
+        unsafe_hash=params_obj.unsafe_hash,
+        kw_only=params_obj.kw_only if hasattr(params_obj, "kw_only") else False,
+        slots=getattr(template_class, "__slots__", None) is not None,
+    )
+
+    return specialized_class

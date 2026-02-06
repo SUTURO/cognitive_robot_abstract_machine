@@ -1,6 +1,10 @@
 from dataclasses import is_dataclass, fields
 
-from krrood.class_diagrams.class_diagram import ClassDiagram
+from krrood.class_diagrams.class_diagram import (
+    ClassDiagram,
+    WrappedSpecializedGeneric,
+    make_specialized_dataclass,
+)
 from krrood.class_diagrams.utils import classes_of_module
 from ..dataset import example_classes
 from ..dataset.example_classes import Position, GenericClassAssociation, GenericClass
@@ -76,7 +80,9 @@ def test_create_nodes_for_specialized_generic():
     classes = [Position, GenericClassAssociation, GenericClass]
     diagram = ClassDiagram(classes)
     diagram._create_nodes_for_specialized_generic_type_hints()
-    generic_float = diagram.get_wrapped_class(GenericClass[float])
+    generic_float: WrappedSpecializedGeneric = diagram.get_wrapped_class(
+        GenericClass[float]
+    )
 
     assert len(generic_float.fields) == 1
 
