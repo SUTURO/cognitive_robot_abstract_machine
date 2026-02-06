@@ -13,6 +13,9 @@ from geometry_msgs.msg import PoseStamped
 
 from pycram.ros import create_action_client
 
+from pycram.tf_transformations import quaternion_from_euler, quaternion_multiply
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 # Global variables for shared resources
@@ -188,3 +191,112 @@ def shutdown_nav_interface():
 
     is_init = False
     logger.info("Navigation interface shut down")
+
+
+def change_orientation(start_pose: PoseStamped) -> PoseStamped:
+    """
+    Rotate a pose by 180 degrees around the z-axis using quaternion multiplication.
+
+    This is a pure mathematical function that does not require Nav2 initialization.
+    It works in unknown environments without a loaded world model.
+
+    :param start_pose: The pose to rotate around (geometry_msgs.msg.PoseStamped).
+    :return: A new pose with the same position but rotated 180 degrees.
+    """
+    quat_orientation = (
+        start_pose.pose.orientation.x,
+        start_pose.pose.orientation.y,
+        start_pose.pose.orientation.z,
+        start_pose.pose.orientation.w,
+    )
+
+    # 180-degree rotation around z-axis
+    quat_add = quaternion_from_euler(0.0, 0.0, np.pi)
+    q_new = quaternion_multiply(quat_orientation, quat_add)
+
+    new_pose = PoseStamped()
+    new_pose.header = start_pose.header
+    new_pose.pose.position = start_pose.pose.position
+    new_pose.pose.orientation.x = q_new[0]
+    new_pose.pose.orientation.y = q_new[1]
+    new_pose.pose.orientation.z = q_new[2]
+    new_pose.pose.orientation.w = q_new[3]
+
+    logger.info(
+        f"Rotated pose 180 degrees: original quat={quat_orientation}, new quat={tuple(q_new)}"
+    )
+    return new_pose
+
+
+def min_distance_2_human(
+    human_pose: PoseStamped, robot_pose: PoseStamped, min_distance: float
+) -> PoseStamped:
+    """
+    Calculate a target pose for the robot that maintains a minimum distance from a human.
+
+    The function calculates a position that is at the specified minimum distance from the human,
+    along the line connecting the robot's current position to the human's position.
+    The robot will be oriented towards the human.
+
+    :param human_pose: The pose of the human (geometry_msgs.msg.PoseStamped).
+    :param robot_pose: The current pose of the robot (geometry_msgs.msg.PoseStamped).
+    :param min_distance: The minimum distance (in meters) to maintain from the human.
+    :return: A new target pose that maintains the specified distance from the human.
+    """
+    # Extract positions
+    human_x = human_pose.pose.position.x
+    human_y = human_pose.pose.position.y
+    human_z = human_pose.pose.position.z
+
+    robot_x = robot_pose.pose.position.x
+    robot_y = robot_pose.pose.position.y
+    robot_z = robot_pose.pose.position.z
+
+    # Calculate direction vector from human to robot
+    dx = robot_x - human_x
+    dy = robot_y - human_y
+    dz = robot_z - human_z
+
+    # Calculate current distance
+    current_distance = np.sqrt(dx**2 + dy**2)
+
+    if current_distance < 0.001:
+        # If robot is at the same position as human, move it back by min_distance in negative x direction
+        logger.warning(
+            "Robot and human positions are too close, moving robot back along x-axis"
+        )
+        dx = -min_distance
+        dy = 0.0
+        current_distance = min_distance
+
+    # Normalize the direction vector (in xy-plane)
+    direction_x = dx / current_distance
+    direction_y = dy / current_distance
+
+    # Calculate target position at min_distance from human
+    target_x = human_x + direction_x * min_distance
+    target_y = human_y + direction_y * min_distance
+    target_z = robot_z  # Keep the same z-level as robot
+
+    # Calculate orientation to face the human
+    # The robot should look towards the human (opposite of the direction vector)
+    angle_to_human = np.arctan2(-direction_y, -direction_x)
+    target_quat = quaternion_from_euler(0.0, 0.0, angle_to_human)
+
+    # Create target pose
+    target_pose = PoseStamped()
+    target_pose.header = robot_pose.header
+    target_pose.pose.position.x = target_x
+    target_pose.pose.position.y = target_y
+    target_pose.pose.position.z = target_z
+    target_pose.pose.orientation.x = target_quat[0]
+    target_pose.pose.orientation.y = target_quat[1]
+    target_pose.pose.orientation.z = target_quat[2]
+    target_pose.pose.orientation.w = target_quat[3]
+
+    logger.info(
+        f"Calculated target pose with {min_distance}m distance from human. "
+        f"Human at ({human_x:.2f}, {human_y:.2f}), target at ({target_x:.2f}, {target_y:.2f})"
+    )
+
+    return target_pose
