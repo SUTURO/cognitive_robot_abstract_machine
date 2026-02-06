@@ -7,7 +7,7 @@ import math
 import trimesh.boolean
 from krrood.entity_query_language.predicate import (
     Predicate,
-    Symbol,
+    Symbol, symbolic_function,
 )
 from random_events.interval import Interval
 from typing_extensions import List, TYPE_CHECKING, Iterable, Type
@@ -184,7 +184,7 @@ def reachable(pose: HomogeneousTransformationMatrix, root: Body, tip: Body) -> b
         return False
     return True
 
-
+@symbolic_function
 def is_supported_by(
     supported_body: Body, supporting_body: Body, max_intersection_height: float = 0.1
 ) -> bool:

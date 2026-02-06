@@ -1137,7 +1137,7 @@ def test_merge_into_empty_world(world_setup):
     world2.merge_world(world)
 
 
-def test_reattach_child_to_new_parent(world_setup):
+def test_move_branch_with_fixed_connection(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
     # Initial state: l2 is child of l1 via PrismaticConnection
     old_child_global_pose = l2.global_pose

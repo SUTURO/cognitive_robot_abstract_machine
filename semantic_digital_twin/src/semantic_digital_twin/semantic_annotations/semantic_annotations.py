@@ -664,13 +664,6 @@ class Pringles(Food):
 
 
 @dataclass(eq=False)
-class GelatinBox(Food):
-    """
-    Gelatin box.
-    """
-
-
-@dataclass(eq=False)
 class TomatoSoup(Food):
     """
     Tomato soup.
@@ -732,37 +725,55 @@ class Produce(Food):
 
 
 @dataclass(eq=False)
-class Tomato(Produce):
+class Fruit(Produce):
+    """
+    Fruit.
+    """
+
+    ...
+
+
+@dataclass(eq=False)
+class Vegetable(Produce):
+    """
+    Vegetable.
+    """
+
+    ...
+
+
+@dataclass(eq=False)
+class Tomato(Vegetable):
     """
     A tomato.
     """
 
 
 @dataclass(eq=False)
-class Lettuce(Produce):
+class Lettuce(Vegetable):
     """
     Lettuce.
     """
 
 
 @dataclass(eq=False)
-class Apple(Produce):
+class Carrot(Vegetable):
+    """
+    A carrot.
+    """
+
+
+@dataclass(eq=False)
+class Apple(Fruit):
     """
     An apple.
     """
 
 
 @dataclass(eq=False)
-class Banana(Produce):
+class Banana(Fruit):
     """
     A banana.
-    """
-
-
-@dataclass(eq=False)
-class Orange(Produce):
-    """
-    An orange.
     """
 
 
@@ -816,6 +827,13 @@ class Armchair(Chair):
 
 
 @dataclass(eq=False)
+class TrashCan(HasRootBody, Furniture):
+    """
+    Abstract class for Trash Can.
+    """
+
+
+@dataclass(eq=False)
 class ShelvingUnit(Furniture):
     """
     A shelving unit.
@@ -830,7 +848,7 @@ class Bed(Furniture):
 
 
 @dataclass(eq=False)
-class Sofa(Furniture):
+class Sofa(Furniture, HasSupportingSurface):
     """
     A sofa.
     """
@@ -983,4 +1001,416 @@ class Baseball(HasRootBody):
 class LiquidCap(HasRootBody):
     """
     A liquid cap.
+    """
+
+
+@dataclass(eq=False)
+class Drink(SemanticAnnotation):
+    """
+    A Semantic annotation representing a drink item.
+    """
+
+    body: Body = field(kw_only=True)
+
+
+@dataclass(eq=False)
+class Cola(Drink): ...
+
+
+@dataclass(eq=False)
+class Fanta(Drink): ...
+
+
+@dataclass(eq=False)
+class Water(Drink): ...
+
+
+@dataclass(eq=False)
+class Beer(Drink): ...
+
+
+# Food Items (with HasRootBody)
+@dataclass(eq=False)
+class Chips(Food, IsPerceivable):
+    """
+    A bag or can of chips.
+    """
+
+
+@dataclass(eq=False)
+class Crispbread(Food, IsPerceivable):
+    """
+    A pack of crispbread.
+    """
+
+
+@dataclass(eq=False)
+class Sauce(Food, IsPerceivable):
+    """
+    A bottle or container of sauce.
+    """
+
+
+@dataclass(eq=False)
+class Soda(Food, IsPerceivable):
+    """
+    A can or bottle of soda.
+    """
+
+
+@dataclass(eq=False)
+class SoyaDrink(Food, IsPerceivable):
+    """
+    A carton of soya drink.
+    """
+
+
+@dataclass(eq=False)
+class Pudding(Food, IsPerceivable):
+    """
+    A box or container of pudding.
+    """
+
+
+@dataclass(eq=False)
+class GelatinBox(Food, IsPerceivable):
+    """
+    A box of gelatin.
+    """
+
+
+@dataclass(eq=False)
+class Sponge(Food, IsPerceivable):
+    """
+    A sponge (e.g., kitchen sponge).
+    """
+
+
+@dataclass(eq=False)
+class Spatula(Food, IsPerceivable):
+    """
+    A spatula (e.g., kitchen spatula).
+    """
+
+
+@dataclass(eq=False)
+class Rice(Food, IsPerceivable):
+    """
+    A pack of rice.
+    """
+
+
+@dataclass(eq=False)
+class PancakeMix(Food, IsPerceivable):
+    """
+    A box of pancake mix.
+    """
+
+
+@dataclass(eq=False)
+class Oregano(Food, IsPerceivable):
+    """
+    A shaker of oregano.
+    """
+
+
+@dataclass(eq=False)
+class Liquorice(Food, IsPerceivable):
+    """
+    A bag of liquorice.
+    """
+
+
+@dataclass(eq=False)
+class HoneyWafers(Food, IsPerceivable):
+    """
+    A pack of honey wafers.
+    """
+
+
+@dataclass(eq=False)
+class Grapes(Fruit, IsPerceivable):
+    """
+    A bunch of grapes.
+    """
+
+
+@dataclass(eq=False)
+class Peach(Fruit, IsPerceivable):
+    """
+    A peach.
+    """
+
+
+@dataclass(eq=False)
+class Plum(Fruit, IsPerceivable):
+    """
+    A plum.
+    """
+
+
+@dataclass(eq=False)
+class Strawberry(Fruit, IsPerceivable):
+    """
+    A strawberry.
+    """
+
+
+@dataclass(eq=False)
+class Lemon(Fruit, IsPerceivable):
+    """
+    A lemon.
+    """
+
+
+@dataclass(eq=False)
+class Orange(Fruit, IsPerceivable):
+    """
+    An orange.
+    """
+
+
+@dataclass(eq=False)
+class Cucumber(Vegetable, IsPerceivable):
+    """
+    A cucumber.
+    """
+
+
+@dataclass(eq=False)
+class Zucchini(Vegetable, IsPerceivable):
+    """
+    A zucchini.
+    """
+
+
+@dataclass(eq=False)
+class Salt(Food, IsPerceivable):
+    """
+    A pack or container of salt (e.g., salt shaker or salt can).
+    """
+
+
+@dataclass(eq=False)
+class Muesli(Food, IsPerceivable):
+    """
+    A pack of muesli (e.g., in a box or bag).
+    """
+
+
+@dataclass(eq=False)
+class Corn(Fruit, IsPerceivable):
+    """
+    A can of corn.
+    """
+
+
+@dataclass(eq=False)
+class DishwasherTab(Food, IsPerceivable):
+    """
+    A dishwasher tablet.
+    """
+
+
+@dataclass(eq=False)
+class GlassCleaner(Food, IsPerceivable):
+    """
+    A bottle of glass cleaner.
+    """
+
+
+@dataclass(eq=False)
+class GroundCoffee(Food, IsPerceivable):
+    """
+    A pack of ground coffee.
+    """
+
+
+@dataclass(eq=False)
+class Hammer(HasRootBody, IsPerceivable):
+    """
+    A hammer.
+    """
+
+
+@dataclass(eq=False)
+class IcedTea(Food, IsPerceivable):
+    """
+    A can or bottle of iced tea.
+    """
+
+
+@dataclass(eq=False)
+class Juice(Food, IsPerceivable):
+    """
+    A carton or bottle of juice.
+    """
+
+
+@dataclass(eq=False)
+class Ketchup(Food, IsPerceivable):
+    """
+    A bottle of ketchup.
+    """
+
+
+@dataclass(eq=False)
+class Mayonnaise(Food, IsPerceivable):
+    """
+    A bottle of mayonnaise.
+    """
+
+
+@dataclass(eq=False)
+class Mustard(Food, IsPerceivable):
+    """
+    A bottle of mustard.
+    """
+
+
+@dataclass(eq=False)
+class Pear(Food, IsPerceivable):
+    """
+    A pear.
+    """
+
+
+@dataclass(eq=False)
+class Pitcher(HasRootBody, IsPerceivable):
+    """
+    A pitcher (e.g., for water).
+    """
+
+
+@dataclass(eq=False)
+class PottedMeat(Food, IsPerceivable):
+    """
+    A can of potted meat.
+    """
+
+
+@dataclass(eq=False)
+class Sausage(HasRootBody, IsPerceivable):
+    """
+    A sausage (e.g., in a can).
+    """
+
+
+@dataclass(eq=False)
+class Scissors(HasRootBody, IsPerceivable):
+    """
+    A pair of scissors.
+    """
+
+
+@dataclass(eq=False)
+class Screwdriver(HasRootBody, IsPerceivable):
+    """
+    A screwdriver.
+    """
+
+
+@dataclass(eq=False)
+class Skillet(HasRootBody, IsPerceivable):
+    """
+    A skillet (frying pan).
+    """
+
+
+@dataclass(eq=False)
+class Soap(HasRootBody, IsPerceivable):
+    """
+    A bar or bottle of soap.
+    """
+
+
+@dataclass(eq=False)
+class SoccerBall(HasRootBody, IsPerceivable):
+    """
+    A soccer ball.
+    """
+
+
+@dataclass(eq=False)
+class Sprinkles(Food, IsPerceivable):
+    """
+    A pack of sprinkles.
+    """
+
+
+@dataclass(eq=False)
+class Sugar(Food, IsPerceivable):
+    """
+    A box or pack of sugar.
+    """
+
+
+@dataclass(eq=False)
+class TennisBall(HasRootBody, IsPerceivable):
+    """
+    A tennis ball.
+    """
+
+
+@dataclass(eq=False)
+class Vegetables(Food, IsPerceivable):
+    """
+    A can of mixed vegetables.
+    """
+
+
+@dataclass(eq=False)
+class Wafer(Food, IsPerceivable):
+    """
+    A pack of wafers.
+    """
+
+
+@dataclass(eq=False)
+class WineGlass(HasRootBody, IsPerceivable):
+    """
+    A wine glass.
+    """
+
+
+@dataclass(eq=False)
+class WoodBlock(HasRootBody, IsPerceivable):
+    """
+    A wooden block.
+    """
+
+
+# Non-Food, but physical objects
+@dataclass(eq=False)
+class Racquetball(HasRootBody, IsPerceivable):
+    """
+    A racquetball.
+    """
+
+
+@dataclass(eq=False)
+class RubiksCube(HasRootBody, IsPerceivable):
+    """
+    A Rubik's cube.
+    """
+
+
+@dataclass(eq=False)
+class Saucer(HasRootBody, IsPerceivable):
+    """
+    A saucer.
+    """
+
+
+@dataclass(eq=False)
+class Softball(HasRootBody, IsPerceivable):
+    """
+    A softball.
+    """
+
+
+@dataclass(eq=False)
+class Marker(HasRootBody, IsPerceivable):
+    """
+    A marker (e.g., black marker).
     """

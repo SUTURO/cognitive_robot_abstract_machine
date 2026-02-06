@@ -300,6 +300,12 @@ class HasRootBody(HasRootKinematicStructureEntity, ABC):
         :return: The created semantic annotation instance.
         """
         body = Body(name=name)
+        if scale is not None:
+            collision_shapes = BoundingBoxCollection.from_event(
+                body, scale.to_simple_event().as_composite_set()
+            ).as_shapes()
+            body.collision = collision_shapes
+            body.visual = collision_shapes
 
         if scale is not None:
             collision_shapes = BoundingBoxCollection.from_event(

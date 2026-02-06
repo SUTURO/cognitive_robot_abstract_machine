@@ -19,6 +19,17 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 
 world = setup_world()
 
+try:
+    import rclpy
+
+    rclpy.init()
+    from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
+
+    v = VizMarkerPublisher(world, rclpy.create_node("viz_marker"))
+except ImportError:
+    pass
+
+
 spoon = STLParser(
     os.path.join(
         os.path.dirname(__file__), "..", "..", "resources", "objects", "spoon.stl"
@@ -40,31 +51,8 @@ with world.modify_world():
     connection = FixedConnection(
         parent=world.get_body_by_name("cabinet10_drawer_top"), child=spoon.root
     )
-try:
-    import rclpy
-
-    rclpy.init()
-    from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-        VizMarkerPublisher,
-    )
-
-    v = VizMarkerPublisher(world, rclpy.create_node("viz_marker"))
-except ImportError:
-    pass
-
     world.merge_world(spoon, connection)
 
-try:
-    import rclpy
-
-    rclpy.init()
-    from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-        VizMarkerPublisher,
-    )
-
-    v = VizMarkerPublisher(world, rclpy.create_node("viz_marker"))
-except ImportError:
-    pass
 
 pr2 = PR2.from_world(world)
 context = Context.from_world(world)
