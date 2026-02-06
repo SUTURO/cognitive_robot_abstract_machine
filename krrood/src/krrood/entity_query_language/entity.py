@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import List
+
 from .symbol_graph import SymbolGraph
 from .utils import is_iterable, T
 
@@ -111,7 +113,7 @@ def variable(
 
 
 def variable_from(
-    domain: DomainType,
+    domain: Union[List[T], Selectable[T]],
     name: Optional[str] = None,
 ) -> Union[T, Selectable[T]]:
     """
