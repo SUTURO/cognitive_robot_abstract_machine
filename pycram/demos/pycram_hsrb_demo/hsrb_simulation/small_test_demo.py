@@ -1,10 +1,16 @@
+from time import sleep
+
 import rclpy
+
+from pycram.datastructures.grasp import GraspDescription
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from suturo_resources.suturo_map import load_environment
 
-from pycram.datastructures.enums import TorsoState, Arms
+from pycram.datastructures.enums import TorsoState, Arms, VerticalAlignment, ApproachDirection
 from pycram.language import SequentialPlan
 from pycram.process_module import simulated_robot
-from pycram.robot_plans import MoveTorsoActionDescription, ParkArmsActionDescription
+from pycram.robot_plans import MoveTorsoActionDescription, ParkArmsActionDescription, PickUpActionDescription, \
+    TransportActionDescription
 from simulation_setup import setup_hsrb_in_environment
 
 rclpy.init()
@@ -17,11 +23,25 @@ world, robot_view, context, viz = (
     result.viz,
 )
 
+milk = world.get_body_by_name("milk.stl")
+manipulator = robot_view.arms[0].manipulator
+print(manipulator.tool_frame)
+grasp = GraspDescription(ApproachDirection.FRONT, VerticalAlignment.NoAlignment,
+                         manipulator=manipulator)
+
 plan = SequentialPlan(
     context,
+    PickUpActionDescription(object_designator=milk, arm=Arms.LEFT, grasp_description=grasp),
+    # TransportActionDescription(object_designator=milk, target_location=PoseStamped.from_list([4.9, 3.3, 0.8]),
+    #                          arm=Arms.LEFT),
+
     ParkArmsActionDescription(Arms.BOTH),
+    MoveTorsoActionDescription(TorsoState.HIGH),
+    MoveTorsoActionDescription(TorsoState.LOW),
     MoveTorsoActionDescription(TorsoState.HIGH),
 )
 
 with simulated_robot:
+    print(plan.current_plan)
+
     plan.perform()

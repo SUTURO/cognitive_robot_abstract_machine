@@ -37,7 +37,7 @@ from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.datastructures.variables import SpatialVariables
-from semantic_digital_twin.robots.abstract_robot import AbstractRobot
+from semantic_digital_twin.robots.abstract_robot import AbstractRobot, Base
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -186,6 +186,11 @@ class CostmapLocation(LocationDesignatorDescription):
         ground_pose = deepcopy(target)
         ground_pose.position.z = 0
 
+        base_link = self.world.get_body_by_name("base_link")
+        if self.robot_view.base is None:
+            self.robot_view.add_base(
+                Base(name="base", root=base_link, tip=base_link, _world=self.world)
+            )
         base_bb = self.robot_view.base.bounding_box
 
         occupancy = OccupancyCostmap(

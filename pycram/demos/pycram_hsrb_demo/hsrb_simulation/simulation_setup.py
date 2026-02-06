@@ -12,6 +12,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -37,7 +38,7 @@ class SpawnSpec:
 
 @dataclass(frozen=True)
 class SetupResult:
-    world: object
+    world: World
     robot_view: HSRB
     context: Context
     viz: Optional[object]
@@ -53,7 +54,7 @@ def default_paths() -> WorldSetupPaths:
     )
 
 
-def build_hsrb_world(hsrb_urdf: str):
+def build_hsrb_world(hsrb_urdf: str) -> World:
     world = URDFParser.from_file(file_path=hsrb_urdf).parse()
     with world.modify_world():
         odom = Body(name=PrefixedName("odom_combined"))
@@ -67,7 +68,7 @@ def build_hsrb_world(hsrb_urdf: str):
 def add_objects_and_semantics(
     world,
     objects: Sequence[SpawnSpec],
-):
+) -> World:
     for spec in objects:
         obj_world = STLParser(spec.world_path).parse()
         x, y, z, r, p, yaw = spec.xyz_rpy
@@ -129,9 +130,9 @@ def setup_hsrb_in_environment(
     load_environment: Callable[[], object],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        2.0,
-        1.05,
+        2.2,
+        2.3,
+        0.7,
         0.0,
         0.0,
         0.0,
@@ -156,7 +157,7 @@ def setup_hsrb_in_environment(
 ) -> SetupResult:
     p = paths or default_paths()
 
-    hsrb_world = build_hsrb_world(p.hsrb_urdf)
+    hsrb_world : World= build_hsrb_world(p.hsrb_urdf)
 
     env_world = load_environment()
     env_world = add_objects_and_semantics(
@@ -166,7 +167,6 @@ def setup_hsrb_in_environment(
             SpawnSpec(world_path=p.cereal_stl, xyz_rpy=cereal_xyz_rpy),
         ),
     )
-
     world, robot_view, context = merge_robot_into_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )

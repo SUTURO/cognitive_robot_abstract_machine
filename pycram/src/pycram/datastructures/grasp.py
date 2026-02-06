@@ -93,8 +93,9 @@ class GraspDescription:
         lift_pose =  PoseStamped.from_spatial_type(world.transform(lift_pose_map.to_spatial_type(), pose_frame))
         lift_pose.rotate_by_quaternion(grasp_orientation)
 
+        # Its not a fix, just something about the pre pose is buggy
         sequence = [pre_pose, grasp_pose, lift_pose]
-
+        # sequence = [grasp_pose, grasp_pose, lift_pose]
         if reverse:
             sequence.reverse()
         return sequence
@@ -152,7 +153,13 @@ class GraspDescription:
             *axis_list, reference_frame=self.manipulator._world.root
         )
 
-        grasp_pose = HomogeneousTransformationMatrix.from_xyz_quaternion(0, 0, 0, *self.manipulator.front_facing_orientation.to_np(), reference_frame=self.manipulator._world.root)
+        grasp_pose = HomogeneousTransformationMatrix.from_xyz_quaternion(
+            0,
+            0,
+            0,
+            *self.manipulator.front_facing_orientation.to_np(),
+            reference_frame=self.manipulator._world.root,
+        )
         world = self.manipulator._world
 
         front_global = world.transform(front_pose, world.root)
@@ -161,7 +168,15 @@ class GraspDescription:
 
         t = grasp_global.inverse().to_np() @ front_global.to_np()
 
-        return t[:3, 3].astype(int).tolist()
+        v = t[:3, 3].astype(float)
+
+        # Convert the (almost unit) vector into a clean axis direction (one hot ±1).
+        idx = int(np.argmax(np.abs(v)))
+        sign = 1.0 if v[idx] >= 0 else -1.0
+        axis_vec = np.zeros(3, dtype=float)
+        axis_vec[idx] = sign
+
+        return axis_vec.tolist()
 
     def grasp_orientation(self):
         """
