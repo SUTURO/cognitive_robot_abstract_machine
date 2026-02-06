@@ -7,7 +7,7 @@ import math
 import trimesh.boolean
 from krrood.entity_query_language.predicate import (
     Predicate,
-    Symbol,
+    Symbol, symbolic_function,
 )
 from random_events.interval import Interval
 from typing_extensions import List, TYPE_CHECKING, Iterable, Type
@@ -20,7 +20,7 @@ from ..spatial_computations.ik_solver import (
     UnreachableException,
 )
 from ..spatial_computations.raytracer import RayTracer
-from ..spatial_types import Vector3, Point3
+from ..spatial_types import Vector3
 from ..spatial_types.spatial_types import HomogeneousTransformationMatrix
 from ..world import World
 from ..world_description.connections import FixedConnection
@@ -184,6 +184,12 @@ def reachable(pose: HomogeneousTransformationMatrix, root: Body, tip: Body) -> b
         return False
     return True
 
+@symbolic_function
+def compute_euclidean_distance_2d(body1: Body, body2: Body):
+    return math.dist(
+        body1.global_pose.to_position().to_list()[:2],
+        body2.global_pose.to_position().to_list()[:2],
+    )
 
 def is_supported_by(
     supported_body: Body, supporting_body: Body, max_intersection_height: float = 0.1
