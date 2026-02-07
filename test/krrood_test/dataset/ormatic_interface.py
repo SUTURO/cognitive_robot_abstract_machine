@@ -60,15 +60,6 @@ genericclassassociationdao_associated_value_list_association = Table(
         ForeignKey("GenericClass_PositionDAO.database_id"),
     ),
 )
-genericclassassociationdao_associated_value_not_parametrized_list_association = Table(
-    "genericclassassociationdao_associated_value_not_parametrized_list_association",
-    Base.metadata,
-    Column(
-        "source_genericclassassociationdao_id",
-        ForeignKey("GenericClassAssociationDAO.database_id"),
-    ),
-    Column("target_genericclassdao_id", ForeignKey("GenericClassDAO.database_id")),
-)
 parentalternativelymappedmappingdao_entities_association = Table(
     "parentalternativelymappedmappingdao_entities_association",
     Base.metadata,
@@ -270,25 +261,6 @@ class GenericClassDAO(
     }
 
 
-class GenericClass_floatDAO(
-    GenericClassDAO,
-    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
-):
-
-    __tablename__ = "GenericClass_floatDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(GenericClassDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "GenericClass_floatDAO",
-        "inherit_condition": database_id == GenericClassDAO.database_id,
-    }
-
-
 class GenericClass_PositionDAO(
     GenericClassDAO,
     DataAccessObject[
@@ -306,8 +278,39 @@ class GenericClass_PositionDAO(
         use_existing_column=True,
     )
 
+    value_id: Mapped[int] = mapped_column(
+        ForeignKey("PositionDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[PositionDAO] = relationship(
+        "PositionDAO", uselist=False, foreign_keys=[value_id], post_update=True
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "GenericClass_PositionDAO",
+        "inherit_condition": database_id == GenericClassDAO.database_id,
+    }
+
+
+class GenericClass_floatDAO(
+    GenericClassDAO,
+    DataAccessObject[test.krrood_test.dataset.example_classes.GenericClass[float]],
+):
+
+    __tablename__ = "GenericClass_floatDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(GenericClassDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    value: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+    __mapper_args__ = {
+        "polymorphic_identity": "GenericClass_floatDAO",
         "inherit_condition": database_id == GenericClassDAO.database_id,
     }
 
@@ -328,11 +331,6 @@ class GenericClassAssociationDAO(
         nullable=True,
         use_existing_column=True,
     )
-    associated_value_not_parametrized_id: Mapped[int] = mapped_column(
-        ForeignKey("GenericClassDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
 
     associated_value: Mapped[GenericClass_floatDAO] = relationship(
         "GenericClass_floatDAO",
@@ -346,21 +344,6 @@ class GenericClassAssociationDAO(
             secondary="genericclassassociationdao_associated_value_list_association",
             primaryjoin="GenericClassAssociationDAO.database_id == genericclassassociationdao_associated_value_list_association.c.source_genericclassassociationdao_id",
             secondaryjoin="GenericClass_PositionDAO.database_id == genericclassassociationdao_associated_value_list_association.c.target_genericclass_positiondao_id",
-            cascade="save-update, merge",
-        )
-    )
-    associated_value_not_parametrized: Mapped[GenericClassDAO] = relationship(
-        "GenericClassDAO",
-        uselist=False,
-        foreign_keys=[associated_value_not_parametrized_id],
-        post_update=True,
-    )
-    associated_value_not_parametrized_list: Mapped[builtins.list[GenericClassDAO]] = (
-        relationship(
-            "GenericClassDAO",
-            secondary="genericclassassociationdao_associated_value_not_parametrized_list_association",
-            primaryjoin="GenericClassAssociationDAO.database_id == genericclassassociationdao_associated_value_not_parametrized_list_association.c.source_genericclassassociationdao_id",
-            secondaryjoin="GenericClassDAO.database_id == genericclassassociationdao_associated_value_not_parametrized_list_association.c.target_genericclassdao_id",
             cascade="save-update, merge",
         )
     )
@@ -565,6 +548,7 @@ class ChildLevel2NormallyMappedDAO(
         use_existing_column=True,
     )
 
+    base_attribute: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     level_two_attribute: Mapped[builtins.float] = mapped_column(
         use_existing_column=True
     )

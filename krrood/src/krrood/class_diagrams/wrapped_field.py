@@ -255,6 +255,37 @@ class WrappedField:
             return False
         return len(get_args(self.type_endpoint)) > 0
 
+    @cached_property
+    def is_underspecified_generic(self) -> bool:
+        """
+        Check if a type hint is an underspecified generic class.
+        For example, `GenericClass` is underspecified, but `GenericClass[int]` is not.
+
+        :return: True if the type hint is an underspecified generic class.
+        """
+        # If it's a class and it inherits from Generic but has no arguments
+        try:
+            if inspect.isclass(self.type_endpoint) and issubclass(
+                self.type_endpoint, Generic
+            ):
+                return True
+        except TypeError:
+            pass
+
+        # Also check if it's a GenericAlias with empty args (though usually origin is used then)
+        origin = get_origin(self.type_endpoint)
+        if origin is not None:
+            try:
+                if (
+                    issubclass(origin, Generic)
+                    and len(get_args(self.type_endpoint)) == 0
+                ):
+                    return True
+            except TypeError:
+                pass
+
+        return False
+
 
 @lru_cache(maxsize=None)
 def manually_search_for_class_name(target_class_name: str) -> Type:

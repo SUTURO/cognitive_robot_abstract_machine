@@ -296,6 +296,7 @@ class FromDataAccessObjectState(DataAccessObjectState[FromDataAccessObjectWorkIt
         :param original_clazz: The domain class to instantiate.
         :return: The uninitialized domain object instance.
         """
+
         result = original_clazz.__new__(original_clazz)
         if is_dataclass(original_clazz):
             for f in fields(original_clazz):
@@ -325,6 +326,19 @@ class HasGeneric(Generic[T]):
         if tp is None:
             raise NoGenericError(cls)
         return tp
+
+    @classmethod
+    @lru_cache(maxsize=None)
+    def constructable_original_class(cls) -> T:
+        """
+        Return the constructable original class. Use this for object allocation in from_dao cycles, as Generic Aliases
+        cannot be constructed directly.
+        """
+        original_class = cls.original_class()
+        if type(original_class) is _GenericAlias:
+            return get_origin(original_class)
+        else:
+            return original_class
 
     @classmethod
     def _dao_like_argument(cls) -> Optional[Type]:
@@ -742,7 +756,7 @@ class DataAccessObject(HasGeneric[T]):
         state.is_processing = True
         discovery_order = []
         if not state.has(self):
-            state.allocate_and_memoize(self, self.original_class())
+            state.allocate_and_memoize(self, self.constructable_original_class())
         state.push_work_item(self, state.get(self))
 
         self._discover_dependencies(state, discovery_order)
@@ -835,7 +849,10 @@ class DataAccessObject(HasGeneric[T]):
             # Skip post_init for objects that were created via AlternativeMapping
             # because they are created via their constructor, which already
             # calls __post_init__.
-            if issubclass(work_item.dao_instance.original_class(), AlternativeMapping):
+            if issubclass(
+                work_item.dao_instance.constructable_original_class(),
+                AlternativeMapping,
+            ):
                 continue
 
             domain_object = state.get(work_item.dao_instance)
@@ -852,7 +869,9 @@ class DataAccessObject(HasGeneric[T]):
         :return: The uninitialized domain object.
         """
         if not state.has(self):
-            domain_object = state.allocate_and_memoize(self, self.original_class())
+            domain_object = state.allocate_and_memoize(
+                self, self.constructable_original_class()
+            )
             state.push_work_item(self, domain_object)
         return state.get(self)
 
@@ -1020,7 +1039,9 @@ class DataAccessObject(HasGeneric[T]):
         :return: The uninitialized domain object.
         """
         if not state.has(self):
-            domain_object = state.allocate_and_memoize(self, self.original_class())
+            domain_object = state.allocate_and_memoize(
+                self, self.constructable_original_class()
+            )
             state.push_work_item(self, domain_object)
         return state.get(self)
 
@@ -1034,7 +1055,7 @@ class DataAccessObject(HasGeneric[T]):
         state.is_processing = True
         discovery_order = []
         if not state.has(self):
-            state.allocate_and_memoize(self, self.original_class())
+            state.allocate_and_memoize(self, self.constructable_original_class())
         state.push_work_item(self, state.get(self))
 
         self._discover_dependencies(state, discovery_order)

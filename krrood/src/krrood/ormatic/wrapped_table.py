@@ -438,17 +438,22 @@ class WrappedTable:
         :return: The list of fields specified only in this associated dataclass that should be mapped.
         """
 
-        # Collect all inherited field names up the chain
-        inherited_names: set[str] = set()
+        # Collect all inherited mapped field names up the chain
+        inherited_mapped_names: set[str] = set()
         p = self.parent_table
         while p is not None:
-            # Use the original dataclass fields of each ancestor
-            inherited_names.update(f.field.name for f in p.wrapped_clazz.fields)
+            # Check what the parent actually created
+            inherited_mapped_names.update(c.name for c in p.builtin_columns)
+            inherited_mapped_names.update(c.name for c in p.custom_columns)
+            inherited_mapped_names.update(c.name for c in p.foreign_keys)
+            inherited_mapped_names.update(c.name for c in p.relationships)
             p = p.parent_table
 
         # Keep only fields that are not inherited by name
         result = [
-            f for f in self.wrapped_clazz.fields if f.field.name not in inherited_names
+            f
+            for f in self.wrapped_clazz.fields
+            if f.field.name not in inherited_mapped_names
         ]
 
         # If the parent table is alternatively mapped, drop fields that do not exist
@@ -504,6 +509,10 @@ class WrappedTable:
             such as its data type, whether it represents a built-in or user-defined type, or if it has
             specific ORM container properties.
         """
+        if wrapped_field.is_underspecified_generic:
+            logger.info(f"Skipping underspecified generic field.")
+            return
+
         if wrapped_field.is_type_type:
             logger.info(f"Parsing as type.")
             self.create_type_type_column(wrapped_field)
