@@ -11,6 +11,7 @@ from typing import ClassVar
 import numpy as np
 import rustworkx as rx
 import rustworkx.visualization
+from random_events.variable import Variable
 from typing_extensions import (
     Optional,
     Callable,
@@ -29,7 +30,8 @@ from typing_extensions import (
 
 from giskardpy.motion_statechart.graph_node import Task
 from krrood.class_diagrams.failures import ClassIsUnMappedInClassDiagram
-from krrood.ormatic.dao import get_dao_class
+from krrood.ormatic.dao import get_dao_class, to_dao
+from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
@@ -619,7 +621,7 @@ class Plan:
         if cls.on_end_callback and action_type in cls.on_end_callback:
             cls.on_end_callback[action_type].remove(callback)
 
-    def parameterize_plan(self) -> List[Any]:
+    def parameterize_plan(self) -> Tuple[List[Variable], SimpleEvent]:
         """
         Parameterize all parameters of a plan using the krrood parameterizer.
 
@@ -637,15 +639,16 @@ class Plan:
         parameterizer = DAOParameterizer()
 
         all_variables = []
+        simple_event = SimpleEvent({})
 
         for index, node in enumerate(designator_nodes):
             prefix = f"{node.designator_type.__name__}_{index}"
-            dao = get_dao_class(node.designator_type)(**node.kwargs)
-            variables = parameterizer.parameterize_dao(dao, prefix=prefix)
-
+            dao = to_dao(node.designator_type(**node.kwargs))
+            variables, new_event = parameterizer.parameterize_dao(dao, prefix=prefix)
+            simple_event = SimpleEvent({**simple_event, **new_event})
             all_variables.extend(variables)
 
-        return all_variables
+        return all_variables, simple_event
 
 
 def managed_node(func: Callable) -> Callable:

@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import assert_never, Any
+from functools import reduce
+from operator import or_
+from typing import assert_never, Any, Tuple
 
+from random_events.interval import SimpleInterval
+from random_events.product_algebra import SimpleEvent, Event
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
@@ -19,6 +23,7 @@ from krrood.adapters.json_serializer import list_like_classes
 from krrood.class_diagrams.class_diagram import WrappedClass, ClassDiagram
 from krrood.class_diagrams.wrapped_field import WrappedField
 from krrood.ormatic.dao import DataAccessObject, get_dao_class
+from random_events.interval import Bound
 
 SKIPPED_FIELD_TYPES = (datetime,)
 
@@ -149,7 +154,9 @@ class Parameterizer:
 @dataclass
 class DAOParameterizer:
 
-    def parameterize_dao(self, dao: DataAccessObject, prefix: str) -> List[Variable]:
+    def parameterize_dao(
+        self, dao: DataAccessObject, prefix: str
+    ) -> Tuple[List[Variable], Optional[Event]]:
         """
         Create variables for all fields of a WrappedClass.
 
@@ -161,6 +168,8 @@ class DAOParameterizer:
         mapper = inspect(dao).mapper
 
         variables = []
+        events = []
+        simple_event = SimpleEvent({})
 
         for wrapped_field in class_diagram.get_wrapped_class(original_class).fields:
             if wrapped_field.type_endpoint in SKIPPED_FIELD_TYPES:
@@ -170,20 +179,23 @@ class DAOParameterizer:
                 self._process_column(column, wrapped_field, dao, prefix)
                 for column in mapper.columns
             ]
-            variables.extend(
-                [
-                    column_variable
-                    for column_variable in column_variables
-                    if column_variable is not None
-                ]
-            )
+            for var, event in column_variables:
+                if var is None:
+                    continue
+                variables.append(var)
+                if event is not None:
+                    simple_event[var] = event
 
             for relationship in mapper.relationships:
-                variables.extend(
-                    self._process_relationship(relationship, wrapped_field, prefix)
+                relationship_variables, relationship_event = self._process_relationship(
+                    relationship, wrapped_field, dao, prefix
                 )
-
-        return variables
+                if relationship_variables is not None:
+                    variables.extend(relationship_variables)
+                if relationship_event is not None:
+                    simple_event = SimpleEvent({**simple_event, **relationship_event})
+        simple_event.fill_missing_variables(variables)
+        return variables, simple_event
 
     def _process_column(
         self,
@@ -191,16 +203,14 @@ class DAOParameterizer:
         wrapped_field: WrappedField,
         dao: DataAccessObject,
         prefix: str,
-    ) -> Optional[Variable]:
+    ) -> Tuple[Optional[Variable], Optional[Any]]:
         attribute_name = self.column_attribute_name(column)
         if not self.is_attribute_of_interest(attribute_name, wrapped_field):
-            return None
+            return None, None
 
         # one to one relationships are handled through relationships, they should never appear here
-        if (
-            wrapped_field.is_one_to_one_relationship
-            and not wrapped_field.is_enum
-            and not wrapped_field.type_endpoint is uuid.UUID
+        if wrapped_field.is_one_to_one_relationship and not (
+            wrapped_field.is_enum or wrapped_field.type_endpoint is uuid.UUID
         ):
             assert_never(wrapped_field)
 
@@ -210,39 +220,53 @@ class DAOParameterizer:
             assert_never(wrapped_field)
 
         attribute = getattr(dao, attribute_name)
-        if not attribute:
-            if wrapped_field.type_endpoint in (str, uuid.UUID):
-                return None
+        if attribute is None:
+            if wrapped_field.type_endpoint is str:
+                return None, None
             var = self._create_variable_from_wrapped_field(
                 wrapped_field, f"{prefix}.{attribute_name}"
             )
-        elif not isinstance(attribute, list_like_classes):
-            # skip attributes that are not None, and not lists. those are already set correctly, and by not
+        elif isinstance(attribute, list_like_classes):
+            # skip attributes that are not None, and not list-like. those are already set correctly, and by not
             # adding the variable we dont clutter the model
-            return None
+            return None, None
         else:
-            var = self._create_variable_from_list_attribute(
-                attribute, f"{prefix}.{attribute_name}"
+            var = self._create_variable_from_wrapped_field(
+                wrapped_field, f"{prefix}.{attribute_name}"
             )
-        return var
+            ...
+        return var, attribute
+
+    def _create_simple_event_singleton_from_set_attribute(self, variable, attribute):
+        if isinstance(attribute, bool):
+            return SimpleEvent({variable: Set.from_iterable([attribute])})
+        return SimpleEvent(
+            {variable: SimpleInterval(attribute, attribute, Bound.CLOSED, Bound.CLOSED)}
+        )
 
     def _process_relationship(
-        self, relationship: Relationship, wrapped_field: WrappedField, prefix: str
-    ):
+        self,
+        relationship: Relationship,
+        wrapped_field: WrappedField,
+        dao: DataAccessObject,
+        prefix: str,
+    ) -> Tuple[List[Variable], Optional[SimpleEvent]]:
         attribute_name = relationship.key
 
         if not self.is_attribute_of_interest(attribute_name, wrapped_field):
-            return []
+            return [], None
         elif wrapped_field.is_one_to_many_relationship:
             # Here again, we dont know how long the container should be. Not sure how to handle this yet.
-            return []
+            return [], None
         elif wrapped_field.is_one_to_one_relationship:
-            dao_class = get_dao_class(wrapped_field.type_endpoint)
-            variables = self.parameterize_dao(
-                dao=dao_class(),
+            attribute_dao = getattr(dao, attribute_name)
+            if attribute_dao is None:
+                attribute_dao = get_dao_class(wrapped_field.type_endpoint)()
+            variables, event = self.parameterize_dao(
+                dao=attribute_dao,
                 prefix=f"{prefix}.{attribute_name}",
             )
-            return variables
+            return variables, event
         else:
             assert_never(wrapped_field)
 
@@ -256,6 +280,7 @@ class DAOParameterizer:
             attribute_name
             and wrapped_field.public_name == attribute_name
             and not wrapped_field.is_optional
+            and not wrapped_field.type_endpoint is uuid.UUID
         )
 
     def column_attribute_name(self, column: Column) -> Optional[str]:

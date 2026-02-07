@@ -681,26 +681,22 @@ def test_algebra_sequentialplan(immutable_model_world):
     assert the correctness of sampled values after conditioning and truncation.
     """
     world, robot_view, context = immutable_model_world
+
+    pose_1 = PoseStamped.from_list([0, 0, 0], [0, 0, 0, 1])
+    pose_1.orientation.z = None
     sp = SequentialPlan(
         context,
-        MoveTorsoActionDescription(None),
-        # MoveTorsoActionDescription(TorsoState.HIGH),
+        # MoveTorsoActionDescription(None),
         # MoveTorsoActionDescription([TorsoState.LOW, TorsoState.HIGH]),
-        NavigateActionDescription(None),
-        MoveTorsoActionDescription(None),
+        # NavigateActionDescription(None),
+        # NavigateActionDescription(PoseStamped(PyCramPose(PyCramVector3(0, 0, 0.5)))),
+        # MoveTorsoActionDescription(TorsoState.HIGH),
+        NavigateActionDescription(
+            pose_1,
+        ),
     )
 
-    plan_classes = [
-        MoveTorsoAction,
-        NavigateAction,
-        PyCramPose,
-        PyCramVector3,
-        PyCramQuaternion,
-        Header,
-        PoseStamped,
-    ]
-
-    variables = sp.parameterize_plan()
+    variables, simple_event = sp.parameterize_plan()
     variables_map = {v.name: v for v in variables}
 
     probabilistic_circuit = Parameterizer().create_fully_factorized_distribution(
