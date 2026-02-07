@@ -698,6 +698,10 @@ class WrappedTable:
         # create a relationship with a list using the association table
         rel_name = f"{wrapped_field.field.name}"
         rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{target_wrapped_table.tablename}]]"
+
+        # Use the actual container type from the domain model (e.g., list)
+        container_name = module_and_class_name(wrapped_field.container_type)
+
         # Provide explicit join conditions to disambiguate self-referential associations
         primaryjoin = f"{self.tablename}.{self.primary_key_name} == {association_table_name}.c.{left_fk_name}"
         secondaryjoin = f"{target_wrapped_table.tablename}.{target_wrapped_table.primary_key_name} == {association_table_name}.c.{right_fk_name}"
@@ -706,6 +710,7 @@ class WrappedTable:
             f"secondary='{association_table_name}', "
             f"primaryjoin='{primaryjoin}', "
             f"secondaryjoin='{secondaryjoin}', "
+            f"collection_class={container_name}, "
             f"cascade='save-update, merge')"
         )
         self.relationships.append(
