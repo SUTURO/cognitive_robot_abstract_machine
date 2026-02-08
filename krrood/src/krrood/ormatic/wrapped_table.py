@@ -65,9 +65,9 @@ class ColumnConstructor:
 
 
 @dataclass
-class AssociationTable:
+class AssociationObject:
     """
-    Represents an association table for many-to-many relationships in SQLAlchemy.
+    Represents an association object for many-to-many relationships in SQLAlchemy that can be rendered with jinja.
     """
 
     name: str
@@ -109,13 +109,6 @@ class AssociationTable:
     """
     The name of the primary key column, if any.
     """
-
-    @property
-    def class_name(self) -> str:
-        """
-        :return: The name of the association class.
-        """
-        return "".join(part.capitalize() for part in self.name.split("_")) + "DAO"
 
 
 @dataclass
@@ -697,7 +690,7 @@ class WrappedTable:
         right_fk_name = f"target_{target_wrapped_table.tablename.lower()}{self.ormatic.foreign_key_postfix}"
 
         # create association table metadata
-        association_table = AssociationTable(
+        association_table = AssociationObject(
             name=association_table_name,
             left_table_name=self.tablename,
             left_foreign_key=left_fk_name,
@@ -705,15 +698,11 @@ class WrappedTable:
             right_table_name=target_wrapped_table.tablename,
             right_foreign_key=right_fk_name,
             right_primary_key=target_wrapped_table.full_primary_key_name,
-            primary_key_name=(
-                "database_id"
-                if issubclass(wrapped_field.container_type, list)
-                else None
-            ),
+            primary_key_name="database_id",
         )
 
         # add association table to ORMatic
-        self.ormatic.association_tables.append(association_table)
+        self.ormatic.association_objects.append(association_table)
 
         # create a relationship
         rel_name = f"{wrapped_field.field.name}"
@@ -721,30 +710,19 @@ class WrappedTable:
         # Use the actual container type from the domain model (e.g., list)
         container_name = module_and_class_name(wrapped_field.container_type)
 
-        # Provide explicit join conditions to disambiguate self-referential associations
-        primaryjoin = f"{self.tablename}.{self.primary_key_name} == {association_table_name}.c.{left_fk_name}"
-        secondaryjoin = f"{target_wrapped_table.tablename}.{target_wrapped_table.primary_key_name} == {association_table_name}.c.{right_fk_name}"
+        # # Provide explicit join conditions to disambiguate self-referential associations
+        # primaryjoin = f"{self.tablename}.{self.primary_key_name} == {association_table_name}.c.{left_fk_name}"
+        # secondaryjoin = f"{target_wrapped_table.tablename}.{target_wrapped_table.primary_key_name} == {association_table_name}.c.{right_fk_name}"
 
-        if association_table.primary_key_name:
-            # Association Object pattern
-            rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{association_table.class_name}]]"
-            rel_constructor = (
-                f"relationship('{association_table.class_name}', "
-                f"collection_class={container_name}, "
-                f"cascade='all, delete-orphan', "
-                f"foreign_keys='[{association_table.class_name}.{association_table.left_foreign_key}]')"
-            )
-        else:
-            # Standard many-to-many
-            rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{target_wrapped_table.tablename}]]"
-            rel_constructor = (
-                f"relationship('{target_wrapped_table.tablename}', "
-                f"secondary='{association_table_name}', "
-                f"primaryjoin='{primaryjoin}', "
-                f"secondaryjoin='{secondaryjoin}', "
-                f"collection_class={container_name}, "
-                f"cascade='save-update, merge')"
-            )
+        # Association Object pattern
+        rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{association_table.name}]]"
+        rel_constructor = (
+            f"relationship('{association_table.name}', "
+            f"collection_class={container_name}, "
+            f"cascade='all, delete-orphan', "
+            f"foreign_keys='[{association_table.name}.{association_table.left_foreign_key}]')"
+        )
+
         self.relationships.append(
             ColumnConstructor(rel_name, rel_type, rel_constructor)
         )

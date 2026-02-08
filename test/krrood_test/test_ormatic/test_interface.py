@@ -234,7 +234,7 @@ def test_positions_with_duplicated_entry_in_list(session, database):
     session.commit()
 
     associations_in_db = session.execute(
-        select(PositionsdaoPositionsAssociationDAO)
+        select(PositionsDAO_positions_association)
     ).all()
     assert len(associations_in_db) == 2
 
@@ -499,7 +499,7 @@ def test_to_dao_alternatively_mapped_parent(session, database):
     result_by_hand = ChildLevel2NormallyMappedDAO(
         derived_attribute="1",
         entities=[
-            ParentalternativelymappedmappingdaoEntitiesAssociationDAO(
+            ParentAlternativelyMappedMappingDAO_entities_association(
                 target=CustomEntityDAO(overwritten_name="a")
             )
         ],
@@ -702,8 +702,8 @@ def test_post_init_and_circular_reference(session, database):
     i2_dao = ItemWithBackreferenceDAO(value=20)
 
     c1_dao.items = [
-        ContainergenerationdaoItemsAssociationDAO(target=i1_dao),
-        ContainergenerationdaoItemsAssociationDAO(target=i2_dao),
+        ContainerGenerationDAO_items_association(target=i1_dao),
+        ContainerGenerationDAO_items_association(target=i2_dao),
     ]
     i1_dao.container = c1_dao
     i2_dao.container = c1_dao
@@ -780,7 +780,7 @@ def test_generic_class(session, database):
 
     # check that there exist two relations in the generic position relations table.
     q = session.execute(
-        select(GenericclassassociationdaoAssociatedValueListAssociationDAO)
+        select(GenericClassAssociationDAO_associated_value_list_association)
     ).all()
     assert len(q) == 2
 
