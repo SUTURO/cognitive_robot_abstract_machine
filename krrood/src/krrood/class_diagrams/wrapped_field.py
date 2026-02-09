@@ -249,9 +249,7 @@ class WrappedField:
         origin = get_origin(self.type_endpoint)
         if origin is None:
             return False
-        if not isclass(origin):
-            return False
-        if not issubclass(origin, Generic):
+        if not isclass(origin) or not issubclass(origin, Generic):
             return False
         return len(get_args(self.type_endpoint)) > 0
 

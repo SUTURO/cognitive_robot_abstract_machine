@@ -3,9 +3,14 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import IntEnum
+from typing import Callable, Self
+
 from typing_extensions import Generic, TypeVar, List, Optional, Dict, Any
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer
+from krrood.adapters.json_serializer import (
+    SubclassJSONSerializer,
+    DataclassJSONSerializer,
+)
 
 T = TypeVar("T")
 
@@ -32,78 +37,83 @@ class Derivatives(IntEnum):
 
 
 @dataclass
-class DerivativeMap(Generic[T], SubclassJSONSerializer):
+class DerivativeMap(Generic[T]):
     """
     A container class that maps derivatives (position, velocity, acceleration, jerk) to values of type T.
 
-    This class provides a structured way to store and access different orders of derivatives
-    using properties. Each derivative order can hold a value of type T or None.
-
-    Type Parameters:
-        T: The type of values stored for each derivative order.
-
-    Attributes:
-        data (List[Optional[T]]): Internal list storing the derivative values, initialized with None values.
+    This class provides a structured way to store and access different orders of derivatives.
+    Each derivative order can hold a value of type T or None.
     """
 
-    data: List[Optional[T]] = field(default_factory=lambda: [None] * len(Derivatives))
-    """
-    Internal list storing the derivative values, initialized with None values.
-    Order corresponds to the order of the Derivatives enum.
-    """
+    position: Optional[T] = None
+    velocity: Optional[T] = None
+    acceleration: Optional[T] = None
+    jerk: Optional[T] = None
+    snap: Optional[T] = None
+    crackle: Optional[T] = None
+    pop: Optional[T] = None
+
+    @classmethod
+    def from_data(cls, data: List[Optional[T]]) -> DerivativeMap[T]:
+        return cls(*data)
+
+    @property
+    def data(self) -> List[Optional[T]]:
+        """
+        :return: A list of all derivative values.
+        """
+        return [
+            self.position,
+            self.velocity,
+            self.acceleration,
+            self.jerk,
+            self.snap,
+            self.crackle,
+            self.pop,
+        ]
 
     def __hash__(self):
         return hash(tuple(self.data))
 
-    @property
-    def position(self) -> T:
-        return self.data[Derivatives.position]
+    def _broadcast_callable(self, operand: Callable[[Optional[T]], T]) -> Self:
+        """
+        Apply a callable to each derivative value and return a new instance with the resulting values.
 
-    @position.setter
-    def position(self, value: T):
-        self.data[Derivatives.position] = value
-
-    @property
-    def velocity(self) -> T:
-        return self.data[Derivatives.velocity]
-
-    @velocity.setter
-    def velocity(self, value: T):
-        self.data[Derivatives.velocity] = value
-
-    @property
-    def acceleration(self) -> T:
-        return self.data[Derivatives.acceleration]
-
-    @acceleration.setter
-    def acceleration(self, value: T):
-        self.data[Derivatives.acceleration] = value
-
-    @property
-    def jerk(self) -> T:
-        return self.data[Derivatives.jerk]
-
-    @jerk.setter
-    def jerk(self, value: T):
-        self.data[Derivatives.jerk] = value
-
-    def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "data": self.data}
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> DerivativeMap[T]:
-        return cls(data=data["data"])
+        :param operand: The callable to apply. Make sure it can deal with None values.
+        :return: The new instance with the resulting values.
+        """
+        return type(self)(
+            operand(self.position),
+            operand(self.velocity),
+            operand(self.acceleration),
+            operand(self.jerk),
+            operand(self.snap),
+            operand(self.crackle),
+            operand(self.pop),
+        )
 
     def __mul__(self, other: float) -> DerivativeMap[T]:
-        result = DerivativeMap()
-        for i, v in enumerate(self.data):
-            if v is not None:
-                result.data[i] = v * other
-        return result
+        return self._broadcast_callable(lambda v: v * other if v is not None else None)
 
     def __add__(self, other: float) -> DerivativeMap[T]:
-        result = DerivativeMap()
-        for i, v in enumerate(self.data):
-            if v is not None:
-                result.data[i] = v + other
-        return result
+        return self._broadcast_callable(lambda v: v + other if v is not None else None)
+
+    def __setitem__(self, key: Derivatives, value: T):
+        """
+        Set an attribute using the `Derivatives` Enum.
+
+        :param key: The derivative to set.
+        :param value: The value to set.
+        """
+        assert hasattr(self, key.name)
+        self.__setattr__(key.name, value)
+
+    def __getitem__(self, item: Derivatives) -> T:
+        """
+        Get an attribute using the `Derivatives` Enum.
+
+        :param item: The derivative.
+        :return: The value.
+        """
+        assert hasattr(self, item.name)
+        return self.__getattribute__(item.name)
