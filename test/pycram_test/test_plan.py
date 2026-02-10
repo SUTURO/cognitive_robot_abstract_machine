@@ -683,8 +683,8 @@ def test_algebra_sequentialplan(immutable_model_world):
         MoveTorsoActionDescription(None),
     )
 
-    variables, simple_event = sp.parameterize()
-    variables_map = {v.name: v for v in variables}
+    parameterization = sp.parameterize()
+    variables_map = {v.name: v for v in parameterization.variables}
 
     probabilistic_circuit = sp.create_fully_factorized_distribution()
 
@@ -762,8 +762,8 @@ def test_algebra_parallelplan(immutable_model_world):
         ParkArmsActionDescription(None),
     )
 
-    variables, _ = sp.parameterize()
-    variables_map = {v.name: v for v in variables}
+    parameterization = sp.parameterize()
+    variables_map = {v.name: v for v in parameterization.variables}
 
     # Ensure expected variable names exist
     assert "MoveTorsoAction_0.torso_state" in variables_map
@@ -803,9 +803,9 @@ def test_parameterize_movetorse_navigate(immutable_model_world):
         MoveTorsoActionDescription(None),
     )
 
-    all_variables, _ = plan.parameterize()
+    parameterization = plan.parameterize()
 
-    variables = {v.name: v for v in all_variables}
+    variables = {v.name: v for v in parameterization.variables}
 
     expected_names = {
         "MoveTorsoAction_0.torso_state",
@@ -884,8 +884,8 @@ def test_parameterize_pickup_navigate_place(immutable_model_world):
         NavigateActionDescription(None),
         PlaceActionDescription(None, None, None),
     )
-    all_variables, _ = plan.parameterize()
-    variables = {v.name: v for v in all_variables}
+    parameterization = plan.parameterize()
+    variables = {v.name: v for v in parameterization.variables}
 
     expected_variables = {
         "NavigateAction_1.keep_joint_states",

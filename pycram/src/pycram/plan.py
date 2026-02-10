@@ -6,8 +6,6 @@ from dataclasses import field, dataclass
 from datetime import datetime
 from enum import IntEnum
 from itertools import chain
-from typing import ClassVar
-
 import numpy as np
 import rustworkx as rx
 import rustworkx.visualization
@@ -26,6 +24,7 @@ from typing_extensions import (
     Union,
     Generic,
     TypeVar,
+    ClassVar,
 )
 
 from giskardpy.motion_statechart.graph_node import Task
@@ -37,7 +36,11 @@ from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
 )
 from krrood.class_diagrams.class_diagram import ClassDiagram
-from krrood.probabilistic_knowledge.parameterizer import Parameterizer, Parameterizer
+from krrood.probabilistic_knowledge.parameterizer import (
+    Parameterizer,
+    Parameterizer,
+    Parameterization,
+)
 from .datastructures.dataclasses import ExecutionData, Context
 from .datastructures.enums import TaskStatus
 from .datastructures.pose import PoseStamped
@@ -97,7 +100,7 @@ class Plan:
     """
     Callbacks to be called when a node of the given type is ended.
     """
-    parameterizer: Parameterizer = field(default_factory=Parameterizer)
+    parameterizer: Parameterizer = field(init=False)
     """
     Parameterizer used to parameterize the plan.
     """
@@ -626,7 +629,7 @@ class Plan:
         if cls.on_end_callback and action_type in cls.on_end_callback:
             cls.on_end_callback[action_type].remove(callback)
 
-    def parameterize(self) -> Tuple[List[Variable], SimpleEvent]:
+    def parameterize(self) -> Parameterization:
         """
         Parameterize all parameters of a plan using the krrood parameterizer.
 
@@ -638,22 +641,21 @@ class Plan:
         ordered_nodes = [self.root] + self.root.recursive_children
 
         designator_nodes = [
-            node for node in ordered_nodes if isinstance(node, DesignatorNode)
+            node
+            for node in ordered_nodes
+            if isinstance(node, DesignatorNode) and node.designator_type is not None
         ]
 
-        all_variables = []
-        simple_event = SimpleEvent({})
+        parameterization = Parameterization()
 
         for index, node in enumerate(designator_nodes):
             prefix = f"{node.designator_type.__name__}_{index}"
-            dao = to_dao(node.designator_type(**node.kwargs))
-            variables, new_event = self.parameterizer.parameterize_dao(
-                dao, prefix=prefix
+            new_parameterization = self.parameterizer.parameterize(
+                node.designator_type(**node.kwargs), prefix=prefix
             )
-            simple_event = SimpleEvent({**simple_event, **new_event})
-            all_variables.extend(variables)
+            parameterization.update_parameterization(new_parameterization)
 
-        return all_variables, simple_event
+        return parameterization
 
     def create_fully_factorized_distribution(self):
         return self.parameterizer.create_fully_factorized_distribution()

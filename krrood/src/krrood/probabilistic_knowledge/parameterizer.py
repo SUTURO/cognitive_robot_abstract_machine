@@ -4,7 +4,7 @@ import enum
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import assert_never, Any, Tuple
+from typing import Union
 
 from random_events.interval import Bound
 from random_events.interval import SimpleInterval
@@ -13,16 +13,72 @@ from random_events.set import Set
 from random_events.variable import Continuous, Integer, Symbolic, Variable
 from sqlalchemy import inspect, Column
 from sqlalchemy.orm import Relationship
-from typing_extensions import List, Optional
+from typing_extensions import List, Optional, assert_never, Any, Tuple, Type
 
-from krrood.adapters.json_serializer import list_like_classes
-from krrood.class_diagrams.class_diagram import WrappedClass
-from krrood.class_diagrams.wrapped_field import WrappedField
-from krrood.ormatic.dao import DataAccessObject, get_dao_class, to_dao
+from ..adapters.json_serializer import list_like_classes
+from ..class_diagrams.class_diagram import WrappedClass
+from ..class_diagrams.wrapped_field import WrappedField
+from ..ormatic.dao import DataAccessObject, get_dao_class, to_dao
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
 )
+
+
+@dataclass
+class Parameterization:
+    """
+    A class that contains the variables and simple event resulting from parameterizing a DataAccessObject.
+    """
+
+    variables: List[Variable] = field(default_factory=list)
+    """
+    A list of random event variables that are created for the fields of the parameterized object.
+    """
+    simple_event: SimpleEvent = field(default_factory=lambda: SimpleEvent({}))
+    """
+    A SimpleEvent containing the values of the variables.
+    """
+
+    def fill_missing_variables(self):
+        self.simple_event.fill_missing_variables(self.variables)
+
+    def update_variables(self, variables: List[Variable]):
+        """
+        Update the variables by extending them with the given variables.
+        """
+        self.variables.extend(variables)
+
+    def update_simple_event(self, simple_event: SimpleEvent):
+        """
+        Update the simple event by extending it with the given simple event.
+        """
+        self.simple_event.update(simple_event)
+
+    def create_fully_factorized_distribution(self) -> ProbabilisticCircuit:
+        """
+        Create a fully factorized probabilistic circuit over the variables in the parameterization.
+        """
+        distribution_variables = [
+            v for v in self.variables if not isinstance(v, Integer)
+        ]
+
+        return fully_factorized(
+            distribution_variables,
+            means={v: 0.0 for v in distribution_variables if isinstance(v, Continuous)},
+            variances={
+                v: 1.0 for v in distribution_variables if isinstance(v, Continuous)
+            },
+        )
+
+    def update_parameterization(self, other: Parameterization):
+        """
+        Update the parameterization with another parameterization by extending the variables and updating the simple event.
+
+        :param other: The parameterization to update with.
+        """
+        self.variables.extend(other.variables)
+        self.simple_event.update(other.simple_event)
 
 
 @dataclass
@@ -33,19 +89,9 @@ class Parameterizer:
     The resulting variables and simple event can then be used to create a probabilistic circuit.
     """
 
-    variables: List[Variable] = field(default_factory=list)
-    """
-    Variables that are created during parameterization.
-    """
+    parameterization: Parameterization = field(default_factory=Parameterization)
 
-    simple_event: SimpleEvent = field(default_factory=lambda: SimpleEvent({}))
-    """
-    A SimpleEvent containing Singletons for all variables that were already parameterized.
-    """
-
-    def parameterize(
-        self, object: Any, prefix: str
-    ) -> Tuple[List[Variable], Optional[SimpleEvent]]:
+    def parameterize(self, object: Any, prefix: str) -> Parameterization:
         """
         Create variables for all fields of an object.
 
@@ -57,14 +103,12 @@ class Parameterizer:
         if type(object) in list_like_classes:
             for i, value in enumerate(object):
                 self.parameterize(value, f"{prefix}[{i}]")
-            return self.variables, self.simple_event
+            return self.parameterization
         else:
             dao = to_dao(object)
             return self.parameterize_dao(dao, prefix)
 
-    def parameterize_dao(
-        self, dao: DataAccessObject, prefix: str
-    ) -> Tuple[List[Variable], Optional[SimpleEvent]]:
+    def parameterize_dao(self, dao: DataAccessObject, prefix: str) -> Parameterization:
         """
         Create variables for all fields of a DataAccessObject.
 
@@ -85,8 +129,8 @@ class Parameterizer:
                 )
                 self._update_variables_and_event(variables, attribute_values)
 
-        self.simple_event.fill_missing_variables(self.variables)
-        return self.variables, self.simple_event
+        self.parameterization.fill_missing_variables()
+        return self.parameterization
 
     def _update_variables_and_event(
         self, variables: List[Variable], attribute_values: List[Any]
@@ -100,35 +144,13 @@ class Parameterizer:
         for variable, attribute_value in zip(variables, attribute_values):
             if variable is None:
                 continue
-            self.variables.append(variable)
+            self.parameterization.update_variables([variable])
             if attribute_value is None:
                 continue
 
-            event = self._create_simple_event_singleton_from_set_attribute(
-                variable, attribute_value
+            self.parameterization.update_simple_event(
+                SimpleEvent({variable: attribute_value})
             )
-            self.simple_event.update(event)
-
-    def _create_simple_event_singleton_from_set_attribute(
-        self, variable: Variable, attribute: Any
-    ):
-        """
-        Create a SimpleEvent containing a single value for the given variable, based on the type of the attribute.
-
-        :param variable: The variable for which to create the event.
-        :param attribute: The attribute value to create the event from.
-
-        :return: A SimpleEvent containing the given value.
-        """
-        if isinstance(attribute, bool) or isinstance(attribute, enum.Enum):
-            return SimpleEvent({variable: Set.from_iterable([attribute])})
-        elif isinstance(attribute, int) or isinstance(attribute, float):
-            simple_interval = SimpleInterval(
-                attribute, attribute, Bound.CLOSED, Bound.CLOSED
-            )
-            return SimpleEvent({variable: simple_interval})
-        else:
-            assert_never(attribute)
 
     def _process_relationship(
         self,
@@ -259,7 +281,11 @@ class Parameterizer:
 
         return column.name
 
-    def _create_variable_from_type(self, field_type: type, name: str) -> Variable:
+    def _create_variable_from_type(
+        self,
+        field_type: Union[Type[enum.Enum], Type[bool], Type[int], Type[float]],
+        name: str,
+    ) -> Variable:
         """
         Create a random event variable based on its type.
 
@@ -271,16 +297,14 @@ class Parameterizer:
 
         if issubclass(field_type, enum.Enum):
             return Symbolic(name, Set.from_iterable(list(field_type)))
-        elif field_type is int:
-            return Integer(name)
-        elif field_type is float:
-            return Continuous(name)
-        elif field_type is bool:
+        elif issubclass(field_type, bool):
             return Symbolic(name, Set.from_iterable([True, False]))
+        elif issubclass(field_type, int):
+            return Integer(name)
+        elif issubclass(field_type, float):
+            return Continuous(name)
         else:
-            raise NotImplementedError(
-                f"No conversion between {field_type} and random_events.Variable is known."
-            )
+            assert_never(field_type)
 
     def create_fully_factorized_distribution(
         self,
@@ -290,14 +314,4 @@ class Parameterizer:
 
         :return: A fully factorized probabilistic circuit.
         """
-        distribution_variables = [
-            v for v in self.variables if not isinstance(v, Integer)
-        ]
-
-        return fully_factorized(
-            distribution_variables,
-            means={v: 0.0 for v in distribution_variables if isinstance(v, Continuous)},
-            variances={
-                v: 1.0 for v in distribution_variables if isinstance(v, Continuous)
-            },
-        )
+        return self.parameterization.create_fully_factorized_distribution()
