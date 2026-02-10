@@ -18,7 +18,7 @@ from typing_extensions import List, Optional
 from krrood.adapters.json_serializer import list_like_classes
 from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.class_diagrams.wrapped_field import WrappedField
-from krrood.ormatic.dao import DataAccessObject, get_dao_class
+from krrood.ormatic.dao import DataAccessObject, get_dao_class, to_dao
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
@@ -42,6 +42,25 @@ class Parameterizer:
     """
     A SimpleEvent containing Singletons for all variables that were already parameterized.
     """
+
+    def parameterize(
+        self, object: Any, prefix: str
+    ) -> Tuple[List[Variable], Optional[SimpleEvent]]:
+        """
+        Create variables for all fields of an object.
+
+        :param object: The object to parameterize.
+        :param prefix: The prefix to use for variable names.
+
+        :return: A list of random event variables and a SimpleEvent containing the values.
+        """
+        if type(object) in list_like_classes:
+            for i, value in enumerate(object):
+                self.parameterize(value, f"{prefix}[{i}]")
+            return self.variables, self.simple_event
+        else:
+            dao = to_dao(object)
+            return self.parameterize_dao(dao, prefix)
 
     def parameterize_dao(
         self, dao: DataAccessObject, prefix: str

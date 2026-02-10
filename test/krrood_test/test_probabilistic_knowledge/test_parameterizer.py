@@ -78,6 +78,69 @@ def test_create_fully_factorized_distribution():
     assert set(probabilistic_circuit.variables) == set(variables)
 
 
+def test_parameterize_object():
+    """
+    Test parameterization of a single object via parameterize.
+    """
+    position = Position(x=1.0, y=2.0, z=3.0)
+    parameterizer = Parameterizer()
+    variables, event = parameterizer.parameterize(position, "Position")
+    expected_names = {"Position.x", "Position.y", "Position.z"}
+    assert {v.name for v in variables} == expected_names
+    assert len(event.variables) == 3
+
+
+def test_parameterize_list():
+    """
+    Test parameterization of a list of objects via parameterize.
+    """
+    positions = [Position(x=1.0, y=2.0, z=3.0), Position(x=4.0, y=5.0, z=6.0)]
+    parameterizer = Parameterizer()
+    variables, event = parameterizer.parameterize(positions, "Positions")
+    expected_names = {
+        "Positions[0].x",
+        "Positions[0].y",
+        "Positions[0].z",
+        "Positions[1].x",
+        "Positions[1].y",
+        "Positions[1].z",
+    }
+    assert {v.name for v in variables} == expected_names
+    assert len(event.variables) == 6
+    # Check some values
+    x0_var = next(v for v in variables if v.name == "Positions[0].x")
+    x1_var = next(v for v in variables if v.name == "Positions[1].x")
+    assert event[x0_var].simple_sets[0].lower == 1.0
+    assert event[x1_var].simple_sets[0].lower == 4.0
+
+
+def test_parameterize_nested_object():
+    """
+    Test parameterization of a nested object via parameterize.
+    """
+    pose = Pose(
+        position=Position(x=1.0, y=2.0, z=3.0),
+        orientation=Orientation(x=0.0, y=0.0, z=0.0, w=1.0),
+    )
+    parameterizer = Parameterizer()
+    variables, event = parameterizer.parameterize(pose, "Pose")
+
+    # Position has x, y, z (3)
+    # Orientation has x, y, z, w (4)
+    # Total = 7
+    assert len(variables) == 7
+    expected_names = {
+        "Pose.position.x",
+        "Pose.position.y",
+        "Pose.position.z",
+        "Pose.orientation.x",
+        "Pose.orientation.y",
+        "Pose.orientation.z",
+        "Pose.orientation.w",
+    }
+    assert {v.name for v in variables} == expected_names
+
+
 class TestDAOParameterizer(unittest.TestCase):
 
     def setUp(self):

@@ -97,7 +97,7 @@ class Plan:
     """
     Callbacks to be called when a node of the given type is ended.
     """
-    parameterizer: Parameterizer = field(init=False)
+    parameterizer: Parameterizer = field(default_factory=Parameterizer)
     """
     Parameterizer used to parameterize the plan.
     """
