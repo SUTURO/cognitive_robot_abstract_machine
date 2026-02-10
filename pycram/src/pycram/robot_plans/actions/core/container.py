@@ -52,7 +52,6 @@ class OpenAction(ActionDescription):
             ApproachDirection.FRONT,
             VerticalAlignment.NoAlignment,
             manipulator,
-            rotate_gripper=True,
         )
 
         SequentialPlan(
@@ -119,7 +118,6 @@ class CloseAction(ActionDescription):
             ApproachDirection.FRONT,
             VerticalAlignment.NoAlignment,
             manipulator,
-            rotate_gripper=True,
         )
 
         SequentialPlan(
