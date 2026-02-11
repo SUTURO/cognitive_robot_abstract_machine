@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from typing import List
-
+from .failures import UnsupportedExpressionTypeForDistinct
 from .symbol_graph import SymbolGraph
 from .utils import is_iterable, T
 
@@ -36,6 +35,9 @@ from .symbolic import (
     Literal,
     Selectable,
     DomainType,
+    Concatenate,
+    QueryObjectDescriptor,
+    ResultQuantifier,
 )
 
 from .predicate import (
@@ -44,8 +46,8 @@ from .predicate import (
     Symbol,  # type: ignore
 )
 
-if TYPE_CHECKING:
-    pass
+from .entity_result_processors import *
+
 
 ConditionType = Union[SymbolicExpression, bool, Predicate]
 """
@@ -113,13 +115,39 @@ def variable(
 
 
 def variable_from(
-    domain: Union[List[T], Selectable[T]],
+    domain: DomainType,
     name: Optional[str] = None,
 ) -> Union[T, Selectable[T]]:
     """
     Similar to `variable` but constructed from a domain directly wihout specifying its type.
     """
     return Literal(data=domain, name=name, wrap_in_iterator=False)
+
+
+def distinct(
+    expression: T,
+    *on: Any,
+) -> T:
+    """
+    Indicate that the result of the expression should be distinct.
+    """
+    if isinstance(expression, QueryObjectDescriptor):
+        return expression.distinct(*on)
+    elif isinstance(expression, ResultQuantifier):
+        return expression._child_.distinct(*on)
+    elif isinstance(expression, Selectable):
+        return entity(expression).distinct(*on)
+    else:
+        raise UnsupportedExpressionTypeForDistinct(type(expression))
+
+
+def concatenate(
+    *variables: Union[Iterable[T], Selectable[T]],
+) -> Union[T, Selectable[T]]:
+    """
+    Concatenation of two or more variables.
+    """
+    return Concatenate(_variables_=list(variables))
 
 
 def _get_domain_source_from_domain_and_type_values(
