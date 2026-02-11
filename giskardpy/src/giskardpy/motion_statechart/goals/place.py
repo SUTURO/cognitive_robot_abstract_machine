@@ -38,12 +38,12 @@ class Place(Sequence):
         # Note: Retracting seperate from placing
         approach = ApproachPlacement(manipulator=self.manipulator, object_geometry=self.object_geometry,
                                      goal_pose=self.goal_pose, ft=self.ft)
-        close_gripper = CloseHand(ft=self.ft, simulated=self.simulated)
-        retracting = Retracting(manipulator=self.manipulator)
+        close_gripper = CloseHand(ft=self.ft, simulated_execution=self.simulated)
+        # retracting = Retracting(manipulator=self.manipulator)
 
         self.nodes.append(approach)
         self.nodes.append(close_gripper)
-        self.nodes.append(retracting)
+        # self.nodes.append(retracting)
 
 
 @dataclass(repr=False, eq=False)
@@ -60,15 +60,22 @@ class ApproachPlacement(Goal):
         if self.goal_pose.reference_frame != context.world.root:
             self.goal_pose = context.world.transform(spatial_object=self.goal_pose, target_frame=context.world.root)
 
-        pre_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
+
+        # tool_to_object = context.world.transform(spatial_object=self.object_geometry.global_pose,
+        #                                          target_frame=self.manipulator.tool_frame)
+        #
+        # tool_goal_pose = self.goal_pose.dot(tool_to_object.inverse())
+
+        pre_tool_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
             point=self.goal_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root),
             rotation_matrix=self.goal_pose.to_rotation_matrix(),
             reference_frame=context.world.root
         )
-        pre_pose_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry, goal_pose=pre_pose)
+        pre_pose_goal = CartesianPose(root_link=context.world.root, tip_link=self.manipulator.tool_frame,
+                                      goal_pose=pre_tool_pose)
 
         self.object_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry,
-                                         goal_pose=self.goal_pose)
+                                         goal_pose=self.goal_pose,)
         if self.ft:
             # Detect when the object hits the surface
             self.ft_monitor = ForceImpactMonitor(threshold=5, topic_name="ft_irgendwas")
@@ -81,7 +88,8 @@ class ApproachPlacement(Goal):
         if self.ft:
             artifacts.observation = trinary_logic_or(self.ft_monitor.observation_variable,
                                                      self.object_goal.observation_variable)
-        artifacts.observation = self.object_goal.observation_variable
+        else:
+            artifacts.observation = self.object_goal.observation_variable
         return artifacts
 
 

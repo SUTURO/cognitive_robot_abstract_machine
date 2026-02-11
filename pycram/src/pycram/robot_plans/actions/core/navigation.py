@@ -78,7 +78,7 @@ class LookAtAction(ActionDescription):
     """
 
     def execute(self) -> None:
-        SequentialPlan(self.context, LookingMotion(target=self.target)).perform()
+        SequentialPlan(self.context, LookvisuingMotion(target=self.target)).perform()
 
     def validate(
         self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None

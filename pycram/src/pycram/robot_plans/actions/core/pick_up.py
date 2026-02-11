@@ -30,7 +30,7 @@ from ....robot_description import RobotDescription
 from ....robot_description import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....utils import translate_pose_along_local_axis
-from pycram.external_interfaces.tmc import GripperActionClient
+# from pycram.external_interfaces.tmc import GripperActionClient
 logger = logging.getLogger(__name__)
 
 
@@ -158,7 +158,7 @@ class PickUpAction(ActionDescription):
 
     def execute(self) -> None:
         gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
-        gripper_action = GripperActionClient()
+        # gripper_action = GripperActionClient()
 
         self.object_designator.global_pose.y = (
             self.object_designator.global_pose.y + 0.01

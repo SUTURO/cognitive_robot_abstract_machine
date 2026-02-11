@@ -2,16 +2,16 @@ import json
 import time
 from dataclasses import dataclass
 from math import radians
-from typing import Type
+from typing import Type, List
 
 import numpy as np
 import pytest
-from giskardpy.motion_statechart.goals.place import Place
+from giskardpy.motion_statechart.goals.place import Place, Retracting
 
 from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp
 from giskardpy.data_types.exceptions import DuplicateNameException
 from giskardpy.executor import Executor, SimulationPacer
-from giskardpy.model.collision_matrix_manager import CollisionRequest
+from giskardpy.model.collision_matrix_manager import CollisionRequest, CollisionAvoidanceTypes
 from giskardpy.model.collision_world_syncer import CollisionCheckerLib
 from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
 from giskardpy.motion_statechart.data_types import (
@@ -34,7 +34,7 @@ from giskardpy.motion_statechart.goals.open_close import Open, Close
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import (
     EndMotion,
-    CancelMotion,
+    CancelMotion, MotionStatechartNode,
 )
 from giskardpy.motion_statechart.graph_node import ThreadPayloadMonitor
 from giskardpy.motion_statechart.monitors.joint_monitors import JointPositionReached
@@ -89,6 +89,7 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_or,
     FloatVariable,
 )
+from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -115,7 +116,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     ActiveConnection1DOF,
-    FixedConnection, PrismaticConnection, OmniDrive,
+    FixedConnection, PrismaticConnection, OmniDrive, Connection6DoF,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -2046,7 +2047,7 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
     msc_tp = MotionStatechart()
     tp = SetOdometry(
-        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=3, y=1, z=0, yaw=2*np.pi/2,
+        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=3, y=1, z=0, yaw=2 * np.pi / 2,
                                                                reference_frame=hsr_world_setup.root),
     )
     msc_tp.add_node(tp)
@@ -2097,8 +2098,141 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     # kin_sim_place = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
     # kin_sim_place.compile(motion_statechart=msc_place)
     # kin_sim_place.tick_until_end()
-
     print("doneeee")
+
+
+def test_milestone2(hsr_world_setup: World, rclpy_node):
+    hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
+    TFPublisher(hsr_world_setup, rclpy_node)
+    VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
+
+    def execute_ms_node(ms_node: MotionStatechartNode, object_bodies: List[Body]) -> None:
+        kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+        msc = MotionStatechart()
+        msc.add_node(ms_node)
+        # if object_bodies:
+        #     collision_node = CollisionAvoidance(
+        #         collision_entries=[
+        #             CollisionRequest.avoid_all_collision(distance=0.01),
+        #             CollisionRequest(
+        #                 type_=CollisionAvoidanceTypes.ALLOW_COLLISION,
+        #                 body_group1=hand.bodies,
+        #                 body_group2=object_bodies,
+        #             ),
+        #         ],
+        #     )
+        #     msc.add_node(collision_node)
+        msc.add_node(EndMotion.when_true(ms_node))
+        kin_sim.compile(msc)
+        kin_sim.tick_until_end()
+
+    def spawn_object(stl_path: str, scale_factor: float, pose: HomogeneousTransformationMatrix) -> None:
+        # Parse mesh and extract the body immediately
+        stl_parser = STLParser(stl_path)
+        mesh_world = stl_parser.parse()
+        mesh_body: Body = mesh_world.kinematic_structure_entities[0]
+        # prevent duplicate name error in rviz
+        mesh_body.name = PrefixedName(stl_path.split("/")[-1].split(".")[0])
+
+        # Detach from temporary world to prevent 'NoneType' attribute errors during manipulation
+        with mesh_world.modify_world():
+            mesh_world.remove_kinematic_structure_entity(mesh_body)
+
+        if scale_factor is not None:
+            from semantic_digital_twin.world_description.geometry import Scale
+
+            # Create the scale transformation matrix
+            scale_matrix = np.eye(4)
+            scale_matrix[0, 0] = scale_factor  # x
+            scale_matrix[1, 1] = scale_factor  # y
+            scale_matrix[2, 2] = scale_factor  # z
+
+            for shape in mesh_body.collision:
+                # Apply scale to the actual mesh geometry
+                shape.mesh.apply_transform(scale_matrix)
+                # Also set the scale attribute for visualization
+                shape.scale = Scale(scale_factor, scale_factor, scale_factor)
+
+            for shape in mesh_body.visual:
+                # Apply scale to the actual mesh geometry
+                shape.mesh.apply_transform(scale_matrix)
+                # Also set the scale attribute for visualization
+                shape.scale = Scale(scale_factor, scale_factor, scale_factor)
+
+        with hsr_world_setup.modify_world():
+            root_conn = Connection6DoF.create_with_dofs(
+                parent=hsr_world_setup.root, child=mesh_body, world=hsr_world_setup
+            )
+            hsr_world_setup.add_connection(root_conn)
+            root_conn.origin = pose
+
+    table_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=2, y=0, z=0.0, yaw=np.pi / 2)
+    spawn_object(
+        stl_path="/home/marvin/suturo/cognitive_robot_abstract_machine/giskardpy/scripts/props/gaming_setup.stl",
+        scale_factor=0.2,
+        pose=table_pose,
+    )
+
+    charizard_default_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=1.35, y=-1.5675, z=0.8, roll=-np.pi / 2,
+                                                                          pitch=0, yaw=1 * np.pi / 2, reference_frame=hsr_world_setup.root)
+
+    charizard_goal_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=1.4025, y=-1.5641, z=0.855, roll=0, pitch=0, yaw=0, reference_frame=hsr_world_setup.root)
+    spawn_object(
+        stl_path="/home/marvin/suturo/cognitive_robot_abstract_machine/giskardpy/scripts/props/charizard.stl",
+        scale_factor=0.09,
+        pose=charizard_default_pose,
+    )
+
+    execute_ms_node(SetOdometry(base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=-3, yaw=np.pi/2, reference_frame=hsr_world_setup.root)), [])
+
+    charizard = hsr_world_setup.get_body_by_name("charizard")
+    charizard_bbox = charizard.collision.as_bounding_box_collection_in_frame(
+            charizard
+        ).bounding_box()
+    print(f"charizard dimensions: x: {charizard_bbox.width}, y: {charizard_bbox.height}, z: {charizard_bbox.depth}")
+    print(f"charizard visual scale: {charizard.visual.scale.to_bounding_box()}")
+    pickup_charizard = PickUp(manipulator=hand, object_geometry=charizard, gripper_vertical=False)
+    execute_ms_node(pickup_charizard, [charizard])
+
+    with hsr_world_setup.modify_world():
+        root_charizard_connection = hsr_world_setup.get_connection(parent=hsr_world_setup.root, child=charizard)
+        hsr_world_setup.remove_connection(root_charizard_connection)
+
+        gripper_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose, target_frame=hand.tool_frame)
+        gripper_charizard_connection = FixedConnection(parent_T_connection_expression=gripper_T_charizard, parent=hand.tool_frame, child=charizard)
+        hsr_world_setup.add_connection(gripper_charizard_connection)
+
+    pullup = PullUp(manipulator=hand, object_geometry=charizard)
+    execute_ms_node(pullup, [charizard])
+
+    print("gripper_T_charizard (object in tool frame):\n", gripper_T_charizard.to_np())
+    print("requested goal_pose (charizard in root):\n", charizard_default_pose.to_np())
+
+    base_footprint = hsr_world_setup.get_kinematic_structure_entity_by_name("base_footprint")
+    execute_ms_node(CartesianPosition(root_link=hsr_world_setup.root, tip_link=base_footprint, goal_point=Point3(x=-1, reference_frame=base_footprint)), [])
+
+    msc_place = MotionStatechart()
+    place = Place(manipulator=hand, object_geometry=charizard, goal_pose=charizard_goal_pose)
+    # keep_position = CartesianPosition(root_link=hsr_world_setup.root, tip_link=base_footprint, goal_point=base_footprint.global_pose.to_position())
+    # msc_place.add_node(node=keep_position)
+    msc_place.add_node(place)
+    msc_place.add_node(EndMotion.when_true(place))
+    kin_sim = Executor(pacer=SimulationPacer(1), world=hsr_world_setup)
+    # execute_ms_node(parallel, [charizard])
+    kin_sim.compile(msc_place)
+    kin_sim.tick_until_end()
+
+
+    with hsr_world_setup.modify_world():
+        root_charizard_connection = hsr_world_setup.get_connection(parent=hand.tool_frame, child=charizard)
+        hsr_world_setup.remove_connection(root_charizard_connection)
+
+        root_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose, target_frame=hsr_world_setup.root)
+        root_charizard_connection = FixedConnection(parent_T_connection_expression=root_T_charizard, parent=hsr_world_setup.root, child=charizard)
+        hsr_world_setup.add_connection(root_charizard_connection)
+
+    retract = Retracting(manipulator=hand)
+    execute_ms_node(retract, [])
 
 def test_transition_triggers():
     msc = MotionStatechart()
