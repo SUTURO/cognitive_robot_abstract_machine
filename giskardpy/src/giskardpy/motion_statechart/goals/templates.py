@@ -63,8 +63,8 @@ class Parallel(Goal):
             )
 
 
-        observation_variables = [x.observation_variable == True for x in self.nodes]
+        true_observation_variables = [x.observation_variable == True for x in self.nodes]
 
         return NodeArtifacts(
-            observation=self.minimum_success <= sum(*observation_variables)
+            observation=self.minimum_success <= sum(*true_observation_variables)
         )
