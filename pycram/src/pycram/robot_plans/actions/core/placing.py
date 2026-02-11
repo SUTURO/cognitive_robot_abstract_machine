@@ -20,16 +20,14 @@ from ....datastructures.grasp import GraspDescription
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
 from ....failures import ObjectNotPlacedAtTargetLocation, ObjectStillInContact
-from ....has_parameters import has_parameters
 from ....language import SequentialPlan
-from ....robot_description import ViewManager
+from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....utils import translate_pose_along_local_axis
 from ....validation.error_checkers import PoseErrorChecker
 from ....visualization import plot_rustworkx_interactive
 
 
-@has_parameters
 @dataclass
 class PlaceAction(ActionDescription):
     """
@@ -57,11 +55,8 @@ class PlaceAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
-        manipulator = (
-            self.robot_view.left_arm.manipulator
-            if self.arm == Arms.LEFT
-            else self.robot_view.right_arm.manipulator
-        )
+        arm = ViewManager.get_arm_view(self.arm, self.robot_view)
+        manipulator = arm.manipulator
 
         previous_pick = self.plan.get_previous_node_by_designator_type(
             self.plan_node, PickUpAction

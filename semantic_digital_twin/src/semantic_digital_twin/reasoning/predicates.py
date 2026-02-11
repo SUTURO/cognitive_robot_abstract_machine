@@ -20,7 +20,7 @@ from ..spatial_computations.ik_solver import (
     UnreachableException,
 )
 from ..spatial_computations.raytracer import RayTracer
-from ..spatial_types import Vector3
+from ..spatial_types import Vector3, Point3
 from ..spatial_types.spatial_types import HomogeneousTransformationMatrix
 from ..world import World
 from ..world_description.connections import FixedConnection
