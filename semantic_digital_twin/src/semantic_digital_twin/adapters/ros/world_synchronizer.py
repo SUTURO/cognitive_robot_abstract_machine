@@ -144,7 +144,7 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
     The messages that the callback did not trigger due to being paused.
     """
 
-    def _notify(self, publisher_id: UUID = None):
+    def _notify(self, publisher_id: Optional[UUID] = None):
         """
         Wrapper method around world_callback that checks if this time the callback should be triggered.
         """
@@ -166,7 +166,7 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def world_callback(self, publisher_id: UUID = None):
+    def world_callback(self, publisher_id: Optional[UUID] = None):
         """
         Called when the world notifies and update that is not caused by this synchronizer.
         """
