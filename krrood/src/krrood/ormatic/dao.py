@@ -956,12 +956,13 @@ class DataAccessObject(HasGeneric[T]):
                 target_dao_clazz = relationship.mapper.class_
                 if issubclass(target_dao_clazz, AssociationDataAccessObject):
                     # Collection of Association Objects
-                    for item in value:
-                        if item.target is not None:
-                            item.target.from_dao(state=state)
+                    [
+                        item.target.from_dao(state=state)
+                        for item in value
+                        if item.target is not None
+                    ]
                 else:
-                    for item in value:
-                        item.from_dao(state=state)
+                    [item.from_dao(state=state) for item in value]
 
         self._build_base_keyword_arguments_for_alternative_parent(domain_object, state)
         return domain_object

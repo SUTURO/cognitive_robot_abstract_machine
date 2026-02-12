@@ -745,10 +745,11 @@ class ClassDiagram:
         """
         # Phase 1: Collect all unique specialized generic types referenced in fields
         to_process = set()
-        for wrapped_class in self.wrapped_classes:
-            for wrapped_field in wrapped_class.fields:
-                if wrapped_field.is_instantiation_of_generic_class:
-                    to_process.add(wrapped_field.type_endpoint)
+        [
+            to_process.add(wrapped_field.type_endpoint)
+            for wrapped_class in self.wrapped_classes
+            for wrapped_field in wrapped_class.fields
+        ]
 
         # Phase 2: Add nodes for discovered types that do not already exists
         while to_process:
