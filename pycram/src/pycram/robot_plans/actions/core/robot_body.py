@@ -19,8 +19,6 @@ from ....robot_descriptions.hsrb_states import *
 from ....robot_plans.actions.base import ActionDescription
 from ....robot_plans.motions.gripper import MoveGripperMotion
 from ....robot_plans.motions.robot_body import MoveJointsMotion
-
-# from ....robot_plans.motions.robot_body import wsMoveJointsMotion as MoveJointsMotion
 from ....validation.goal_validator import create_multiple_joint_goal_validator
 
 
