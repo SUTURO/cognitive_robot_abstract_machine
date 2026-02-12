@@ -241,6 +241,44 @@ def is_supported_by(
     size = sum([si.upper - si.lower for si in z_intersection.simple_sets])
     return size < max_intersection_height
 
+@symbolic_function
+def is_supporting(
+    supporting_body: Body, world: World, max_intersection_height: float = 0.1
+) -> bool:
+    """
+    Determine if any body in the world is supported by a given supporting body.
+
+    This function iterates over all bodies in the provided world and checks
+    if any of them are supported by the specified supporting body. The
+    support determination is performed using the helper function `is_supported_by`.
+    Bodies for which the computation fails are skipped.
+
+    Parameters:
+        supporting_body (Body): The body that is being checked to determine
+            if it is supporting other bodies in the world.
+        world (World): The world containing various bodies to be checked for
+            support relationships.
+        max_intersection_height (float): The maximum allowable intersection
+            height for a body to be considered supported. Defaults to 0.1.
+
+    Returns:
+        bool: True if any body in the world is supported by the supporting_body;
+              otherwise False.
+    """
+
+    all_bodies = world.bodies_with_enabled_collision
+
+    for candidate in all_bodies:
+        if candidate is supporting_body:
+            continue
+        try:
+            if is_supported_by(candidate, supporting_body, max_intersection_height):
+                return True
+        except Exception:
+            continue
+
+    return False
+
 
 @symbolic_function
 def is_body_in_region(body: Body, region: Region) -> float:
