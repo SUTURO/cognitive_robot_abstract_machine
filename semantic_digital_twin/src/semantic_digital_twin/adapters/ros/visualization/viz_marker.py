@@ -13,15 +13,23 @@ from ....callbacks.callback import ModelChangeCallback
 
 class ShapeSource(Enum):
     """
-    Which shapes to use for each body:
-        - VISUAL_ONLY: only visual shapes
-        - COLLISION_ONLY: only collision shapes
-        - VISUAL_WITH_COLLISION_BACKUP: use visual if present, otherwise fallback to collision
+    Enum to specify which shapes to use for visualization.
     """
 
     VISUAL_ONLY = "visual_only"
+    """
+    The shapes to use for visualization are visual shapes only.
+    """
+
     COLLISION_ONLY = "collision_only"
+    """
+    The shapes to use for visualization are collision shapes only.
+    """
+
     VISUAL_WITH_COLLISION_BACKUP = "visual_with_collision_backup"
+    """
+    The shapes to use for visualization are visual shapes, but if there are no visual shapes, use collision shapes as a backup.
+    """
 
 
 @dataclass
