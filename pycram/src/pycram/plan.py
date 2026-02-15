@@ -29,6 +29,8 @@ from typing_extensions import (
 
 from giskardpy.motion_statechart.graph_node import Task
 from krrood.class_diagrams.failures import ClassIsUnMappedInClassDiagram
+from krrood.ormatic.utils import leaf_types
+from krrood.class_diagrams.failures import ClassIsUnMappedInClassDiagram
 from semantic_digital_twin.world_description.world_entity import Body
 from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
@@ -38,9 +40,7 @@ from krrood.probabilistic_knowledge.parameterizer import Parameterizer
 from .datastructures.dataclasses import ExecutionData, Context
 from .datastructures.enums import TaskStatus
 from .datastructures.pose import PoseStamped
-from .external_interfaces import giskard
 from .failures import PlanFailure
-from .has_parameters import leaf_types
 from .motion_executor import MotionExecutor
 
 if TYPE_CHECKING:
@@ -618,6 +618,48 @@ class Plan:
         if cls.on_end_callback and action_type in cls.on_end_callback:
             cls.on_end_callback[action_type].remove(callback)
 
+    def parameterize_plan(self, classes: Optional[List[type]] = None) -> List[Any]:
+        """
+        Parameterize all parameters of a plan using the krrood parameterizer.
+
+        :param classes: List of classes to include in the ClassDiagram
+                        (including classes found on the plan nodes).
+        :return: List of random event variables created by the parameterizer.
+        """
+
+        ordered_nodes = [self.root] + self.root.recursive_children
+        designator_nodes = []
+        all_classes = set(classes)
+
+        for node in ordered_nodes:
+            if not (isinstance(node, DesignatorNode) and node.designator_type):
+                continue
+
+            designator_nodes.append(node)
+            all_classes.add(node.designator_type)
+
+        class_diagram = ClassDiagram(list(all_classes))
+        parameterizer = Parameterizer()
+
+        all_variables = []
+
+        for index, node in enumerate(designator_nodes):
+            try:
+                wrapped_class = class_diagram.get_wrapped_class(node.designator_type)
+            except ClassIsUnMappedInClassDiagram as e:
+                logger.error(
+                    f"Unmapped designator class for node {getattr(node, 'name', repr(node))} "
+                    f"(designator_index={index}, node_index={node.index}, {node.__class__.__name__}): {e}"
+                )
+                raise
+
+            prefix = f"{node.designator_type.__name__}_{index}"
+            variables = parameterizer.parameterize(wrapped_class, prefix=prefix)
+
+            all_variables.extend(variables)
+
+        return all_variables
+
 
     def parameterize_plan(self, classes: Optional[List[type]] = None) -> List[Any]:
         """
@@ -885,8 +927,7 @@ class PlanNode:
         """
         self.status = TaskStatus.INTERRUPTED
         logger.info(f"Interrupted node: {str(self)}")
-        if giskard.giskard_wrapper:
-            giskard.giskard_wrapper.interrupt()
+        # TODO: cancel giskard execution
 
     def resume(self):
         """

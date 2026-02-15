@@ -16,16 +16,14 @@ from ....datastructures.enums import AxisIdentifier, Arms
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import Vector3Stamped
 from ....failures import TorsoGoalNotReached, ConfigurationNotReached
-from ....has_parameters import has_parameters
 from ....language import SequentialPlan
-from ....robot_description import ViewManager
+from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....robot_plans.motions.gripper import MoveGripperMotion
 from ....robot_plans.motions.robot_body import MoveJointsMotion
 from ....validation.goal_validator import create_multiple_joint_goal_validator
 
 
-@has_parameters
 @dataclass
 class MoveTorsoAction(ActionDescription):
     """
@@ -80,7 +78,6 @@ class MoveTorsoAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class SetGripperAction(ActionDescription):
     """
@@ -124,7 +121,6 @@ class SetGripperAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class ParkArmsAction(ActionDescription):
     """
@@ -147,7 +143,7 @@ class ParkArmsAction(ActionDescription):
         """
         :return: The joint positions that should be set for the arm to be in the park position.
         """
-        arm_chain = ViewManager().get_arm_view(self.arm, self.robot_view)
+        arm_chain = ViewManager().get_all_arm_views(self.arm, self.robot_view)
         names = []
         values = []
         for arm in arm_chain:
@@ -183,7 +179,6 @@ class ParkArmsAction(ActionDescription):
         return PartialDesignator[ParkArmsAction](cls, arm=arm)
 
 
-@has_parameters
 @dataclass
 class CarryAction(ActionDescription):
     """

@@ -28,6 +28,7 @@ import semantic_digital_twin.orm.model
 import semantic_digital_twin.reasoning.predicates
 import semantic_digital_twin.robots.abstract_robot
 import semantic_digital_twin.robots.hsrb
+import semantic_digital_twin.robots.pr2
 import semantic_digital_twin.semantic_annotations.mixins
 import semantic_digital_twin.semantic_annotations.semantic_annotations
 import semantic_digital_twin.world
@@ -241,6 +242,12 @@ hsrbdao_arms_association = Table(
     "hsrbdao_arms_association",
     Base.metadata,
     Column("source_hsrbdao_id", ForeignKey("HSRBDAO.database_id")),
+    Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
+)
+pr2dao_arms_association = Table(
+    "pr2dao_arms_association",
+    Base.metadata,
+    Column("source_pr2dao_id", ForeignKey("PR2DAO.database_id")),
     Column("target_armdao_id", ForeignKey("ArmDAO.database_id")),
 )
 semanticrobotannotationdao_joint_states_association = Table(
@@ -5817,6 +5824,10 @@ class AbstractRobotDAO(
         ForeignKey(AgentDAO.database_id), primary_key=True, use_existing_column=True
     )
 
+    full_body_controlled: Mapped[builtins.bool] = mapped_column(
+        use_existing_column=True
+    )
+
     torso_id: Mapped[typing.Optional[builtins.int]] = mapped_column(
         ForeignKey("TorsoDAO.database_id", use_alter=True),
         nullable=True,
@@ -5839,28 +5850,28 @@ class AbstractRobotDAO(
     base: Mapped[BaseDAO] = relationship(
         "BaseDAO", uselist=False, foreign_keys=[base_id], post_update=True
     )
-    manipulators: Mapped[builtins.set[ManipulatorDAO]] = relationship(
+    manipulators: Mapped[builtins.list[ManipulatorDAO]] = relationship(
         "ManipulatorDAO",
         secondary="abstractrobotdao_manipulators_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_manipulators_association.c.source_abstractrobotdao_id",
         secondaryjoin="ManipulatorDAO.database_id == abstractrobotdao_manipulators_association.c.target_manipulatordao_id",
         cascade="save-update, merge",
     )
-    sensors: Mapped[builtins.set[SensorDAO]] = relationship(
+    sensors: Mapped[builtins.list[SensorDAO]] = relationship(
         "SensorDAO",
         secondary="abstractrobotdao_sensors_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensors_association.c.source_abstractrobotdao_id",
         secondaryjoin="SensorDAO.database_id == abstractrobotdao_sensors_association.c.target_sensordao_id",
         cascade="save-update, merge",
     )
-    manipulator_chains: Mapped[builtins.set[KinematicChainDAO]] = relationship(
+    manipulator_chains: Mapped[builtins.list[KinematicChainDAO]] = relationship(
         "KinematicChainDAO",
         secondary="abstractrobotdao_manipulator_chains_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_manipulator_chains_association.c.source_abstractrobotdao_id",
         secondaryjoin="KinematicChainDAO.database_id == abstractrobotdao_manipulator_chains_association.c.target_kinematicchaindao_id",
         cascade="save-update, merge",
     )
-    sensor_chains: Mapped[builtins.set[KinematicChainDAO]] = relationship(
+    sensor_chains: Mapped[builtins.list[KinematicChainDAO]] = relationship(
         "KinematicChainDAO",
         secondary="abstractrobotdao_sensor_chains_association",
         primaryjoin="AbstractRobotDAO.database_id == abstractrobotdao_sensor_chains_association.c.source_abstractrobotdao_id",
@@ -5911,6 +5922,39 @@ class HSRBDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HSRBDAO",
+        "inherit_condition": database_id == AbstractRobotDAO.database_id,
+    }
+
+
+class PR2DAO(AbstractRobotDAO, DataAccessObject[semantic_digital_twin.robots.pr2.PR2]):
+
+    __tablename__ = "PR2DAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(AbstractRobotDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    neck_id: Mapped[int] = mapped_column(
+        ForeignKey("NeckDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    neck: Mapped[NeckDAO] = relationship(
+        "NeckDAO", uselist=False, foreign_keys=[neck_id], post_update=True
+    )
+    arms: Mapped[builtins.list[ArmDAO]] = relationship(
+        "ArmDAO",
+        secondary="pr2dao_arms_association",
+        primaryjoin="PR2DAO.database_id == pr2dao_arms_association.c.source_pr2dao_id",
+        secondaryjoin="ArmDAO.database_id == pr2dao_arms_association.c.target_armdao_id",
+        cascade="save-update, merge",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "PR2DAO",
         "inherit_condition": database_id == AbstractRobotDAO.database_id,
     }
 
@@ -6012,7 +6056,7 @@ class KinematicChainDAO(
     manipulator: Mapped[ManipulatorDAO] = relationship(
         "ManipulatorDAO", uselist=False, foreign_keys=[manipulator_id], post_update=True
     )
-    sensors: Mapped[builtins.set[SensorDAO]] = relationship(
+    sensors: Mapped[builtins.list[SensorDAO]] = relationship(
         "SensorDAO",
         secondary="kinematicchaindao_sensors_association",
         primaryjoin="KinematicChainDAO.database_id == kinematicchaindao_sensors_association.c.source_kinematicchaindao_id",
@@ -6055,6 +6099,19 @@ class BaseDAO(
         ForeignKey(KinematicChainDAO.database_id),
         primary_key=True,
         use_existing_column=True,
+    )
+
+    main_axis_id: Mapped[int] = mapped_column(
+        ForeignKey("Vector3MappingDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    main_axis: Mapped[Vector3MappingDAO] = relationship(
+        "Vector3MappingDAO",
+        uselist=False,
+        foreign_keys=[main_axis_id],
+        post_update=True,
     )
 
     __mapper_args__ = {
@@ -6257,6 +6314,7 @@ class CameraDAO(
 
     minimal_height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     maximal_height: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+    default_camera: Mapped[builtins.bool] = mapped_column(use_existing_column=True)
 
     forward_facing_axis_id: Mapped[int] = mapped_column(
         ForeignKey("Vector3MappingDAO.database_id", use_alter=True),
