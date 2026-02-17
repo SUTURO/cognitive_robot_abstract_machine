@@ -1,5 +1,6 @@
 # Standard library imports
 import json
+import logging
 import time
 from time import sleep
 from typing import Any
@@ -195,7 +196,13 @@ class NlpInterface(ABC):
         """
         Starts the NLP process and stores the result in last_output and all_last_outputs.
         """
-        (self.last_output, self.all_last_outputs) = self.node.talk_nlp(timeout=self.timeout)
+        try:
+            (self.last_output, self.all_last_outputs) = self.node.talk_nlp(timeout=self.timeout)
+        except TypeError as e:
+            logging.info(f"TypeError: {e}")
+            self.last_output = None
+            self.all_last_outputs = []
+
 
     def confirm_last_response(self):
         """
@@ -211,8 +218,15 @@ class NlpInterface(ABC):
         if self.last_output is None:
             return False
 
+
+        def get_complete_sentence(output):
+            sentence = ""
+            for out in output:
+                sentence += ' ' + out[0]
+            return sentence
+
         # Ask user for confirmation
-        print("Did I understand correctly, you want me to " + self.last_output[0])
+        print(f"Did I understand correctly, you said:{get_complete_sentence(self.all_last_outputs)}")
 
         # Listen for confirmation response
         self.last_confirmation = NlpNode.talk_nlp(self.node, timeout=self.timeout)
@@ -376,6 +390,11 @@ class NlpNode(Node):
         all_out : list[list[Any]] = []
 
         if self.response:
+            # happens sometimes when no answer received
+            if self.response[0] == "." and self.response[1] == "affirm":
+                self.get_logger().info(f"No response received within timeout")
+                print("Sorry, I couldn't understand.")
+                return None
             # sometimes multiple outputs, have to wait to ensure all of them are received
             old_res = self.response
             all_out.append(self.response)
