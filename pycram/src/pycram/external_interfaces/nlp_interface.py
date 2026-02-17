@@ -124,6 +124,9 @@ class NlpInterface(ABC):
         """
         Filters and post-processes the NLP response depending on the challenge.
 
+        WARNING for all_last_outputs: This method is to process one response, if multiple responses are possible and you work with
+        all_last_outputs remember to filter each response separately!
+
         Parameters:
             response (list[Any]): Parsed NLP response
             filter_for (FilterOptions): what attribute to filter for
