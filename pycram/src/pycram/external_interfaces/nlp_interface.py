@@ -127,7 +127,6 @@ class NlpInterface(ABC):
             response (list[Any]): Parsed NLP response
             filter_for (FilterOptions): what attribute to filter for
         """
-
         if response is None:
             return None
 
@@ -217,11 +216,12 @@ class NlpInterface(ABC):
 
         # Listen for confirmation response
         self.last_confirmation = NlpNode.talk_nlp(self.node, timeout=self.timeout)
+
         if self.last_confirmation is None:
             return False
-        elif self.last_confirmation[1] == "affirm":
+        elif self.last_confirmation[0][1] == "affirm":
             return True
-        elif self.last_confirmation[1] == "deny":
+        elif self.last_confirmation[0][1] == "deny":
             return False
 
         # Fallback return value
