@@ -71,7 +71,7 @@ class GraspDescription:
         if body:
             bb_in_frame = body.collision.as_bounding_box_collection_in_frame(body).bounding_box()
 
-            approach_axis = np.array(self.approach_direction.axis.value, dtype=np.bool)
+            approach_axis = np.array(self.approach_direction.axis.value, dtype=np.bool_)
 
             # Pre-pose calculation
             offset = (np.array(bb_in_frame.dimensions)[approach_axis] / 2 + self.manipulation_offset)[0]

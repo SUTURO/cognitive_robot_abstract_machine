@@ -11,6 +11,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -76,8 +77,7 @@ def add_objects_and_semantics(
         )
 
     with world.modify_world():
-        world.add_semantic_annotation(Milk(body=world.get_body_by_name("milk.stl")))
-
+        world.add_semantic_annotation(Milk(root=world.get_body_by_name("milk.stl")))
     return world
 
 
@@ -106,9 +106,8 @@ def merge_robot_into_environment(
 def try_make_viz(world):
     try:
         import rclpy
-        from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
-
-        node = rclpy.create_node("simulation_pycram")
+        from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
+        node = rclpy.create_node("viz_marker")
         return VizMarkerPublisher(world, node)
     except Exception:
         logger.info(
@@ -121,9 +120,9 @@ def setup_hsrb_in_environment(
     load_environment: Callable[[], object],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.1,
+        2.37,
         2.0,
-        0.6,
+        1.05,
         0.0,
         0.0,
         0.0,
@@ -148,8 +147,7 @@ def setup_hsrb_in_environment(
 ) -> SetupResult:
     p = paths or default_paths()
 
-    hsrb_world = build_hsrb_world(p.hsrb_urdf)
-
+    hsrb_world: World = build_hsrb_world(p.hsrb_urdf)
     env_world = load_environment()
     env_world = add_objects_and_semantics(
         env_world,
@@ -164,4 +162,6 @@ def setup_hsrb_in_environment(
     )
 
     viz = try_make_viz(world) if with_viz else None
+
+    viz.with_tf_publisher()
     return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)
