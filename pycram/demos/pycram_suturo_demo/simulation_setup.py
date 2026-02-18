@@ -11,6 +11,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -150,8 +151,7 @@ def setup_hsrb_in_environment(
 ) -> SetupResult:
     p = paths or default_paths()
 
-    hsrb_world = build_hsrb_world(p.hsrb_urdf)
-
+    hsrb_world: World = build_hsrb_world(p.hsrb_urdf)
     env_world = load_environment()
     env_world = add_objects_and_semantics(
         env_world,
@@ -166,5 +166,6 @@ def setup_hsrb_in_environment(
     )
 
     viz = try_make_viz(world) if with_viz else None
+
     viz.with_tf_publisher()
     return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)
