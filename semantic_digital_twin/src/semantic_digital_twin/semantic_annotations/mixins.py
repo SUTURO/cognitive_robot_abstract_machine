@@ -16,6 +16,7 @@ from typing_extensions import (
     Self,
     Iterable,
     Type,
+    TypeVar,
 )
 
 from krrood.ormatic.utils import classproperty
@@ -760,6 +761,7 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
             connection_limits=connection_limits,
         )
 
+
     @classmethod
     def _create_container_event(cls, scale: Scale, wall_thickness: float) -> Event:
         """
@@ -779,3 +781,21 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
         container_event = outer_box.as_composite_set() - inner_box.as_composite_set()
 
         return container_event
+
+@dataclass(eq=False)
+class HasDestination:
+    """
+    A mixin class for semantic annotations that can have one or multiple preferred destinations.
+
+    Destinations are expressed as semantic annotation class types (Type[SemanticAnnotation]), e.g.:
+    [Fridge, GarbageBin].
+
+    This is used by Knowledge queries to answer:
+    "Where should this object be brought?"
+    """
+
+    destination_class_names: list[type[SemanticAnnotation]] = field(default_factory=list, init=False)
+    """
+    List of semantic annotation types representing suitable destinations.
+    If empty, no destination is known.
+    """
