@@ -271,16 +271,6 @@ class IncorrectScaleError(ValueError):
         super().__init__(f"Scale {scale} is invalid: x must be smaller than y and z.")
 
 
-class IncorrectParameterScaleError(Exception):
-    def __init__(self, scale_list):
-        if not scale_list:
-            self.message = "The parameter list cannot be empty."
-        else:
-            self.message = "Invalid scale parameter."
-        super().__init__(self.message)
-
-
-
 @dataclass
 class DuplicateWorldEntityError(UsageError):
     world_entities: List[WorldEntity]
