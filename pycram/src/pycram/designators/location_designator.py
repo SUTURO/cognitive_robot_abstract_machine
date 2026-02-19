@@ -591,6 +591,7 @@ class SemanticCostmapLocation(LocationDesignatorDescription):
         horizontal_edges_only: bool = False,
         edge_size_in_meters: float = 0.06,
         height_offset: float = 0.0,
+        link_is_center_link: bool = False,
     ):
         """
         Creates a distribution over a link to sample poses which are on this link. Can be used, for example, to find
@@ -612,6 +613,7 @@ class SemanticCostmapLocation(LocationDesignatorDescription):
             horizontal_edges_only=horizontal_edges_only,
             edge_size_in_meters=edge_size_in_meters,
             height_offset=height_offset,
+            link_is_center_link=link_is_center_link,
         )
         self.body: Body = body
         self.for_object: Optional[Body] = for_object
@@ -619,6 +621,7 @@ class SemanticCostmapLocation(LocationDesignatorDescription):
         self.horizontal_edges_only: bool = horizontal_edges_only
         self.edge_size_in_meters: float = edge_size_in_meters
         self.sem_costmap: Optional[SemanticCostmap] = None
+        self.link_is_center_link: bool = link_is_center_link
 
     def ground(self) -> PoseStamped:
         """
@@ -659,7 +662,20 @@ class SemanticCostmapLocation(LocationDesignatorDescription):
                 max_z = max(np_points, key=lambda p: p[2])[2]
                 height_offset = (max_z - min_z) / 2
             for maybe_pose in self.sem_costmap:
-                maybe_pose.position.z += height_offset
+                z_offset = (
+                    (
+                        params_box.body.collision.as_bounding_box_collection_in_frame(
+                            params_box.body._world.root
+                        )
+                        .bounding_box()
+                        .height
+                        / 2
+                    )
+                    - 0.03
+                    if self.link_is_center_link
+                    else 0
+                )
+                maybe_pose.position.z += height_offset + z_offset
                 yield maybe_pose
 
 
