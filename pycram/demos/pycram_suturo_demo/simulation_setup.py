@@ -106,7 +106,9 @@ def merge_robot_into_environment(
 def try_make_viz(world):
     try:
         import rclpy
-        from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
+        from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+            VizMarkerPublisher,
+        )
 
         node = rclpy.create_node("viz_marker")
         return VizMarkerPublisher(world, node)
@@ -164,4 +166,5 @@ def setup_hsrb_in_environment(
     )
 
     viz = try_make_viz(world) if with_viz else None
+    viz.with_tf_publisher()
     return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)
