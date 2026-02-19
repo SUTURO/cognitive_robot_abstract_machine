@@ -76,7 +76,7 @@ def add_objects_and_semantics(
         )
 
     with world.modify_world():
-        world.add_semantic_annotation(Milk(body=world.get_body_by_name("milk.stl")))
+        world.add_semantic_annotation(Milk(root=world.get_body_by_name("milk.stl")))
 
     return world
 
