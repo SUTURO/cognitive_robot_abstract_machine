@@ -19,7 +19,6 @@ from pycram.robot_plans import (
 )
 from pycram_suturo_demo.simulation_setup import setup_hsrb_in_environment
 
-rclpy.init()
 result = world_setup_with_test_objects()
 world, robot_view, context = (
     result.world,
@@ -49,7 +48,6 @@ with real_robot:
             position is not None
             and position.header.stamp.sec > time.time() - internaltimeout
         ):
-            global x, y, z
             x = round(position.point.x, 2)
             y = round(position.point.y, 2)
             z = round(position.point.z, 2)

@@ -15,7 +15,8 @@ from typing import Any
 from ..datastructures.pose import PoseStamped
 from ..designator import ObjectDesignatorDescription
 from geometry_msgs.msg import PointStamped
-from time import sleep, time
+from time import sleep
+import time
 
 logger = logging.getLogger(__name__)
 
