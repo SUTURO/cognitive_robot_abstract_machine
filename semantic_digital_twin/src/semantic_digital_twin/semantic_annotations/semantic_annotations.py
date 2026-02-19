@@ -23,6 +23,7 @@ from .mixins import (
     IsPerceivable,
     HasRootBody,
     HasStorageSpace,
+    HasDestination,
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
@@ -380,6 +381,11 @@ class Cupboard(Cabinet, HasDoors): ...
 @dataclass(eq=False)
 class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
 
+@dataclass(eq=False)
+class Sink(HasRootBody):
+    """
+    A sink.
+    """
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
@@ -523,10 +529,11 @@ class Wall(HasApertures):
 
 
 @dataclass(eq=False)
-class Bottle(HasRootBody):
+class Bottle(HasRootBody, HasDestination):
     """
     Abstract class for bottles.
     """
+Bottle.destination_class_names: list[type[SemanticAnnotation]] = [Sink, Cupboard]
 
 
 @dataclass(eq=False)
@@ -559,10 +566,12 @@ class DrinkingContainer(HasRootBody): ...
 
 
 @dataclass(eq=False)
-class Cup(DrinkingContainer, IsPerceivable):
+class Cup(DrinkingContainer, IsPerceivable, HasDestination):
     """
     A cup.
     """
+# Klassenvariable – definiert, welche Ziele für Cup gelten
+Cup.destination_class_names: list[type[SemanticAnnotation]] = [Cupboard, Table, Sink]
 
 
 @dataclass(eq=False)
@@ -698,12 +707,14 @@ class Cereal(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Milk(Food, IsPerceivable):
+class Milk(Food, IsPerceivable, HasDestination):
     """
     A container of milk.
     """
+# Klassenvariable – definiert, welche Ziele für Milk gelten
+Milk.destination_class_names: list[type[SemanticAnnotation]] = [Fridge]
 
-    ...
+
 
 
 @dataclass(eq=False)
@@ -853,14 +864,6 @@ class Sofa(Furniture, HasSupportingSurface):
     A sofa.
     """
 
-
-@dataclass(eq=False)
-class Sink(HasRootBody):
-    """
-    A sink.
-    """
-
-
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
 
@@ -899,11 +902,11 @@ class Potato(Produce): ...
 
 
 @dataclass(eq=False)
-class GarbageBin(HasRootBody):
+class GarbageBin(HasRootBody, HasDestination):
     """
     A garbage bin.
     """
-
+GarbageBin.destination_class_names: list[type[SemanticAnnotation]] = [GarbageBin]
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...
