@@ -14,7 +14,7 @@ from semantic_digital_twin.reasoning.predicates import (
     is_body_in_region,
     occluding_bodies,
     is_supported_by,
-    reachable,
+    reachable, is_supporting,
 )
 from semantic_digital_twin.reasoning.robot_predicates import (
     robot_in_collision,
@@ -292,6 +292,9 @@ def test_supporting(two_block_world):
         )
     assert is_supported_by(top, center)
     assert not is_supported_by(center, top)
+
+    assert is_supporting(center, center._world)
+    assert not is_supporting(top, top._world)
 
 
 def test_is_body_in_gripper(
