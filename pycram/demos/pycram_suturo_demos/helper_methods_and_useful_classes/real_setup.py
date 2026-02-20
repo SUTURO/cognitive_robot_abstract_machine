@@ -8,7 +8,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import logging
 
-from demos.helper_methods_and_useful_classes.object_creation import (
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     perceive_and_spawn_all_objects,
 )
 from suturo_resources.suturo_map import load_environment
