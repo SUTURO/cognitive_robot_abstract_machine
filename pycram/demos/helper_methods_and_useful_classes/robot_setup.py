@@ -1,5 +1,3 @@
-import real_setup
-from simulation_setup import setup_hsrb_in_environment
 from suturo_resources.suturo_map import load_environment
 
 """
@@ -11,5 +9,11 @@ Method that calls either simulation or real, based on the bool
 """
 def robot_setup(simulation: bool = True, with_objects: bool = True,
                 with_perception: bool = False):
-    return setup_hsrb_in_environment(load_environment=load_environment(), with_viz=True, with_obj=with_objects) \
-        if simulation else real_setup.world_setup_with_test_objects(with_object=with_objects, with_perception=with_perception)
+        if simulation:
+            from demos.helper_methods_and_useful_classes.simulation_setup import setup_hsrb_in_environment
+
+            return setup_hsrb_in_environment(load_environment=load_environment, with_viz=True, with_obj=with_objects)
+        else:
+            from demos.helper_methods_and_useful_classes.real_setup import world_setup_with_test_objects
+
+            return world_setup_with_test_objects(with_object=with_objects, with_perception=with_perception)
