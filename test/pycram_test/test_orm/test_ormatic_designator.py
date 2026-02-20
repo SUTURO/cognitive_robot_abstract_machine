@@ -8,17 +8,15 @@ from sqlalchemy.orm import Session
 
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import (
-    TorsoState,
     ApproachDirection,
     Arms,
     VerticalAlignment,
-    GripperState,
 )
 from pycram.datastructures.grasp import GraspDescription
 from pycram.datastructures.pose import PyCramPose, PoseStamped
 from pycram.language import SequentialPlan, ParallelPlan
 from pycram.orm.ormatic_interface import *
-from pycram.process_module import simulated_robot
+from pycram.motion_executor import simulated_robot
 from pycram.robot_plans import (
     MoveTorsoActionDescription,
     ParkArmsAction,
@@ -35,6 +33,11 @@ from pycram.robot_plans import (
     PickUpAction,
     PlaceAction,
 )
+from semantic_digital_twin.datastructures.definitions import TorsoState, GripperState
+
+# The alternative mapping needs to be imported for the stretch to work properly
+import pycram.alternative_motion_mappings.stretch_motion_mapping  # type: ignore
+import pycram.alternative_motion_mappings.tiago_motion_mapping  # type: ignore
 
 engine = create_engine("sqlite:///:memory:")
 

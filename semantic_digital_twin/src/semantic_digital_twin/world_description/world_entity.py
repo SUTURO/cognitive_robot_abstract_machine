@@ -9,7 +9,6 @@ from copy import deepcopy
 from dataclasses import dataclass, field, Field
 from dataclasses import fields
 from functools import lru_cache, cached_property
-from typing import get_type_hints
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -26,7 +25,6 @@ from typing_extensions import (
     Any,
     Self,
     ClassVar,
-    get_origin,
 )
 from typing_extensions import List, Optional, TYPE_CHECKING, Tuple
 from typing_extensions import Set
@@ -38,11 +36,11 @@ from krrood.adapters.json_serializer import (
 )
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.entity_query_language.predicate import Symbol
-from krrood.ormatic.dao import _get_type_hints_cached
 from krrood.symbolic_math.symbolic_math import Matrix
 from .geometry import TriangleMesh
 from .inertial_properties import Inertial
 from .shape_collection import ShapeCollection, BoundingBoxCollection
+from ..mixin import HasSimulatorProperties
 from ..adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -68,7 +66,7 @@ id_generator = IDGenerator()
 
 
 @dataclass(eq=False)
-class WorldEntity(Symbol):
+class WorldEntity(Symbol, HasSimulatorProperties):
     """
     A class representing an entity in the world.
 
@@ -204,7 +202,11 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer):
 
             current_data = data[k]
             if isinstance(current_data, list):
-                if v.type.startswith("Set"):
+                if isinstance(v.type, str):
+                    type_name = v.type
+                else:
+                    type_name = v.type._name
+                if type_name.startswith("Set"):
                     container_type = set
                 else:
                     container_type = list
@@ -599,9 +601,6 @@ class Region(KinematicStructureEntity):
 
     def __post_init__(self):
         self.area.reference_frame = self
-
-    def __hash__(self):
-        return id(self)
 
     @classmethod
     def from_shape_collection(

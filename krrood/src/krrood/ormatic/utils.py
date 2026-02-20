@@ -19,7 +19,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase
 from typing_extensions import (
     TypeVar,
-    _SpecialForm,
     Type,
     List,
     Iterable,
@@ -30,6 +29,7 @@ from typing_extensions import (
 )
 
 from .dao import AlternativeMapping, DataAccessObject
+from ..adapters.json_serializer import to_json, from_json
 
 
 class classproperty:
@@ -103,7 +103,7 @@ def drop_database(engine: Engine) -> None:
      dropping of objects occurs without conflict. For MySQL/MariaDB, foreign key
     checks are disabled temporarily during the process.
 
-     This method differs from sqlalchemy `MetaData.drop_all <https://docs.sqlalchemy.org/en/20/core/metadata.html#sqlalchemy.schema.MetaData.drop_all>`_\ such that databases containing cyclic
+     This method differs from sqlalchemy `MetaData.drop_all <https://docs.sqlalchemy.org/en/20/core/metadata.html#sqlalchemy.schema.MetaData.drop_all>`_ such that databases containing cyclic
      backreferences are also droppable.
 
      :param engine: The SQLAlchemy Engine instance connected to the target database
@@ -139,10 +139,6 @@ def drop_database(engine: Engine) -> None:
 class InheritanceStrategy(Enum):
     JOINED = "joined"
     SINGLE = "single"
-
-
-def module_and_class_name(t: Union[Type, _SpecialForm]) -> str:
-    return f"{t.__module__}.{t.__name__}"
 
 
 def is_direct_subclass(cls: Type, *bases: Type) -> bool:
@@ -196,7 +192,6 @@ def create_engine(url: Union[str, URL], **kwargs: Any) -> Engine:
     :param url: The database URL.
     :return: An SQLAlchemy engine that uses the JSON (de)serializer from KRROOD.
     """
-    from ..adapters.json_serializer import to_json, from_json
 
     return create_sqlalchemy_engine(
         url,

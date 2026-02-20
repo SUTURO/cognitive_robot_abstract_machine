@@ -31,13 +31,10 @@ from ....designators.location_designator import (
 )
 from ....designators.object_designator import BelieveObject
 from ....failures import ObjectUnfetchable, ConfigurationNotReached
-from ....has_parameters import has_parameters
 from ....language import SequentialPlan
-from ....robot_description import RobotDescription
 from ....robot_plans.actions.base import ActionDescription
 
 
-@has_parameters
 @dataclass
 class TransportAction(ActionDescription):
     """
@@ -162,7 +159,7 @@ class TransportAction(ActionDescription):
         target_location: Union[Iterable[PoseStamped], PoseStamped],
         arm: Union[Iterable[Arms], Arms] = None,
         place_rotation_agnostic: Optional[bool] = False,
-    ) -> PartialDesignator[Type[TransportAction]]:
+    ) -> PartialDesignator[TransportAction]:
         return PartialDesignator(
             TransportAction,
             object_designator=object_designator,
@@ -172,7 +169,6 @@ class TransportAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class PickAndPlaceAction(ActionDescription):
     """
@@ -234,7 +230,7 @@ class PickAndPlaceAction(ActionDescription):
         target_location: Union[Iterable[PoseStamped], PoseStamped],
         arm: Union[Iterable[Arms], Arms] = None,
         grasp_description=GraspDescription,
-    ) -> PartialDesignator[Type[PickAndPlaceAction]]:
+    ) -> PartialDesignator[PickAndPlaceAction]:
         return PartialDesignator(
             PickAndPlaceAction,
             object_designator=object_designator,
@@ -244,7 +240,6 @@ class PickAndPlaceAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class MoveAndPlaceAction(ActionDescription):
     """
@@ -302,7 +297,7 @@ class MoveAndPlaceAction(ActionDescription):
         keep_joint_states: Union[
             Iterable[bool], bool
         ] = ActionConfig.navigate_keep_joint_states,
-    ) -> PartialDesignator[Type[MoveAndPlaceAction]]:
+    ) -> PartialDesignator[MoveAndPlaceAction]:
         return PartialDesignator(
             MoveAndPlaceAction,
             standing_position=standing_position,
@@ -312,7 +307,6 @@ class MoveAndPlaceAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class MoveAndPickUpAction(ActionDescription):
     """
@@ -379,7 +373,7 @@ class MoveAndPickUpAction(ActionDescription):
         keep_joint_states: Union[
             Iterable[bool], bool
         ] = ActionConfig.navigate_keep_joint_states,
-    ) -> PartialDesignator[Type[MoveAndPickUpAction]]:
+    ) -> PartialDesignator[MoveAndPickUpAction]:
         return PartialDesignator(
             MoveAndPickUpAction,
             standing_position=standing_position,
@@ -390,7 +384,6 @@ class MoveAndPickUpAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class EfficientTransportAction(ActionDescription):
     """
@@ -480,7 +473,7 @@ class EfficientTransportAction(ActionDescription):
         cls,
         object_designator: Union[Iterable[Body], Body],
         target_location: Union[Iterable[PoseStamped], PoseStamped],
-    ) -> PartialDesignator[Type["EfficientTransportAction"]]:
+    ) -> PartialDesignator[EfficientTransportAction]:
         return PartialDesignator(
             cls, object_designator=object_designator, target_location=target_location
         )
