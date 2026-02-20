@@ -263,6 +263,11 @@ def is_supporting(
     for candidate in supporting_body._world.bodies_with_enabled_collision:
         if candidate is supporting_body:
             continue
+        try:
+            if is_supported_by(candidate, supporting_body, max_intersection_height):
+                return True
+        except Exception:
+            continue
         if is_supported_by(candidate, supporting_body, max_intersection_height):
             return True
 
