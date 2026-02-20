@@ -1,7 +1,7 @@
 import os
 import logging
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence, Tuple
 
 from pycram.datastructures.dataclasses import Context
@@ -148,18 +148,21 @@ def setup_hsrb_in_environment(
         0.0,
     ),
     with_viz: bool = True,
+    with_obj: bool = field(kw_only=True,default = True)
 ) -> SetupResult:
     p = paths or default_paths()
 
     hsrb_world: World = build_hsrb_world(p.hsrb_urdf)
     env_world = load_environment()
-    env_world = add_objects_and_semantics(
-        env_world,
-        objects=(
-            SpawnSpec(world_path=p.milk_stl, xyz_rpy=milk_xyz_rpy),
-            SpawnSpec(world_path=p.cereal_stl, xyz_rpy=cereal_xyz_rpy),
-        ),
-    )
+
+    if with_obj:
+        env_world = add_objects_and_semantics(
+            env_world,
+            objects=(
+                SpawnSpec(world_path=p.milk_stl, xyz_rpy=milk_xyz_rpy),
+                SpawnSpec(world_path=p.cereal_stl, xyz_rpy=cereal_xyz_rpy),
+            ),
+        )
 
     world, robot_view, context = merge_robot_into_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy

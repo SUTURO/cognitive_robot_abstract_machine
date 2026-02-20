@@ -1,10 +1,14 @@
 import threading
+from typing import Optional, Any
+
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import logging
+
+from demos.helper_methods_and_useful_classes.object_creation import perceive_and_spawn_all_objects
 from suturo_resources.suturo_map import load_environment
 
 import semantic_digital_twin.exceptions
@@ -29,6 +33,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 from test.krrood_test.dataset.example_classes import Node
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,9 +43,11 @@ class WorldSetup:
     robot_view: HSRB
     node: Node
     context: Context
+    percieved_objects: dict[Any,Any] = field(default_factory=list)
 
 
 def setup_ros_node():
+    rclpy.init()
     node = rclpy.create_node("pycram_node")
     executor = SingleThreadedExecutor()
     executor.add_node(node)
@@ -48,6 +55,11 @@ def setup_ros_node():
     # Start executor in a separate thread
     thread = threading.Thread(target=executor.spin, daemon=True, name="rclpy-executor")
     thread.start()
+
+    # This loads toya from the database - it is needed if u do not want to restart giskard constantly
+    mrs = ModelReloadSynchronizer(node=node, world=None, session=None)
+    message = LoadModel(primary_key=1, meta_data=mrs.meta_data)
+    mrs.publish(message)
 
     hsrb_world = fetch_world_from_service(node)
     model_sync = ModelSynchronizer(world=hsrb_world, node=node)
@@ -93,7 +105,6 @@ def test_spawning(hsrb_world: World):
             )
         )
 
-
 def try_make_viz(world):
     try:
         import rclpy
@@ -110,12 +121,32 @@ def try_make_viz(world):
         return None
 
 
-def world_setup_with_test_objects() -> WorldSetup:
-    rclpy.init()
-
+def world_setup_with_test_objects(
+        with_object : bool = field(kw_only=True,default = True),
+        with_perception: bool = field(kw_only=True,default = False)
+) -> WorldSetup:
     node, hsrb_world, robot_view, context = setup_ros_node()
-    test_spawning(hsrb_world)
+
+    perceived_objects = {}
+
+    if with_object:
+        try:
+            hsrb_world.get_body_by_name("milk")
+        except Exception:
+            test_spawning(hsrb_world)
+    else:
+        # TODO fix the remove, i think the world merge isnt working yet
+        try:
+            hsrb_world.get_body_by_name("environment").remove_from_world()
+        except Exception:
+            pass
+
+    if with_perception:
+        # Perceive objects and spawn them
+        # TODO: On use change from static milk object, to recognized object, if needed (in method)
+        perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
+        print(perceived_objects)
 
     return WorldSetup(
-        world=hsrb_world, robot_view=robot_view, node=node, context=context
+        world=hsrb_world, robot_view=robot_view, node=node, context=context, percieved_objects=perceived_objects
     )
