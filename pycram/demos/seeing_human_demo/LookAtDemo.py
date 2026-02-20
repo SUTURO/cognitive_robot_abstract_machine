@@ -7,17 +7,15 @@ from suturo_resources.suturo_map import load_environment
 from pycram.external_interfaces import robokudo
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
-from demos.pycram_suturo_demo.setup_real_robot import world_setup_with_test_objects
+from demos.helper_methods_and_useful_classes.real_setup import world_setup_with_test_objects
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot, real_robot
 from pycram.robot_plans import (
-    MoveTorsoActionDescription,
     ParkArmsActionDescription,
     LookAtActionDescription,
 )
-from demos.pycram_suturo_demo.simulation_setup import setup_hsrb_in_environment
 
 rclpy.init()
 result = world_setup_with_test_objects()
