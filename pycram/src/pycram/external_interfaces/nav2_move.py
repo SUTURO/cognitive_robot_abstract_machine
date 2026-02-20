@@ -91,7 +91,6 @@ def start_nav_to_pose(nav_pose: PoseStamped) -> NavigateToPose.Result | None:
     """
 
     global nav_action_client, current_goal_handle, nav_node
-
     result_response: NavigateToPose_GetResult_Response | None = None
     result: NavigateToPose.Result | None = None
     result_event = threading.Event()

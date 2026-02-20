@@ -433,9 +433,11 @@ class Header:
         :return: The ROS message.
         """
         from std_msgs.msg import Header as ROSHeader
+        from builtin_interfaces.msg import Time
 
         split_time = str(self.stamp.timestamp()).split(".")
-        stamp = ROSTime(int(split_time[0]), int(split_time[1]))
+        # stamp = ROSTime(int(split_time[0]), int(split_time[1]))
+        stamp = Time(sec=int(split_time[0]), nanosec=int(split_time[1]))
         return ROSHeader(frame_id=self.frame_id.name.name, stamp=stamp)
 
     def __deepcopy__(self, memo):
