@@ -6,6 +6,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import logging
 from suturo_resources.suturo_map import load_environment
+from typing_extensions import Tuple, Any
 
 import semantic_digital_twin.exceptions
 from pycram.datastructures import dataclasses
@@ -26,6 +27,7 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelReloadSynchronizer,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.abstract_robot import AbstractRobot
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
@@ -47,7 +49,7 @@ from rclpy.executors import SingleThreadedExecutor
 
 def setup_hsrb_context(
     node_name: str = "pycram_node",
-):
+) -> Tuple[Any, World, HSRB, Context]:
     """
     Initializes rclpy, starts a SingleThreadedExecutor in a background thread,
     synchronizes the world model, and returns all relevant objects.
@@ -79,7 +81,7 @@ def setup_hsrb_context(
     thread.start()
 
     # Fetch world
-    world = fetch_world_from_service(rclpy_node)
+    world: World = fetch_world_from_service(rclpy_node)
 
     # Synchronizers
     model_sync = ModelSynchronizer(world=world, node=rclpy_node)
