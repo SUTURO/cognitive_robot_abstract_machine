@@ -7,7 +7,7 @@ from suturo_resources.suturo_map import load_environment
 from pycram.external_interfaces import robokudo
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
-from demos.helper_methods_and_useful_classes.real_setup import (
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
     world_setup_with_test_objects,
 )
 from pycram.ros_utils.text_to_image import TextToImagePublisher
