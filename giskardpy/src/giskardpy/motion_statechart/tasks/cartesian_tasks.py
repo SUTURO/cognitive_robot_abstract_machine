@@ -451,7 +451,7 @@ class CartesianPose(Task):
         )
 
         rotation_error = root_R_current.rotational_error(root_R_goal)
-        artifacts.observation = sm.logic_and(
+        artifacts.observation = sm.logic_or(
             sm.abs(rotation_error) < self.threshold,
             distance_to_goal < self.threshold,
         )

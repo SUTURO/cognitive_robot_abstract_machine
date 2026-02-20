@@ -173,9 +173,9 @@ class SynchronizerOnCallback(Synchronizer, Callback, ABC):
         """
         Applies the missed messages to the world.
         """
-        if not self.missed_messages:
-            return
-        with self.world.modify_world(publish_changes=False):
+
+        self._skip_next_world_callback = True
+        with self.world.modify_world():
             for msg in self.missed_messages:
                 self.apply_message(msg)
 

@@ -1344,6 +1344,9 @@ class Vector3(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):
         result.reference_frame = self.reference_frame
         return result
 
+    def magnitude(self) -> sm.Scalar:
+        return sm.sqrt(self.dot(self))
+
 
 @dataclass(eq=False, init=False)
 class Quaternion(sm.SymbolicMathType, SpatialType, SubclassJSONSerializer):

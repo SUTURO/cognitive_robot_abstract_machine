@@ -1,23 +1,28 @@
-from suturo_resources.suturo_map import load_environment
+import rclpy
 
-from pycram.datastructures.enums import TorsoState, Arms
+from demos.helper_methods_and_useful_classes.robot_setup import robot_setup
+from pycram.datastructures.enums import Arms
+from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
-from pycram.process_module import simulated_robot
-from pycram.robot_plans import MoveTorsoActionDescription, ParkArmsActionDescription
-from simulation_setup import setup_hsrb_in_environment
+from pycram.motion_executor import real_robot, simulated_robot
+from pycram.robot_plans import (
+    ParkArmsActionDescription,
+    LookAtActionDescription,
+)
+from demos.helper_methods_and_useful_classes.robot_setup import robot_setup
 
-result = setup_hsrb_in_environment(load_environment=load_environment, with_viz=True)
-world, robot_view, context, viz = (
+rclpy.init()
+result = robot_setup()
+world, robot_view, context = (
     result.world,
     result.robot_view,
     result.context,
-    result.viz,
 )
 
 plan = SequentialPlan(
     context,
     ParkArmsActionDescription(Arms.BOTH),
-    MoveTorsoActionDescription(TorsoState.HIGH),
+    LookAtActionDescription([PoseStamped.from_list([2, 3.5, 0.75], frame=world.root)]),
 )
 
 with simulated_robot:

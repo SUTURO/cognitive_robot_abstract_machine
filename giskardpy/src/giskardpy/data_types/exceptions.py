@@ -33,3 +33,7 @@ class MaxTrajectoryLengthException(PlanningException):
 
 class SelfCollisionViolatedException(PlanningException):
     pass
+
+
+class ForceTorqueSaysNoException(GiskardException):
+    pass
