@@ -1,29 +1,16 @@
-import time
-
-import rclpy
-import pycram.external_interfaces.nav2_move as nav
-from suturo_resources.suturo_map import load_environment
-
 from pycram.datastructures.enums import Arms, VerticalAlignment, ApproachDirection
 from pycram.datastructures.grasp import GraspDescription
 from pycram.datastructures.pose import PoseStamped
-from pycram.ros import sleep
-from pycram_suturo_demo.setup_real_robot import world_setup_with_test_objects
-from semantic_digital_twin.datastructures.definitions import TorsoState
+from demos.helper_methods_and_useful_classes.real_setup import world_setup_with_test_objects
 from pycram.language import SequentialPlan
-from pycram.motion_executor import simulated_robot, real_robot
+from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
-    MoveTorsoActionDescription,
     ParkArmsActionDescription,
     PickUpActionDescription,
     NavigateActionDescription,
     PlaceActionDescription,
-    MoveGripperMotion,
 )
-from simulation_setup import setup_hsrb_in_environment
-from semantic_digital_twin.datastructures.definitions import GripperState
 
-rclpy.init()
 result = world_setup_with_test_objects()
 world, robot_view, context = (
     result.world,

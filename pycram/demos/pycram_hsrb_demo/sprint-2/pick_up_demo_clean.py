@@ -1,12 +1,6 @@
 import logging
-import threading
-import time
 
-import numpy
-import rclpy
-from rclpy.executors import SingleThreadedExecutor
-
-from object_creation import perceive_and_spawn_all_objects
+from demos.helper_methods_and_useful_classes.object_creation import perceive_and_spawn_all_objects
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import (
     Arms,
@@ -17,22 +11,14 @@ from pycram.datastructures.enums import (
 from pycram.datastructures.grasp import GraspDescription
 from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
-from pycram.process_module import real_robot
+from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
     LookAtActionDescription,
     ParkArmsActionDescription,
-    MoveTorsoActionDescription,
     PickUpActionDescription,
-)
-from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
-from semantic_digital_twin.adapters.ros.world_synchronizer import (
-    ModelSynchronizer,
-    StateSynchronizer,
 )
 from semantic_digital_twin.robots.hsrb import HSRB
 from pycram_ros_setup import setup_ros_node
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from pycram.alternative_motion_mappings import hsrb_motion_mapping
 
 logger = logging.getLogger(__name__)
 
