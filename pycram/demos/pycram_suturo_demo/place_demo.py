@@ -1,7 +1,6 @@
 from pycram.datastructures.enums import Arms, VerticalAlignment, ApproachDirection
 from pycram.datastructures.grasp import GraspDescription
 from pycram.datastructures.pose import PoseStamped
-from demos.helper_methods_and_useful_classes.real_setup import world_setup_with_test_objects
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
