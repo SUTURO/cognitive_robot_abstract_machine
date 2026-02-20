@@ -2,6 +2,9 @@ import logging
 from typing import Any, Optional
 
 import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_helper_methods import get_object_class_from_string as get_obj
@@ -11,6 +14,35 @@ from pycram.external_interfaces.nlp_interface import NlpInterface
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Food, Drink
 from semantic_digital_twin.world_description.world_entity import Human
 
+class TalkingNode(Node):
+    """
+    ROS2 node that interfaces with a speech/NLP system.
+
+    Responsibilities:
+    -----------------
+    - Publish a trigger message to start the speech recognition/NLP pipeline.
+    - Subscribe to the processed NLP output.
+    - Parse NLP output into a structured Python list.
+    - Expose a blocking `talk_nlp()` call that waits for NLP results.
+    """
+
+    def __init__(self):
+
+        # Initialize ROS2 node with name "talking"
+        super().__init__('talking')
+
+        # Publisher to let Toya talk
+        self.talk_pub = self.create_publisher(
+            String,
+            '/tts_text',
+            10
+        )
+
+    def pub(self, text: str):
+        msg = String()
+        msg.data = text
+
+        self.talk_pub.publish(msg)
 
 class HriHuman(Human):
     """
