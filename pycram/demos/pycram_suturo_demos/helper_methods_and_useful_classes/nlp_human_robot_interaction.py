@@ -41,6 +41,7 @@ class TalkingNode(Node):
     def pub(self, text: str):
         msg = String()
         msg.data = text
+        self.get_logger().info(f"Publishing: {text}")
 
         self.talk_pub.publish(msg)
 

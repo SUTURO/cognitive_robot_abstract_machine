@@ -13,7 +13,7 @@ def robot_setup(
     simulation: bool = True, with_objects: bool = True, with_perception: bool = False
 ):
     if simulation:
-        from demos.helper_methods_and_useful_classes.simulation_setup import (
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
             setup_hsrb_in_environment,
         )
 
@@ -21,7 +21,7 @@ def robot_setup(
             load_environment=load_environment, with_viz=True, with_obj=with_objects
         )
     else:
-        from demos.helper_methods_and_useful_classes.real_setup import (
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
             world_setup_with_test_objects,
         )
 
