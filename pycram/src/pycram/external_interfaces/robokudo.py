@@ -215,15 +215,24 @@ def query_human_attributes() -> Any:
 
 
 @init_robokudo_interface
-def query_waving_human() -> PoseStamped:
-    result = send_query(obj_type="human")
-    if result and result.res:
-        try:
-            pose = PoseStamped.from_pose_stamped(result.res[0].pose[0])
-            return pose
-        except IndexError:
-            pass
-    return None
+def query_waving_human() -> Optional[PoseStamped]:
+    """Query RoboKudo for a waving human and return its pose as PyCRAM PoseStamped.
+
+    Sends a query with ``attributes=['waving']`` and extracts the first pose
+    of the first matching result object.
+
+    :return: PoseStamped of the waving human, or ``None`` if not found.
+    """
+    result = send_query(obj_type="human", attributes=["waving"])
+    if result is None:
+        logger.warning("query_waving_human: no result from RoboKudo")
+        return None
+    try:
+        ros_pose_stamped = result.res[0].pose[0]
+    except (AttributeError, IndexError, TypeError):
+        logger.warning("query_waving_human: no pose in result: %s", result)
+        return None
+    return PoseStamped.from_ros_message(ros_pose_stamped)
 
 
 @init_robokudo_interface
