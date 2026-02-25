@@ -24,7 +24,7 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
-    CartesianOrientation,
+    CartesianOrientation, CartesianPositionStraight,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
@@ -55,7 +55,7 @@ class HSRGripper(Enum):
 
 logger = logging.getLogger(__name__)
 
-PICKUP_PREPOSE_DISTANCE = 0.03
+PICKUP_PREPOSE_DISTANCE = 0.2
 HSR_GRIPPER_WIDTH = 0.15
 PULLUP_HEIGHT = 0.1
 VERTICAL_DOT_THRESH = 0.85  # dot with world Z considered vertical
@@ -73,7 +73,7 @@ class PickUp(Goal):
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
-        logger.warn(f"Object pose: {self.object_geometry.global_pose.to_np()}")
+        logger.debug(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         grasp_magic = BoxGraspMagic(
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
@@ -235,7 +235,7 @@ class GraspMagic(ABC):
 
             if graspable_dim <= self.gripper_width:
                 valid_faces.append((local_axis, graspable_dim))
-                logger.warn(
+                logger.debug(
                     f"Valid face found: axis={axis_name}, "
                     f"approach_dot_z={dot_with_world_z.to_np()[0]:.3f}, "
                     f"graspable_dim={graspable_dim:.3f}"
@@ -253,7 +253,7 @@ class GraspMagic(ABC):
         grasp_axis.reference_frame = self.object_geometry
         grasp_axis.scale(1)
 
-        logger.warn(f"Selected grasp axis: {grasp_axis.to_np()}")
+        logger.debug(f"Selected grasp axis: {grasp_axis.to_np()}")
 
         return grasp_axis
 
@@ -278,7 +278,7 @@ class GraspMagic(ABC):
 
         grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
 
-        logger.warn(f"grasp_axis: {grasp_axis.to_np()}")
+        logger.debug(f"grasp_axis: {grasp_axis.to_np()}")
 
         return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
 
@@ -332,6 +332,7 @@ class GraspMagic(ABC):
             context: BuildContext,
             tool_frame: KinematicStructureEntity,
             obj_pose: HomogeneousTransformationMatrix,
+            threshold: float = 0.01,
     ) -> List[MotionStatechartNode]:
         """
         Create orientation constraint nodes based on gripper_vertical parameter.
@@ -342,6 +343,7 @@ class GraspMagic(ABC):
                 goal_point=obj_pose.to_position(),
                 root_link=context.world.root,
                 pointing_axis=Vector3.Z(tool_frame),
+                threshold=threshold,
                 name="point_at_object",
             )
         ]
@@ -354,6 +356,7 @@ class GraspMagic(ABC):
                     tip_normal=Vector3.X(tool_frame),
                     root_link=context.world.root,
                     goal_normal=Vector3.Z(context.world.root),
+                    threshold=threshold,
                     name="enforce_gripper_vertical",
                 )
             )
@@ -365,6 +368,7 @@ class GraspMagic(ABC):
                     tip_normal=Vector3.Y(tool_frame),
                     root_link=context.world.root,
                     goal_normal=Vector3.Z(context.world.root),
+                    threshold=threshold,
                     name="enforce_gripper_horizontal",
                 )
             )
@@ -391,22 +395,23 @@ class BoxGraspMagic(GraspMagic):
             PICKUP_PREPOSE_DISTANCE,
         )
 
-        logger.warn(f"-------------------")
-        logger.warn(f"Pre grasp point: {pre_grasp_point}")
-        logger.warn(f"-------------------")
+        logger.debug(f"-------------------")
+        logger.debug(f"Pre grasp point: {pre_grasp_point}")
+        logger.debug(f"-------------------")
 
-        cart_pose = CartesianPosition(
+        cart_pos = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=pre_grasp_point,
             name="pre_grasp_position",
         )
 
-        # Get orientation nodes
-        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose)
+        # Get orientation nodes with a looser threshold: pre-grasp only needs to be
+        # approximately correct; the grasping phase re-applies tighter constraints.
+        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose, threshold=0.05)
         parallel = Parallel(align_nodes)
 
-        return [cart_pose, parallel]
+        return [cart_pos, parallel]
 
     def get_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
         obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = (
@@ -422,14 +427,17 @@ class BoxGraspMagic(GraspMagic):
             additional_offset=-0.05,
         )
 
-        cart = CartesianPosition(
+        cart_pos = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=grasp_point,
             name="Grasping",
         )
 
-        return [cart]
+        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose)
+        parallel = Parallel(align_nodes)
+
+        return [cart_pos, parallel]
 
 
 class CylinderGraspMagic(GraspMagic):
@@ -470,7 +478,10 @@ class PreGraspPose(Goal):
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        artifacts.observation = self._cart_pose.observation_variable
+        # artifacts.observation = self._cart_pose.observation_variable
+        artifacts.observation = trinary_logic_and(
+            self._cart_pose.observation_variable, self.parallel.observation_variable
+        )
         return artifacts
 
 
@@ -497,6 +508,8 @@ class Grasping(Goal):
             self.add_node(node)
             if isinstance(node, CartesianPosition):
                 self.cart = node
+            elif isinstance(node, Parallel):
+                self.parallel = node
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
