@@ -90,12 +90,12 @@ def setup_hsrb_context(
     # Optional TF publisher
     # TFPublisher(world=world, node=rclpy_node)
 
-    env_world = load_environment()
-    with world.modify_world():
-        world.merge_world(env_world)
+    # env_world = load_environment()
+    # with world.modify_world():
+    #     world.merge_world(env_world)
 
     # Visualization
-    VizMarkerPublisher(world=world, node=rclpy_node)
+    # VizMarkerPublisher(world=world, node=rclpy_node)
 
     # Robot semantic view
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]

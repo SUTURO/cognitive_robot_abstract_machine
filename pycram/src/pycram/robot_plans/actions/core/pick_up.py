@@ -159,7 +159,7 @@ class PickUpAction(ActionDescription):
     def execute(self) -> None:
         SequentialPlan(
             self.context,
-            MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
+            # MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
             ReachActionDescription(
                 target_pose=PoseStamped.from_spatial_type(
                     self.object_designator.global_pose
@@ -168,7 +168,7 @@ class PickUpAction(ActionDescription):
                 arm=self.arm,
                 grasp_description=self.grasp_description,
             ),
-            MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
+            # MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
         ).perform()
         end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
