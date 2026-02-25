@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from semantic_digital_twin.robots.abstract_robot import ParallelGripper
+from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
@@ -15,7 +14,6 @@ from ...motions.gripper import MoveGripperMotion, MoveTCPMotion
 from ....config.action_conf import ActionConfig
 from ....datastructures.enums import (
     Arms,
-    GripperState,
     MovementType,
     FindBodyInRegionMethod,
 )
@@ -24,17 +22,14 @@ from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
 from ....failures import ObjectNotGraspedError
 from ....failures import ObjectNotInGraspingArea
-from ....has_parameters import has_parameters
-from ....language import SequentialPlan, CodePlan
-from ....robot_description import RobotDescription
-from ....robot_description import ViewManager
+from ....language import SequentialPlan
+from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....utils import translate_pose_along_local_axis
-# from pycram.external_interfaces.tmc import GripperActionClient
+
 logger = logging.getLogger(__name__)
 
 
-@has_parameters
 @dataclass
 class ReachAction(ActionDescription):
     """
@@ -126,7 +121,6 @@ class ReachAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class PickUpAction(ActionDescription):
     """
@@ -157,19 +151,8 @@ class PickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
-        gripper = self.world.get_semantic_annotations_by_type(ParallelGripper)[0]
-        # gripper_action = GripperActionClient()
-
-        self.object_designator.global_pose.y = (
-            self.object_designator.global_pose.y + 0.01
-        )
-
         SequentialPlan(
             self.context,
-            # Comment this in if you are opening gripper on toya, she is currently interacting with her gripper via GripperActionClient
-            # CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
-
-            # This opening function is Simulation only
             MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
             ReachActionDescription(
                 target_pose=PoseStamped.from_spatial_type(
@@ -179,30 +162,19 @@ class PickUpAction(ActionDescription):
                 arm=self.arm,
                 grasp_description=self.grasp_description,
             ),
-            # Comment this in if you are closing gripper on toya, she is currently interacting with her gripper via GripperActionClient
-            # CodePlan(self.context, gripper_action.send_goal, {"effort": 0.8}),
-
-            # This close function is Simulation only
             MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
         ).perform()
         end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
         # Attach the object to the end effector
         with self.world.modify_world():
-            # automatically deletes old connection
-            self.world.move_branch_with_fixed_connection(branch_root=self.object_designator, new_parent=end_effector.tool_frame)
-
-        object_pose = self.object_designator.global_pose
+            self.world.move_branch_with_fixed_connection(
+                self.object_designator, end_effector.tool_frame
+            )
 
         _, _, lift_to_pose = self.grasp_description.grasp_pose_sequence(
             self.object_designator
         )
-
-        # tales the poses of the current object and lifts it up a little bit, so robot can go into ParkArms gracefully
-        lift_to_pose = PoseStamped.from_spatial_type(HomogeneousTransformationMatrix.from_xyz_quaternion(
-            object_pose.x, object_pose.y, object_pose.z + 0.2, reference_frame=self.world.root
-        ))
-
         SequentialPlan(
             self.context,
             MoveTCPMotion(
@@ -239,14 +211,13 @@ class PickUpAction(ActionDescription):
         )
 
 
-@has_parameters
 @dataclass
 class GraspingAction(ActionDescription):
     """
     Grasps an object described by the given Object Designator description
     """
 
-    object_designator: Body  # Union[Object, ObjectDescription.Link]
+    object_designator: Body
     """
     Object Designator for the object that should be grasped
     """
@@ -254,30 +225,21 @@ class GraspingAction(ActionDescription):
     """
     The arm that should be used to grasp
     """
-    prepose_distance: float = ActionConfig.grasping_prepose_distance
+    grasp_description: GraspDescription
     """
     The distance in meters the gripper should be at before grasping the object
     """
 
     def execute(self) -> None:
-        object_pose = PoseStamped.from_spatial_type(self.object_designator.global_pose)
-        end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
-
-        object_pose_in_gripper = self.world.transform(
-            self.world.compute_forward_kinematics(
-                self.world.root, self.object_designator
-            ),
-            end_effector.tool_frame,
+        pre_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
+            self.object_designator
         )
-        object_pose_in_gripper = PoseStamped.from_spatial_type(object_pose_in_gripper)
-
-        object_pose_in_gripper.pose.position.x -= self.prepose_distance
 
         SequentialPlan(
             self.context,
-            MoveTCPMotion(object_pose_in_gripper, self.arm),
+            MoveTCPMotion(pre_pose, self.arm),
             MoveGripperMotion(GripperState.OPEN, self.arm),
-            MoveTCPMotion(object_pose, self.arm, allow_gripper_collision=True),
+            MoveTCPMotion(grasp_pose, self.arm, allow_gripper_collision=True),
             MoveGripperMotion(
                 GripperState.CLOSE, self.arm, allow_gripper_collision=True
             ),
@@ -300,15 +262,15 @@ class GraspingAction(ActionDescription):
         cls,
         object_designator: Union[Iterable[Body], Body],
         arm: Union[Iterable[Arms], Arms] = None,
-        prepose_distance: Union[
-            Iterable[float], float
+        grasp_description: Union[
+            Iterable[GraspDescription], GraspDescription
         ] = ActionConfig.grasping_prepose_distance,
     ) -> PartialDesignator[GraspingAction]:
         return PartialDesignator[GraspingAction](
             GraspingAction,
             object_designator=object_designator,
             arm=arm,
-            prepose_distance=prepose_distance,
+            grasp_description=grasp_description,
         )
 
 

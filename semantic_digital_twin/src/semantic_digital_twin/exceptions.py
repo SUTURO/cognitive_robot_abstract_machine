@@ -16,6 +16,7 @@ from typing_extensions import (
 
 from krrood.adapters.exceptions import JSONSerializationError
 from krrood.utils import DataclassException
+from .datastructures.definitions import JointStateType
 from .datastructures.prefixed_name import PrefixedName
 
 if TYPE_CHECKING:
@@ -33,6 +34,18 @@ if TYPE_CHECKING:
     )
     from .spatial_types import Vector3
     from .world_description.degree_of_freedom import DegreeOfFreedomLimits
+
+
+@dataclass
+class NoJointStateWithType(DataclassException):
+    """
+    Raised when a JointState type is search which is not defined
+    """
+
+    joint_state: JointStateType
+
+    def __post_init__(self):
+        self.message = f"There is no JointState with the type: {self.joint_state}"
 
 
 @dataclass
@@ -256,6 +269,33 @@ class IncorrectScaleError(ValueError):
     def __init__(self, scale):
         self.scale = scale
         super().__init__(f"Scale {scale} is invalid: x must be smaller than y and z.")
+
+
+@dataclass
+class MismatchingPublishChangesAttribute(UsageError):
+    """
+    Raised when trying to enter a world modification context with a different publish_changes policy than the currently active world modification context.
+    """
+
+    active_publish_changes: bool
+    """
+    The publish_changes of the currently active world modification context.
+    """
+    proposed_publish_changes: bool
+    """
+    The publish_changes of the world modification context that is being entered.
+    """
+
+    def __post_init__(self):
+        self.message = f"Cannot enter context with publish_changes={self.proposed_publish_changes} when the currently active modification context has publish_changes={self.active_publish_changes}. Make sure to not nest contexts with different publish_changes states."
+
+
+@dataclass
+class MissingPublishChangesKWARG(UsageError):
+    kwargs: Dict[str, Any]
+
+    def __post_init__(self):
+        self.message = f"publish_changes must be provided as a keyword argument, but got {self.kwargs}. If you see this exception you probably notified a synchronizer without setting publish_changes, which will cause hard to debug issues."
 
 
 @dataclass
