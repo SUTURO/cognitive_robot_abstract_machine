@@ -6,9 +6,13 @@ from dataclasses import dataclass, field
 
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
-import logging
+from rclpy.logging import get_logger
 
-from demos.helper_methods_and_useful_classes.object_creation import (
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
+from semantic_digital_twin.robots.abstract_robot import Manipulator
+from ..helper_methods_and_useful_classes.object_creation import (
     perceive_and_spawn_all_objects,
 )
 from suturo_resources.suturo_map import load_environment
@@ -33,24 +37,27 @@ import numpy as np
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from test.krrood_test.dataset.example_classes import Node
+from ..pycram_basic_hsr_demos.pickup_demo import manipulator
 
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
-class WorldSetup:
+class SetupResult:
     world: World
     robot_view: HSRB
-    node: Node
     context: Context
-    percieved_objects: dict[Any, Any] = field(default_factory=list)
+    manipulator: Manipulator
+    viz: Optional[object]
+    node: Any
+    perceived_objects: dict[Any, Any] = field(default_factory=list)
 
 
 def setup_ros_node():
     rclpy.init()
     node = rclpy.create_node("pycram_node")
+    logger.info("Node created, please kill correctly after termination.")
+
     executor = SingleThreadedExecutor()
     executor.add_node(node)
 
@@ -69,11 +76,13 @@ def setup_ros_node():
 
     robot_view = hsrb_world.get_semantic_annotations_by_type(HSRB)[0]
 
+    manipulator: Manipulator = next(iter(robot_view.manipulators))
+
     context = Context(
         hsrb_world, hsrb_world.get_semantic_annotations_by_type(HSRB)[0], ros_node=node
     )
 
-    return node, hsrb_world, robot_view, context
+    return node, hsrb_world, robot_view, context, manipulator
 
 
 def add_box(name: str, scale_xyz: tuple[float, float, float]):
@@ -127,10 +136,12 @@ def try_make_viz(world):
 def world_setup_with_test_objects(
     with_object: bool = field(kw_only=True, default=True),
     with_perception: bool = field(kw_only=True, default=False),
-) -> WorldSetup:
-    node, hsrb_world, robot_view, context = setup_ros_node()
+) -> SetupResult:
+    rclpy.init()
 
-    perceived_objects = {}
+    node, hsrb_world, robot_view, context, manipulator = setup_ros_node()
+
+    viz: VizMarkerPublisher | None = None
 
     if with_object:
         try:
@@ -150,10 +161,11 @@ def world_setup_with_test_objects(
         perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
         print(perceived_objects)
 
-    return WorldSetup(
+    return SetupResult(
         world=hsrb_world,
         robot_view=robot_view,
         node=node,
+        manipulator=manipulator,
         context=context,
-        percieved_objects=perceived_objects,
+        perceived_objects=perceived_objects,
     )

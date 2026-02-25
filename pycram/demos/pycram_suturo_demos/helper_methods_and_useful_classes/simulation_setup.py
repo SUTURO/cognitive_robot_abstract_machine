@@ -1,13 +1,19 @@
 import os
-import logging
+
+import rclpy
+from rclpy.logging import get_logger
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple, Any
 
 from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.abstract_robot import Manipulator
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -15,7 +21,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _here(*parts: str) -> str:
@@ -37,22 +43,29 @@ class SpawnSpec:
 
 @dataclass(frozen=True)
 class SetupResult:
-    world: object
+    world: World
     robot_view: HSRB
     context: Context
+    manipulator: Manipulator
     viz: Optional[object]
+    node: Any
+    perceived_objects: dict[Any, Any] = field(default_factory=list)
 
 
 def default_paths() -> WorldSetupPaths:
     return WorldSetupPaths(
-        hsrb_urdf=_here("..", "..", "resources", "robots", "hsrb.urdf"),
-        milk_stl=_here("..", "..", "resources", "objects", "milk.stl"),
-        cereal_stl=_here("..", "..", "resources", "objects", "breakfast_cereal.stl"),
+        hsrb_urdf=_here("..", "..", "..", "resources", "robots", "hsrb.urdf"),
+        milk_stl=_here("..", "..", "..", "resources", "objects", "milk.stl"),
+        cereal_stl=_here(
+            "..", "..", "..", "resources", "objects", "breakfast_cereal.stl"
+        ),
     )
 
 
 def build_hsrb_world(hsrb_urdf: str):
+    print("hehesaddasdasd")
     world = URDFParser.from_file(file_path=hsrb_urdf).parse()
+    print("hehe")
     with world.modify_world():
         odom = Body(name=PrefixedName("odom_combined"))
         world.add_kinematic_structure_entity(odom)
@@ -93,7 +106,7 @@ def merge_robot_into_environment(
         0.0,
         0.0,
     ),
-):
+) -> Tuple[World, HSRB, Context]:
     merged = deepcopy(environment_world)
     x, y, z, r, p, yaw = robot_xyz_rpy
     merged.merge_world_at_pose(
@@ -121,7 +134,7 @@ def try_make_viz(world):
 
 
 def setup_hsrb_in_environment(
-    load_environment: Callable[[], object],
+    load_environment: Callable[[], World],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
         2.37,
@@ -148,14 +161,21 @@ def setup_hsrb_in_environment(
         0.0,
     ),
     with_viz: bool = True,
-    with_obj: bool = field(kw_only=True, default=True),
+    with_objects: bool = field(kw_only=True, default=True),
 ) -> SetupResult:
+    rclpy.init()
     p = paths or default_paths()
 
-    hsrb_world: World = build_hsrb_world(p.hsrb_urdf)
-    env_world = load_environment()
+    node: Any = rclpy.create_node("simulation_setup")
+    logger.info("Node created, please kill correctly after termination.")
+    viz: VizMarkerPublisher | None = None
+    hsrb_world = build_hsrb_world(p.hsrb_urdf)
+    print("hoho")
 
-    if with_obj:
+    env_world: World = load_environment()
+    print("hoho")
+
+    if with_objects:
         env_world = add_objects_and_semantics(
             env_world,
             objects=(
@@ -168,7 +188,20 @@ def setup_hsrb_in_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
 
-    viz = try_make_viz(world) if with_viz else None
+    manipulator: Manipulator = next(iter(robot_view.manipulators))
 
-    viz.with_tf_publisher()
-    return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)
+    if with_viz:
+        try:
+            viz = try_make_viz(world)
+            viz.with_tf_publisher()
+        except Exception as e:
+            logger.warn("Failed to setup viz" + str(e))
+
+    return SetupResult(
+        world=world,
+        robot_view=robot_view,
+        manipulator=manipulator,
+        context=context,
+        viz=viz,
+        node=node,
+    )
