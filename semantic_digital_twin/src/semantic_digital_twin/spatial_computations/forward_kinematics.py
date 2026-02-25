@@ -150,7 +150,7 @@ class ForwardKinematicsManager(rustworkx.visit.DFSVisitor):
         :return: Transformation matrix representing the relative pose of the tip KinematicStructureEntity with respect to the root KinematicStructureEntity.
         """
         return HomogeneousTransformationMatrix(
-            data=self.compute_np(root, tip), reference_frame=root
+            data=self.compute_np(root, tip), reference_frame=root, child_frame=tip
         )
 
     @lru_cache(maxsize=None)

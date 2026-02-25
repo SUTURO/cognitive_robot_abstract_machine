@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import numpy
+
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 
@@ -28,8 +30,21 @@ class MoveMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        return CartesianPose(
+
+        cp = CartesianPose(
             root_link=self.world.root,
             tip_link=self.robot_view.root,
             goal_pose=self.target.to_spatial_type(),
         )
+        import numpy as np
+
+        # Extract translation (last column of homogeneous transform)
+        tip_pos = np.array(cp.tip_link.global_pose[:3, 3])  # tip x,y,z
+        goal_pos = np.array(cp.goal_pose[:3, 3])  # goal x,y,z
+
+        dist = np.linalg.norm(goal_pos - tip_pos)
+        print("Tip translation:", tip_pos)
+        print("Goal translation:", goal_pos)
+        print("Distance to goal:", dist)
+
+        return cp
