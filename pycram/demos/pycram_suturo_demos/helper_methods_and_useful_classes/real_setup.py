@@ -50,12 +50,10 @@ class SetupResult:
     manipulator: Manipulator
     viz: Optional[object]
     node: Any
-    perceived_objects: dict[Any, Any] = field(default_factory=list)
 
 
-def setup_ros_node():
-    rclpy.init()
-    node = rclpy.create_node("pycram_node")
+def setup_ros_node(node_name: str = "pycram_node"):
+    node = rclpy.create_node(node_name)
     logger.info("Node created, please kill correctly after termination.")
 
     executor = SingleThreadedExecutor()
@@ -117,14 +115,13 @@ def test_spawning(hsrb_world: World):
         )
 
 
-def try_make_viz(world):
+def try_make_viz(world, node):
     try:
         import rclpy
         from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
             VizMarkerPublisher,
         )
 
-        node = rclpy.create_node("viz_marker")
         return VizMarkerPublisher(world, node)
     except Exception:
         logger.info(
@@ -136,30 +133,23 @@ def try_make_viz(world):
 def world_setup_with_test_objects(
     with_object: bool = field(kw_only=True, default=True),
     with_perception: bool = field(kw_only=True, default=False),
+    with_viz: bool = field(kw_only=True, default=True),
 ) -> SetupResult:
     rclpy.init()
 
     node, hsrb_world, robot_view, context, manipulator = setup_ros_node()
-
-    viz: VizMarkerPublisher | None = None
 
     if with_object:
         try:
             hsrb_world.get_body_by_name("milk")
         except Exception:
             test_spawning(hsrb_world)
-    else:
-        # TODO fix the remove, i think the world merge isnt working yet
-        try:
-            hsrb_world.get_body_by_name("environment").remove_from_world()
-        except Exception:
-            pass
 
-    if with_perception:
-        # Perceive objects and spawn them
-        # TODO: On use change from static milk object, to recognized object, if needed (in method)
-        perceived_objects = perceive_and_spawn_all_objects(hsrb_world)
-        print(perceived_objects)
+    try:
+        viz = try_make_viz(hsrb_world, node)
+        viz.with_tf_publisher()
+    except Exception as e:
+        logger.warn("Failed to setup viz" + str(e))
 
     return SetupResult(
         world=hsrb_world,
@@ -167,5 +157,4 @@ def world_setup_with_test_objects(
         node=node,
         manipulator=manipulator,
         context=context,
-        perceived_objects=perceived_objects,
     )

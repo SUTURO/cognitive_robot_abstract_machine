@@ -49,7 +49,6 @@ class SetupResult:
     manipulator: Manipulator
     viz: Optional[object]
     node: Any
-    perceived_objects: dict[Any, Any] = field(default_factory=list)
 
 
 def default_paths() -> WorldSetupPaths:
