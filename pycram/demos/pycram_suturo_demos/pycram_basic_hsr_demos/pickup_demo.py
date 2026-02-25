@@ -88,6 +88,7 @@ if object_to_pickup is not None:
         PickUpActionDescription(
             object_designator=object_to_pickup, arm=Arms.LEFT, grasp_description=grasp
         ),
+        ParkArmsActionDescription(Arms.BOTH),
     )
 else:
     plan = SequentialPlan(

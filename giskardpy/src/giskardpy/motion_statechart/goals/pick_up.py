@@ -50,7 +50,7 @@ class HSRGripper(Enum):
     close_gripper = 0
 
 
-PICKUP_PREPOSE_DISTANCE = 0.03
+PICKUP_PREPOSE_DISTANCE = 0.2
 HSR_GRIPPER_WIDTH = 0.15
 PULLUP_HEIGHT = 0.1
 VERTICAL_DOT_THRESH = 0.85  # dot with world Z considered vertical
