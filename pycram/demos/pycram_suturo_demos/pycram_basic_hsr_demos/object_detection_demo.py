@@ -2,6 +2,7 @@ import os
 
 import rclpy
 
+import semantic_digital_twin
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move, robokudo
 import logging
@@ -23,6 +24,8 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 
 logger = logging.getLogger(__name__)
+logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
+
 rclpy_node, world, robot_view, context = setup_hsrb_context()
 
 
