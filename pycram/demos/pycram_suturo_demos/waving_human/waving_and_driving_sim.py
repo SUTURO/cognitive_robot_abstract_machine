@@ -38,7 +38,9 @@ from suturo_resources.suturo_map import load_environment
 # ---------------------------------------------------------------------------
 _WAVING_HUMAN_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEMOS_ROOT = os.path.abspath(os.path.join(_WAVING_HUMAN_DIR, ".."))
-_SIM_SETUP_DIR = os.path.abspath(os.path.join(_DEMOS_ROOT, "hsrb_simulation"))
+_SIM_SETUP_DIR = os.path.abspath(
+    os.path.join(_DEMOS_ROOT, "helper_methods_and_useful_classes")
+)
 for _p in (_DEMOS_ROOT, _SIM_SETUP_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -47,14 +49,24 @@ from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot
 from pycram.robot_plans import NavigateActionDescription
-from pycram.external_interfaces.robokudo import send_query
+
+try:
+    from pycram.external_interfaces.robokudo import send_query
+
+    _ROBOKUDO_AVAILABLE = True
+except ModuleNotFoundError:
+    logging.warning(
+        "robokudo_msgs not found – waving-human queries will use dummy data."
+    )
+    send_query = None
+    _ROBOKUDO_AVAILABLE = False
 from pycram.external_interfaces import nav2_move
 
 # simulation_setup lives in hsrb_simulation/ and is injected into sys.path above.
 # noinspection PyUnresolvedReferences
 from simulation_setup import setup_hsrb_in_environment  # from hsrb_simulation/
 
-logging.basicConfig(level=logging.INFO)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -91,33 +103,51 @@ def _extract_pose_fields(result) -> Optional[dict]:
 
 
 def wait_for_waving_human(
-    retry_interval: float = 1.0,
+    retry_interval: float = 0,
     timeout: Optional[float] = None,
 ) -> Optional[dict]:
     """Poll RoboKudo until a waving human is found.
+
+    When ``robokudo_msgs`` is not installed the function immediately returns a
+    fixed dummy pose so the rest of the pipeline can be exercised without a
+    real perception back-end.
 
     :param retry_interval: Seconds between failed queries.
     :param timeout: Give up after this many seconds (None = forever).
     :return: Plain dict with frame_id / position / orientation, or None.
     """
+    _DUMMY = {
+        "frame_id": "map",
+        "position": [3.8683114051818848, 5.459158897399902, 0.0],
+        "orientation": [0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
+    }
+
+    if not _ROBOKUDO_AVAILABLE:
+        logger.warning("RoboKudo not available – using dummy waving-human pose.")
+        return _DUMMY
+
     deadline = time.monotonic() + timeout if timeout is not None else None
     attempt = 0
     while True:
         attempt += 1
         logger.info("Waving query attempt %d …", attempt)
         result = send_query(obj_type="human", attributes=["waving"])
-        if result is not None:
-            data = _extract_pose_fields(result)
-            if data is not None:
-                logger.info("Waving human found after %d attempt(s).", attempt)
-                return data
-            logger.warning("RoboKudo result has no pose – retrying …")
-        else:
-            logger.warning("No result from RoboKudo – retrying …")
+        if result is None:
+            # send_query returns None when the action server is unavailable –
+            # there is no point retrying; fall back to dummy data immediately.
+            logger.warning(
+                "RoboKudo action server not available – falling back to dummy data."
+            )
+            return _DUMMY
+        data = _extract_pose_fields(result)
+        if data is not None:
+            logger.info("Waving human found after %d attempt(s).", attempt)
+            return data
+        logger.warning("RoboKudo result has no pose – retrying …")
 
         if deadline is not None and time.monotonic() >= deadline:
             logger.error("Timed out waiting for waving human.")
-            return None
+            return _DUMMY
         time.sleep(retry_interval)
 
 
@@ -183,7 +213,6 @@ def _human_nav_target(
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO)
 
     # 1. Init ROS 2
     if not rclpy.ok():
@@ -191,6 +220,7 @@ def main() -> None:
 
     # 2. Build simulation world (HSRB + environment, with RViz publishers)
     logger.info("Setting up simulation world …")
+
     result = setup_hsrb_in_environment(load_environment=load_environment, with_viz=True)
     world = result.world
     context = result.context
@@ -198,10 +228,6 @@ def main() -> None:
     # 3. Detect waving human via RoboKudo
     logger.info("Waiting for waving human …")
     human_data = wait_for_waving_human(retry_interval=1.0)
-
-    if human_data is None:
-        logger.error("No waving human detected – aborting.")
-        return
 
     pos = human_data["position"]
     ori = human_data["orientation"]
