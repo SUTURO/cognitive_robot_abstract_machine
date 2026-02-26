@@ -1,24 +1,15 @@
-import os
-import sys
 import time
 import logging
 from typing import Optional
 
+import rclpy
+
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.robokudo import query_waving_human
 
-try:
-    from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
-except ImportError:
-    _here = os.path.abspath(os.path.dirname(__file__))
-    _demos_root = os.path.abspath(os.path.join(_here, ".."))
-    if _demos_root not in sys.path:
-        sys.path.insert(0, _demos_root)
-    from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
 
 logger = logging.getLogger(__name__)
-
-rclpy_node, world, robot_view, context = setup_hsrb_context()
+rclpy.init()
 
 
 class ContinuousWavingDetector:
@@ -99,20 +90,26 @@ def main() -> None:
     detector = ContinuousWavingDetector(retry_interval=1.0)
 
     logger.info("Waiting for a waving human …")
-    human_pose = detector.wait_for_waving_human()
+    raw_pose = detector.wait_for_waving_human()
 
-    if human_pose is None:
+    if raw_pose is None:
         logger.error("No waving human detected – aborting")
         return
 
+    human_pose = raw_pose
+
     print("=== Waving human detected ===")
-    print(f"  frame_id  : {human_pose.header.frame_id}")
+    print(f"  frame_id   : {str(human_pose.header.frame_id)}")
     print(
-        f"  position  : x={human_pose.position.x:.4f}  y={human_pose.position.y:.4f}  z={human_pose.position.z:.4f}"
+        f"  position   : x={human_pose.position.x:.4f}  "
+        f"y={human_pose.position.y:.4f}  "
+        f"z={human_pose.position.z:.4f}"
     )
     print(
-        f"  orientation: x={human_pose.orientation.x:.4f}  y={human_pose.orientation.y:.4f}"
-        f"  z={human_pose.orientation.z:.4f}  w={human_pose.orientation.w:.4f}"
+        f"  orientation: x={human_pose.orientation.x:.4f}  "
+        f"y={human_pose.orientation.y:.4f}  "
+        f"z={human_pose.orientation.z:.4f}  "
+        f"w={human_pose.orientation.w:.4f}"
     )
 
 
