@@ -39,6 +39,8 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 from semantic_digital_twin.world_description.world_entity import Body
 from test.krrood_test.dataset.example_classes import Node
 
+logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,8 +98,9 @@ def setup_hsrb_context(
 
     # Visualization
     VizMarkerPublisher(world=world, node=rclpy_node)
-
+    # VizMarkerPublisher().
     # Robot semantic view
+
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]
 
     # Context
