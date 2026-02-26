@@ -1,12 +1,4 @@
 import os
-import sys
-import logging
-
-# Add pycram/demos to sys.path so pycram_suturo_demos is importable
-# when this script is run directly (same pattern as move_demo.py).
-_DEMOS_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if _DEMOS_ROOT not in sys.path:
-    sys.path.insert(0, _DEMOS_ROOT)
 
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move
