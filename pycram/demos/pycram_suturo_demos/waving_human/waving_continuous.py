@@ -12,11 +12,13 @@ if _DEMOS_ROOT not in sys.path:
 
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.robokudo import query_waving_human
-from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+    robot_setup,
+)
 
 
 logger = logging.getLogger(__name__)
-rclpy_node, world, robot_view, context = setup_hsrb_context()
+rclpy_node, world, robot_view, context = robot_setup()
 
 
 class ContinuousWavingDetector:
