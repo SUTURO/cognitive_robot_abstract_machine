@@ -304,27 +304,56 @@ def min_distance_2_human(
 
 def buffer_to_pose(target_pose: PyCramPoseStamped, buffer: float) -> PyCramPoseStamped:
     """
-    Returns the target pose with a defined buffer distance that must be maintained.
+    Creates a navigation goal that keeps at least ``buffer`` metres away from
+    ``target_pose``.
 
-    The buffer defines the minimum distance (in meters) the robot must keep from
-    the target coordinate. The pose itself is returned unchanged – the buffer is
-    only used as metadata/constraint for the caller (e.g. to configure Nav2 tolerance).
+    The returned pose is placed ``buffer`` metres in front of the target along
+    the world x-axis (i.e. at ``target.x - buffer``).  The orientation is kept
+    neutral (identity quaternion) – the robot does *not* need to face the target.
+    This pose can be passed directly to Nav2 or to a ``NavigateActionDescription``
+    so that the robot stops at the required stand-off distance.
 
-    :param target_pose: The target coordinate around which the buffer is defined
-                        (pycram.datastructures.pose.PoseStamped).
-    :param buffer: The minimum distance (in meters) to maintain from the target coordinate.
-    :return: The target pose unchanged.
+    :param target_pose: The target coordinate that defines the centre of the
+                        buffer zone (pycram.datastructures.pose.PoseStamped).
+    :param buffer: Minimum stand-off distance in metres (must be >= 0).
+    :return: A new PoseStamped located ``buffer`` metres away from the target.
     :raises ValueError: If buffer is negative.
     """
     if buffer < 0.0:
         raise ValueError(f"buffer must be non-negative, got {buffer}")
 
-    target_x = target_pose.pose.position.x
-    target_y = target_pose.pose.position.y
-
-    logger.info(
-        f"Buffer of {buffer}m defined around target ({target_x:.2f}, {target_y:.2f}). "
-        f"Navigation goal must keep at least {buffer}m distance from this position."
+    from pycram.datastructures.pose import (
+        PoseStamped as _PS,
+        PyCramPose,
+        PyCramVector3,
+        PyCramQuaternion,
+        Header,
     )
 
-    return target_pose
+    target_x = float(target_pose.pose.position.x)
+    target_y = float(target_pose.pose.position.y)
+    target_z = float(target_pose.pose.position.z)
+
+    # Place the goal buffer metres in front of the target along the x-axis.
+    # Orientation is identity – the robot does not need to face the target.
+    buffered_x = target_x - buffer
+    buffered_y = target_y
+    buffered_z = target_z
+
+    buffered_pose: PyCramPoseStamped = _PS(
+        pose=PyCramPose(
+            position=PyCramVector3(x=buffered_x, y=buffered_y, z=buffered_z),
+            orientation=PyCramQuaternion(x=0.0, y=0.0, z=0.0, w=1.0),
+        ),
+        header=Header(
+            frame_id=target_pose.header.frame_id,
+            stamp=target_pose.header.stamp,
+        ),
+    )
+
+    logger.info(
+        f"buffer_to_pose: target=({target_x:.2f}, {target_y:.2f}), "
+        f"buffer={buffer}m -> goal=({buffered_x:.2f}, {buffered_y:.2f})"
+    )
+
+    return buffered_pose
