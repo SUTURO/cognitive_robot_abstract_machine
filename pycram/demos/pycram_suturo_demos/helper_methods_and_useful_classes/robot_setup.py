@@ -1,4 +1,4 @@
-from pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
     SetupResult,
 )
 from suturo_resources.suturo_map import load_environment
@@ -16,7 +16,7 @@ def robot_setup(
     :param bool with_perception: True or False, if you want to percieve in REAL
     """
     if simulation:
-        from pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
             setup_hsrb_in_environment,
         )
 
@@ -24,7 +24,7 @@ def robot_setup(
             load_environment=load_environment, with_viz=True, with_objects=with_objects
         )
     else:
-        from pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
             world_setup_with_test_objects,
         )
 

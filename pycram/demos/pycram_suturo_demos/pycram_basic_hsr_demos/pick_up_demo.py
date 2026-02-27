@@ -52,25 +52,33 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
     return new_world
 
 
-def perceive_and_spawn_all_objects():
+def perceive_and_spawn_all_objects(hsrb_world: World):
+    try:
+        from pycram.external_interfaces import robokudo
+    except ImportError:
+        raise ImportError()
     perceived_objects = {}
     perceived_objects_result = robokudo.query_all_objects().res
     for perceived_object in perceived_objects_result:
         object_size = perceived_object.shape_size[0].dimensions
         object_pose = perceived_object.pose[0].pose
         object_time = perceived_object.pose[0].header.stamp
-        object_name = f"{perceived_object.type}18"
+        object_name = f"{perceived_object.type}"
+        try:
+            object_to_spawn = hsrb_world.get_body_by_name(object_name)
+            with hsrb_world.modify_world():
+                hsrb_world.move_branch_to_new_world(object_to_spawn)
+        except semantic_digital_twin.exceptions.WorldEntityNotFoundError:
+            pass
         object_to_spawn = add_box(
             object_name,
             (object_size.x, object_size.y, object_size.z),
         )
-        # object_to_spawn = add_milk(
-        #     object_name,
-        #     (object_size.x, object_size.y, object_size.z),
-        # )
+        env_world = load_environment()
         perceived_objects[object_name] = object_to_spawn
-        with world.modify_world():
-            world.merge_world_at_pose(
+        with hsrb_world.modify_world():
+            hsrb_world.merge_world(env_world)
+            hsrb_world.merge_world_at_pose(
                 object_to_spawn,
                 pose=HomogeneousTransformationMatrix.from_xyz_quaternion(
                     pos_x=object_pose.position.x,
@@ -87,7 +95,7 @@ def perceive_and_spawn_all_objects():
 
 perceive_and_spawn_all_objects()
 print(world.bodies)
-object_to_pickup = world.get_body_by_name("muesli_vitalis_box_nutmix18")
+object_to_pickup = world.get_body_by_name("muesli_vitalis_box_nutmix")
 # object_to_pickup = None
 manipulator: Manipulator = next(iter(robot_view.manipulators))
 manipulator: ParallelGripper

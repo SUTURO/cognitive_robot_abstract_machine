@@ -43,12 +43,11 @@ class SpawnSpec:
 
 @dataclass(frozen=True)
 class SetupResult:
-    world: World
-    robot_view: HSRB
-    context: Context
-    manipulator: Manipulator
-    viz: Optional[object]
-    node: Any
+    world: World = None
+    robot_view: HSRB = None
+    context: Context = None
+    viz: Optional[object] = None
+    node: Any = None
 
 
 def default_paths() -> WorldSetupPaths:
@@ -62,9 +61,7 @@ def default_paths() -> WorldSetupPaths:
 
 
 def build_hsrb_world(hsrb_urdf: str):
-    print("hehesaddasdasd")
     world = URDFParser.from_file(file_path=hsrb_urdf).parse()
-    print("hehe")
     with world.modify_world():
         odom = Body(name=PrefixedName("odom_combined"))
         world.add_kinematic_structure_entity(odom)
@@ -166,13 +163,9 @@ def setup_hsrb_in_environment(
     p = paths or default_paths()
 
     node: Any = rclpy.create_node("simulation_setup")
-    logger.info("Node created, please kill correctly after termination.")
-    viz: VizMarkerPublisher | None = None
-    hsrb_world = build_hsrb_world(p.hsrb_urdf)
-    print("hoho")
 
+    hsrb_world = build_hsrb_world(p.hsrb_urdf)
     env_world: World = load_environment()
-    print("hoho")
 
     if with_objects:
         env_world = add_objects_and_semantics(
@@ -182,12 +175,9 @@ def setup_hsrb_in_environment(
                 SpawnSpec(world_path=p.cereal_stl, xyz_rpy=cereal_xyz_rpy),
             ),
         )
-
     world, robot_view, context = merge_robot_into_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
-
-    manipulator: Manipulator = next(iter(robot_view.manipulators))
 
     if with_viz:
         try:
@@ -199,7 +189,6 @@ def setup_hsrb_in_environment(
     return SetupResult(
         world=world,
         robot_view=robot_view,
-        manipulator=manipulator,
         context=context,
         viz=viz,
         node=node,
