@@ -10,6 +10,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose, NavigateToPose_GetResult_Response
 from geometry_msgs.msg import PoseStamped
+from pycram.datastructures.pose import PoseStamped as PyCramPoseStamped
 
 from pycram.ros import create_action_client
 
@@ -296,6 +297,34 @@ def min_distance_2_human(
     logger.info(
         f"Calculated target pose with {min_distance}m distance from human. "
         f"Human at ({human_x:.2f}, {human_y:.2f}), target at ({target_x:.2f}, {target_y:.2f})"
+    )
+
+    return target_pose
+
+
+def buffer_to_pose(target_pose: PyCramPoseStamped, buffer: float) -> PyCramPoseStamped:
+    """
+    Returns the target pose with a defined buffer distance that must be maintained.
+
+    The buffer defines the minimum distance (in meters) the robot must keep from
+    the target coordinate. The pose itself is returned unchanged – the buffer is
+    only used as metadata/constraint for the caller (e.g. to configure Nav2 tolerance).
+
+    :param target_pose: The target coordinate around which the buffer is defined
+                        (pycram.datastructures.pose.PoseStamped).
+    :param buffer: The minimum distance (in meters) to maintain from the target coordinate.
+    :return: The target pose unchanged.
+    :raises ValueError: If buffer is negative.
+    """
+    if buffer < 0.0:
+        raise ValueError(f"buffer must be non-negative, got {buffer}")
+
+    target_x = target_pose.pose.position.x
+    target_y = target_pose.pose.position.y
+
+    logger.info(
+        f"Buffer of {buffer}m defined around target ({target_x:.2f}, {target_y:.2f}). "
+        f"Navigation goal must keep at least {buffer}m distance from this position."
     )
 
     return target_pose
