@@ -4,14 +4,46 @@ import signal
 import logging
 import threading
 
+
+# ---------------------------------------------------------------------------
+# Monkey-patch ROSPackagePathLocator.resolve to correctly handle the common
+# case where ROS_PACKAGE_PATH entries are *parent* directories that contain
+# the package as a sub-directory (e.g. /opt/ros/humble/share/hsrb_description).
+# The original implementation checks `root.endswith(package_name)` for both
+# candidates, so the sub-directory case never resolves.
+# ---------------------------------------------------------------------------
+def _fixed_ros_package_path_resolve(self, package_name: str) -> str:
+    from semantic_digital_twin.exceptions import ParsingError
+
+    for root in os.environ.get("ROS_PACKAGE_PATH", "").split(":"):
+        if not root:
+            continue
+        # Case 1: root itself IS the package directory.
+        if os.path.isdir(root) and root.endswith(os.sep + package_name):
+            return root
+        # Case 2: root is a workspace/share dir that contains the package.
+        candidate = os.path.join(root, package_name)
+        if os.path.isdir(candidate):
+            return candidate
+    raise ParsingError(
+        message=f"Package '{package_name}' not found in ROS_PACKAGE_PATH."
+    )
+
+
+from semantic_digital_twin.adapters.package_resolver import ROSPackagePathLocator
+
+ROSPackagePathLocator.resolve = _fixed_ros_package_path_resolve
+# ---------------------------------------------------------------------------
+
 import rclpy
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot
-from pycram.robot_plans.actions.core.navigation import NavigateActionDescription
+
 from suturo_resources.suturo_map import load_environment
 
+from pycram.robot_plans import NavigateActionDescription
 
 logging.getLogger("semantic_digital_twin.world").setLevel(logging.WARN)
 logging.getLogger("semantic_digital_twin.adapters.urdf").setLevel(logging.ERROR)

@@ -9,9 +9,13 @@ from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from .pick_up import ReachActionDescription, PickUpAction
-from ... import PlaceMotion
+from ...motions.gripper import (
+    MoveTCPMotion,
+    MoveGripperMotion,
+    ReachMotion,
+    PlaceMotion,
+)
 from ....config.action_conf import ActionConfig
-from ...motions.gripper import MoveTCPMotion, MoveGripperMotion, ReachMotion
 from ....datastructures.enums import (
     Arms,
     ApproachDirection,
