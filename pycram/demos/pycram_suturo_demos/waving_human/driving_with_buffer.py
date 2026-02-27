@@ -9,10 +9,12 @@ from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot
-from pycram.robot_plans import NavigateActionDescription
+from pycram.robot_plans.actions.core.navigation import NavigateActionDescription
 from suturo_resources.suturo_map import load_environment
 
+
 logging.getLogger("semantic_digital_twin.world").setLevel(logging.WARN)
+logging.getLogger("semantic_digital_twin.adapters.urdf").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
