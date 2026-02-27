@@ -48,13 +48,9 @@ class ROSPackagePathLocator(PackageLocator):
         for root in os.environ.get("ROS_PACKAGE_PATH", "").split(":"):
             if not root:
                 continue
-            # Case 1: root itself IS the package directory.
-            if os.path.isdir(root) and root.endswith(os.sep + package_name):
-                return root
-            # Case 2: root is a workspace/share dir that contains the package as a sub-directory.
-            candidate = os.path.join(root, package_name)
-            if os.path.isdir(candidate):
-                return candidate
+            for candidate in [root, os.path.join(root, package_name)]:
+                if os.path.isdir(candidate) and root.endswith(package_name):
+                    return candidate
         raise ParsingError(
             message=f"Package '{package_name}' not found in ROS_PACKAGE_PATH."
         )

@@ -1,105 +1,191 @@
-import os
-import sys
-import signal
-import logging
-import threading
+"""
+driving_with_buffer.py
+======================
+Detects a waving human (via RoboKudo or dummy data) and drives the
+simulated HSR-B robot toward that human while keeping a configurable
+stand-off distance (buffer) using :func:`nav2_move.buffer_to_pose`.
 
+Pipeline
+--------
+1. Set up the simulation world via ``robot_setup``.
+2. Poll RoboKudo for a waving human (falls back to dummy pose).
+3. Apply ``buffer_to_pose`` so the robot stops *BUFFER_M* metres away.
+4. Execute ``NavigateActionDescription`` inside a ``SequentialPlan``
+   using ``simulated_robot``.
+
+Run
+---
+    python3 driving_with_buffer.py
+"""
+
+import logging
+import time
+from typing import Optional
 
 import rclpy
+from rclpy.logging import get_logger
+
+from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
-from pycram.external_interfaces import nav2_move
+from pycram.external_interfaces.nav2_move import buffer_to_pose
 from pycram.language import SequentialPlan
 from pycram.motion_executor import simulated_robot
+from pycram.robot_plans import NavigateActionDescription, ParkArmsActionDescription
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+    robot_setup,
+)
 
-from suturo_resources.suturo_map import load_environment
+try:
+    from pycram.external_interfaces.robokudo import send_query
 
-from pycram.robot_plans import NavigateActionDescription
+    _ROBOKUDO_AVAILABLE = True
+except ModuleNotFoundError:
+    logging.warning(
+        "robokudo_msgs not found – waving-human queries will use dummy data."
+    )
+    send_query = None
+    _ROBOKUDO_AVAILABLE = False
 
-logging.getLogger("semantic_digital_twin.world").setLevel(logging.WARN)
-logging.getLogger("semantic_digital_twin.adapters.urdf").setLevel(logging.ERROR)
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Make sibling packages importable when the script is run directly.
+# Configuration
 # ---------------------------------------------------------------------------
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_DEMOS_ROOT = os.path.abspath(os.path.join(_HERE, ".."))
-_SIM_SETUP_DIR = os.path.join(_DEMOS_ROOT, "helper_methods_and_useful_classes")
-_REAL_SETUP_DIR = os.path.join(_DEMOS_ROOT, "pycram_basic_hsr_demos")
-for _p in (_DEMOS_ROOT, _SIM_SETUP_DIR, _REAL_SETUP_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+BUFFER_M: float = 0.5  # stand-off distance to the human [m]
+SIMULATED: bool = True
 
-USE_REAL_ROBOT = False
+# ---------------------------------------------------------------------------
+# RoboKudo helper
+# ---------------------------------------------------------------------------
 
 
-def robot_move(target_pose: PoseStamped, context):
+def _extract_pose_fields(result) -> Optional[dict]:
+    """Extract raw pose numbers from a RoboKudo Query.Result."""
+    try:
+        ros_ps = result.res[0].pose[0]
+    except (AttributeError, IndexError, TypeError):
+        return None
+    return {
+        "frame_id": ros_ps.header.frame_id,
+        "position": [
+            ros_ps.pose.position.x,
+            ros_ps.pose.position.y,
+            ros_ps.pose.position.z,
+        ],
+        "orientation": [
+            ros_ps.pose.orientation.x,
+            ros_ps.pose.orientation.y,
+            ros_ps.pose.orientation.z,
+            ros_ps.pose.orientation.w,
+        ],
+    }
+
+
+def wait_for_waving_human(
+    retry_interval: float = 1.0,
+    timeout: Optional[float] = None,
+) -> dict:
+    """Poll RoboKudo until a waving human is found.
+
+    Falls back to a fixed dummy pose when ``robokudo_msgs`` is not installed
+    or the action server is unreachable.
     """
-    Sends a navigation goal to Nav2 (real robot) or executes it in simulation.
-    """
-    buffered_pose = nav2_move.buffer_to_pose(target_pose, 0.5)
+    _DUMMY = {
+        "frame_id": "map",
+        "position": [3.8683114051818848, 5.459158897399902, 0.0],
+        "orientation": [0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
+    }
 
-    if USE_REAL_ROBOT:
-        os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
-        logger.info(f"[REAL] Moving to {buffered_pose}")
-        nav2_move.start_nav_to_pose(buffered_pose)
-    else:
-        logger.info(f"[SIM] Moving to {buffered_pose}")
-        plan = SequentialPlan(
-            context,
-            NavigateActionDescription(target_location=buffered_pose),
-        )
-        with simulated_robot:
-            plan.perform()
+    if not _ROBOKUDO_AVAILABLE:
+        logger.warning("RoboKudo not available – using dummy waving-human pose.")
+        return _DUMMY
+
+    deadline = time.monotonic() + timeout if timeout is not None else None
+    attempt = 0
+    while True:
+        attempt += 1
+        logger.info(f"Waving query attempt {attempt} …")
+        result = send_query(obj_type="human", attributes=["waving"])
+        if result is None:
+            logger.warning(
+                "RoboKudo action server not available – falling back to dummy data."
+            )
+            return _DUMMY
+        data = _extract_pose_fields(result)
+        if data is not None:
+            logger.info(f"Waving human found after {attempt} attempt(s).")
+            return data
+        logger.warning("RoboKudo result has no pose – retrying …")
+
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.error("Timed out waiting for waving human.")
+            return _DUMMY
+        time.sleep(retry_interval)
 
 
-def main():
-    if not rclpy.ok():
-        rclpy.init()
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
 
-    if USE_REAL_ROBOT:
-        # noinspection PyUnresolvedReferences
-        from start_up import setup_hsrb_context
+result = robot_setup(SIMULATED)
 
-        rclpy_node, world, robot_view, context = setup_hsrb_context()
-    else:
-        # noinspection PyUnresolvedReferences
-        from simulation_setup import setup_hsrb_in_environment
+hsrb_world, robot_view, context = (
+    result.world,
+    result.robot_view,
+    result.context,
+)
 
-        result = setup_hsrb_in_environment(
-            load_environment=load_environment, with_viz=True
-        )
-        world, robot_view, context = result.world, result.robot_view, result.context
+# ---------------------------------------------------------------------------
+# Detect waving human
+# ---------------------------------------------------------------------------
 
-    cabinet = PoseStamped.from_list(
-        position=[3.8683114051818848, 5.459158897399902, 0.0],
-        orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
-        frame=world.root,
-    )
-    popcorn_table = PoseStamped.from_list(
-        position=[1.3, 5.3, 0.0],
-        orientation=[0.0, 0.0, 0.72, 0.64],
-        frame=world.root,
-    )
+logger.info("Waiting for waving human …")
+human_data = wait_for_waving_human(retry_interval=1.0)
 
-    robot_move(cabinet, context)
-    logger.info(
-        "Navigation done – RViz will keep showing the result. Press Ctrl+C or stop the process to exit."
-    )
+pos = human_data["position"]
+ori = human_data["orientation"]
+frame = human_data["frame_id"]
+print("\n=== Waving human detected ===")
+print(f"  frame_id   : {frame}")
+print(f"  position   : x={pos[0]:.4f}  y={pos[1]:.4f}  z={pos[2]:.4f}")
+print(f"  orientation: x={ori[0]:.4f}  y={ori[1]:.4f}  z={ori[2]:.4f}  w={ori[3]:.4f}")
 
-    # Block the main thread cheaply until killed (SIGTERM from IDE or Ctrl+C).
-    _stop = threading.Event()
+# ---------------------------------------------------------------------------
+# Apply buffer and build nav target
+# ---------------------------------------------------------------------------
 
-    def _set_stop(signum, frame):  # noqa: ANN001
-        _stop.set()
+human_pose = PoseStamped.from_list(
+    position=pos,
+    orientation=ori,
+    frame=hsrb_world.root,
+)
 
-    signal.signal(signal.SIGTERM, _set_stop)
-    signal.signal(signal.SIGINT, _set_stop)
-    _stop.wait()
+buffered_ros = buffer_to_pose(human_pose.ros_message(), BUFFER_M)
+nav_target = PoseStamped.from_ros_message(buffered_ros)
+nav_target.frame_id = hsrb_world.root
 
+print(
+    f"\n  Nav target (with {BUFFER_M}m buffer): "
+    f"x={float(nav_target.position.x):.3f}  "
+    f"y={float(nav_target.position.y):.3f}"
+)
+
+# ---------------------------------------------------------------------------
+# Planning & Execution
+# ---------------------------------------------------------------------------
+
+plan = SequentialPlan(
+    context,
+    ParkArmsActionDescription(Arms.BOTH),
+    NavigateActionDescription(target_location=nav_target),
+)
+
+try:
+    logger.info("Executing navigation plan in simulation …")
+    with simulated_robot:
+        plan.perform()
+    logger.info("Done – robot reached the buffered nav target.")
+finally:
     if rclpy.ok():
         rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()
