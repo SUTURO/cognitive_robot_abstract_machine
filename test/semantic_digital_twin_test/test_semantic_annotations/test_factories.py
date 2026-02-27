@@ -571,7 +571,7 @@ class TestFactories(unittest.TestCase):
         self.assertEqual(len(points), 10)
 
         min_point, max_point = table.min_max_points
-        assert all(p.reference_frame == table.root for p in points)
+        assert all(p.reference_frame == table.supporting_surface for p in points)
         assert all(p.x >= min_point.x for p in points)
         assert all(p.x <= max_point.x for p in points)
         assert all(p.y >= min_point.y for p in points)
