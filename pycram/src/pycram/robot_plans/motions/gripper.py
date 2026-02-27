@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
+from giskardpy.motion_statechart.goals.place import Place
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -8,6 +9,8 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from semantic_digital_twin.datastructures.definitions import GripperState
+from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.world_entity import Body
 from .base import BaseMotion
 from ...datastructures.enums import (
@@ -207,9 +210,14 @@ class MoveTCPWaypointsMotion(BaseMotion):
     @property
     def _motion_chart(self):
         tip = ViewManager().get_end_effector_view(self.arm, self.robot_view).tool_frame
+        root = (
+            self.world.root
+            if self.robot_view.full_body_controlled
+            else self.robot_view.root
+        )
         nodes = [
             CartesianPose(
-                root_link=self.robot_view.root,
+                root_link=root,
                 tip_link=tip,
                 goal_pose=pose.to_spatial_type(),
                 # threshold=0.005,
@@ -217,3 +225,45 @@ class MoveTCPWaypointsMotion(BaseMotion):
             for pose in self.waypoints
         ]
         return Sequence(nodes=nodes)
+
+
+@dataclass
+class PlaceMotion(BaseMotion):
+    """
+    Opens or closes the gripper
+    """
+
+    gripper: Manipulator = field(kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    object_designator: Body = field(kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    goal_pose: PoseStamped = field(kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    simulated: bool = field(default=False, kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    allow_gripper_collision: Optional[bool] = None
+    """
+    If the gripper is allowed to collide with something
+    """
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self):
+        goal_pose = self.goal_pose.to_spatial_type()
+
+        return Place(
+            manipulator=self.gripper,
+            object_geometry=self.object_designator,
+            goal_pose=goal_pose,
+            simulated=self.simulated,
+        )

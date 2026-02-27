@@ -9,6 +9,7 @@ from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from .pick_up import ReachActionDescription, PickUpAction
+from ... import PlaceMotion
 from ....config.action_conf import ActionConfig
 from ...motions.gripper import MoveTCPMotion, MoveGripperMotion, ReachMotion
 from ....datastructures.enums import (
@@ -46,6 +47,7 @@ class PlaceAction(ActionDescription):
     """
     Arm that is currently holding the object
     """
+    simulated: bool = field(default=True, kw_only=True)
     _pre_perform_callbacks = []
     """
     List to save the callbacks which should be called before performing the action.
@@ -71,14 +73,20 @@ class PlaceAction(ActionDescription):
 
         SequentialPlan(
             self.context,
-            ReachActionDescription(
-                self.target_location,
-                self.arm,
-                previous_grasp,
-                self.object_designator,
-                reverse_reach_order=True,
+            # ReachActionDescription(
+            #     self.target_location,
+            #     self.arm,
+            #     previous_grasp,
+            #     self.object_designator,
+            #     reverse_reach_order=True,
+            # ),
+            # MoveGripperMotion(GripperState.OPEN, self.arm),
+            PlaceMotion(
+                object_designator=self.object_designator,
+                simulated=self.simulated,
+                goal_pose=self.target_location,
+                gripper=manipulator,
             ),
-            MoveGripperMotion(GripperState.OPEN, self.arm),
         ).perform()
 
         # Detaches the object from the robot
@@ -143,12 +151,14 @@ class PlaceAction(ActionDescription):
         object_designator: Union[Iterable[Body], Body],
         target_location: Union[Iterable[PoseStamped], PoseStamped],
         arm: Union[Iterable[Arms], Arms],
+        simulated: bool,
     ) -> PartialDesignator[PlaceAction]:
         return PartialDesignator[PlaceAction](
             PlaceAction,
             object_designator=object_designator,
             target_location=target_location,
             arm=arm,
+            simulated=simulated,
         )
 
 
