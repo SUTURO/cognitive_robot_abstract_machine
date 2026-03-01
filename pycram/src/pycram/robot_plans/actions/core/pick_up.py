@@ -240,20 +240,34 @@ class GiskardPickUpAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        try:
+            from ...motions.pick_up import PickupMotion
+        except ImportError:
+            raise ImportError(
+                "The GiskardPickUpAction requires Giskardpy_ros, not only giskardpy."
+            )
         manipulator = ViewManager.get_end_effector_view(self.arm, self.robot_view)
         SequentialPlan(
             self.context,
             PickupMotion(
                 manipulator=manipulator,
                 object_geometry=self.object_designator,
+                gripper_vertical=self.gripper_vertical,
             ),
         ).perform()
 
-        # # Attach the object to the end effector
+        # Attach the object to the end effector
         # with self.world.modify_world():
         #     self.world.move_branch_with_fixed_connection(
         #         self.object_designator, manipulator.tool_frame
         #     )
+
+        # SequentialPlan(
+        #     self.context,
+        #     PullUpMotion(
+        #         manipulator=manipulator,
+        #     ),
+        # ).perform()
 
     def validate(
         self,
