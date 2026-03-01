@@ -8,9 +8,7 @@ from giskardpy.motion_statechart.ros2_nodes.gripper_command import GripperComman
 from typing_extensions import Optional, List
 
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
-from giskardpy.motion_statechart.binding_policy import GoalBindingPolicy
-from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
-from giskardpy.motion_statechart.data_types import DefaultWeights
+from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import (
     Goal,
@@ -24,7 +22,7 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
-    CartesianOrientation, CartesianPositionStraight,
+    CartesianOrientation,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
@@ -34,8 +32,7 @@ from krrood.symbolic_math.symbolic_math import (
     trinary_logic_and,
     Scalar,
 )
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.spatial_types import (
     Vector3,
     Point3,
@@ -234,7 +231,7 @@ class GraspMagic(ABC):
                 graspable_dim = vertical_dim
 
             if graspable_dim <= self.gripper_width:
-                valid_faces.append((local_axis, graspable_dim))
+                valid_faces.append((local_axis, axis_in_world, graspable_dim))
                 logger.debug(
                     f"Valid face found: axis={axis_name}, "
                     f"approach_dot_z={dot_with_world_z.to_np()[0]:.3f}, "
@@ -249,7 +246,8 @@ class GraspMagic(ABC):
             )
 
         # Select the axis most aligned with the approach direction (from robot to object)
-        grasp_axis = max(valid_faces, key=lambda x: abs(x[0].dot(obj_to_robot)))[0]
+        # Use the world-frame axis for the dot product so the comparison is in a consistent frame
+        grasp_axis = max(valid_faces, key=lambda x: abs(x[1].dot(obj_to_robot)))[0]
         grasp_axis.reference_frame = self.object_geometry
         grasp_axis.scale(1)
 
@@ -272,7 +270,7 @@ class GraspMagic(ABC):
             self.object_geometry
         ).bounding_box()
 
-        robot_pos = self.manipulator.tool_frame.global_pose
+        robot_pos = self.manipulator._robot.root.global_pose
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
         obj_to_robot.scale(1)
 

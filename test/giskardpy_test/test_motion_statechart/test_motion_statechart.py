@@ -2159,8 +2159,8 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
             collision=ShapeCollection([Box(scale=Scale(0.2, 0.1, 0.2))]),
             visual=ShapeCollection([Box(scale=Scale(0.2, 0.1, 0.2))]),
         )
-        dof_limits = DegreeOfFreedomLimits(lower=DerivativeMap(data=[None, -1.0, None, None]),
-                                           upper=DerivativeMap(data=[None, 1.0, None, None]), )
+        dof_limits = DegreeOfFreedomLimits(lower=DerivativeMap(None, -1.0, None, None),
+                                           upper=DerivativeMap(None, 1.0, None, None))
         dof = DegreeOfFreedom(limits=dof_limits)
         hsr_world_setup.add_degree_of_freedom(dof)
         connection = PrismaticConnection(
