@@ -45,9 +45,11 @@ class SetupResult:
 
 def default_paths() -> WorldSetupPaths:
     return WorldSetupPaths(
-        hsrb_urdf=_here("..", "..","..", "resources", "robots", "hsrb.urdf"),
+        hsrb_urdf=_here("..", "..", "..", "resources", "robots", "hsrb.urdf"),
         milk_stl=_here("..", "..", "..", "resources", "objects", "milk.stl"),
-        cereal_stl=_here("..", "..", "..", "resources", "objects", "breakfast_cereal.stl"),
+        cereal_stl=_here(
+            "..", "..", "..", "resources", "objects", "breakfast_cereal.stl"
+        ),
     )
 
 
@@ -170,5 +172,6 @@ def setup_hsrb_in_environment(
 
     viz = try_make_viz(world) if with_viz else None
 
-    viz.with_tf_publisher()
+    if viz is not None:
+        viz.with_tf_publisher()
     return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)

@@ -128,7 +128,10 @@ def wait_for_waving_human(
 # Setup
 # ---------------------------------------------------------------------------
 
-result = robot_setup(SIMULATED)
+if not rclpy.ok():
+    rclpy.init()
+
+result = robot_setup(SIMULATED, with_objects=False)
 
 hsrb_world, robot_view, context = (
     result.world,
