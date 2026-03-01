@@ -12,13 +12,9 @@ if _DEMOS_ROOT not in sys.path:
 
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.robokudo import query_waving_human
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
-    robot_setup,
-)
 
 
 logger = logging.getLogger(__name__)
-rclpy_node, world, robot_view, context = robot_setup()
 
 
 class ContinuousWavingDetector:
@@ -96,6 +92,11 @@ class ContinuousWavingDetector:
 
 
 def main() -> None:
+    from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+        robot_setup,
+    )
+
+    setup_result = robot_setup()
     detector = ContinuousWavingDetector(retry_interval=1.0)
 
     logger.info("Waiting for a waving human …")
