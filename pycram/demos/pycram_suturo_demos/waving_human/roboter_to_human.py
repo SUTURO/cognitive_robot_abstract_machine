@@ -79,14 +79,34 @@ logger.info("Waving human detected at %s", human_pose)
 
 robot_pose = get_robot_pose()
 
+# Rebuild human_pose with a proper datetime stamp so .ros_message() works
+# (from_ros_message stores a ROS Time which Header.ros_message cannot handle)
+human_pose_clean = PoseStamped.from_list(
+    position=human_pose.position.to_list(),
+    orientation=human_pose.orientation.to_list(),
+    frame=world.root,
+)
+
 target_ros = min_distance_2_human(
-    human_pose=human_pose.ros_message(),
+    human_pose=human_pose_clean.ros_message(),
     robot_pose=robot_pose.ros_message(),
     min_distance=MIN_DISTANCE_M,
 )
 
-nav_target = PoseStamped.from_ros_message(target_ros)
-nav_target.frame_id = world.root
+nav_target = PoseStamped.from_list(
+    position=[
+        target_ros.pose.position.x,
+        target_ros.pose.position.y,
+        target_ros.pose.position.z,
+    ],
+    orientation=[
+        target_ros.pose.orientation.x,
+        target_ros.pose.orientation.y,
+        target_ros.pose.orientation.z,
+        target_ros.pose.orientation.w,
+    ],
+    frame=world.root,
+)
 
 logger.info(
     "Nav target: x=%.3f  y=%.3f",
