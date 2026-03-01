@@ -362,6 +362,12 @@ class Table(Furniture, HasSupportingSurface):
     A semantic annotation that represents a table.
     """
 
+@dataclass(eq=False)
+class Counter_Top(Furniture, HasSupportingSurface):
+    """
+    A semantic annotation that represents a counter top.
+    """
+
 
 @dataclass(eq=False)
 class Cabinet(Furniture, HasCaseAsRootBody):
