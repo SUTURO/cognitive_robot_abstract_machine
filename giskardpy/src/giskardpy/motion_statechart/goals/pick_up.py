@@ -1,10 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Tuple
-
-from giskardpy.motion_statechart.ros2_nodes.gripper_command import GripperCommandTask
 from typing_extensions import Optional, List
 
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
@@ -19,12 +16,12 @@ from giskardpy.motion_statechart.graph_node import (
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
 )
+from giskardpy.motion_statechart.ros2_nodes.gripper_control import OpenHand, CloseHand
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
     CartesianOrientation,
 )
-from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
 from krrood.symbolic_math.symbolic_math import (
@@ -45,12 +42,8 @@ from semantic_digital_twin.world_description.world_entity import (
 )
 
 
-class HSRGripper(Enum):
-    open_gripper = 1.23
-    close_gripper = 0
-
-
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 PICKUP_PREPOSE_DISTANCE = 0.2
 HSR_GRIPPER_WIDTH = 0.15
@@ -70,26 +63,15 @@ class PickUp(Goal):
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
-        grasp_magic = BoxGraspMagic(
-            manipulator=self.manipulator,
-            object_geometry=self.object_geometry,
-            gripper_vertical=self.gripper_vertical,
-            gripper_width=HSR_GRIPPER_WIDTH,
-        )
+        logger.debug(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         self.sequence = Sequence(
             [
                 OpenHand(simulated_execution=self.simulated_execution),
-                PreGraspPose(
+                GraspingSequence(
                     manipulator=self.manipulator,
                     object_geometry=self.object_geometry,
                     gripper_width=HSR_GRIPPER_WIDTH,
-                    grasp_magic=grasp_magic,
-                ),
-                Grasping(
-                    manipulator=self.manipulator,
-                    object_geometry=self.object_geometry,
-                    gripper_width=HSR_GRIPPER_WIDTH,
-                    grasp_magic=grasp_magic,
+                    gripper_vertical=self.gripper_vertical,
                 ),
                 CloseHand(ft=self.ft, simulated_execution=self.simulated_execution),
                 # PullUp(
@@ -108,29 +90,6 @@ class PickUp(Goal):
 
 
 @dataclass(repr=False, eq=False)
-class OpenHand(Goal):
-    simulated_execution: bool = field(kw_only=True, default=True)
-
-    def expand(self, context: BuildContext) -> None:
-        if self.simulated_execution:
-            self.open_gripper = JointPositionList(
-                goal_state=JointState.from_str_dict(
-                    {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
-                )
-            )
-        else:
-            self.open_gripper = GripperCommandTask(
-                action_topic="/gripper_controller/grasp", effort=0.8
-            )
-        self.add_node(self.open_gripper)
-
-    def build(self, context: BuildContext) -> NodeArtifacts:
-        artifacts = super().build(context)
-        artifacts.observation = self.open_gripper.observation_variable
-        return artifacts
-
-
-@dataclass(repr=False, eq=False)
 class GraspMagic(ABC):
     manipulator: ParallelGripper = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
@@ -139,16 +98,12 @@ class GraspMagic(ABC):
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
 
     @abstractmethod
-    def get_pre_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
+    def get_grasp_sequence(
+        self, context: BuildContext
+    ) -> Tuple[Tuple[CartesianPosition, "Parallel"], Tuple[CartesianPosition, "Parallel"]]:
         """
-        Given an object geometry, returns a list of motion statechart nodes for pre-grasp positioning.
-        """
-        pass
-
-    @abstractmethod
-    def get_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        """
-        Given an object geometry, returns a list of motion statechart nodes that grasp the object.
+        Compute all grasp geometry once and return nodes for both phases:
+        ((pre_grasp_cart, pre_grasp_align), (grasp_cart, grasp_align))
         """
         pass
 
@@ -380,172 +335,106 @@ class GraspMagic(ABC):
 
 @dataclass(repr=False, eq=False)
 class BoxGraspMagic(GraspMagic):
-    def get_pre_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = (
-            self._compute_grasp_geometry(context)
-        )
+    def get_grasp_sequence(
+        self, context: BuildContext
+    ) -> Tuple[Tuple[CartesianPosition, Parallel], Tuple[CartesianPosition, Parallel]]:
+        # Compute geometry once for both phases
+        obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = self._compute_grasp_geometry(context)
 
         pre_grasp_point = self._compute_position_along_axis(
-            context,
-            obj_pose,
-            obj_bbox,
-            grasp_axis,
-            obj_to_robot,
-            PICKUP_PREPOSE_DISTANCE,
+            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, PICKUP_PREPOSE_DISTANCE
         )
-
-        print(f"-------------------")
-        print(f"Pre grasp point: {pre_grasp_point.to_np()}")
-        print(f"-------------------")
-
-        cart_pos = CartesianPosition(
+        logger.debug(f"Pre grasp point: {pre_grasp_point.to_np()}")
+        pre_cart = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=pre_grasp_point,
             name="pre_grasp_position",
         )
-
-        # Get orientation nodes with a looser threshold: pre-grasp only needs to be
-        # approximately correct; the grasping phase re-applies tighter constraints.
-        align_nodes = self._get_orientation_nodes(
-            context, tool_frame, obj_pose, threshold=0.05
-        )
-        parallel = Parallel(align_nodes)
-
-        return [cart_pos, parallel]
-
-    def get_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = (
-            self._compute_grasp_geometry(context)
-        )
+        # Looser threshold for pre-grasp; the grasp phase re-applies tighter constraints.
+        pre_align = Parallel(self._get_orientation_nodes(context, tool_frame, obj_pose, threshold=0.05))
 
         grasp_point = self._compute_position_along_axis(
-            context,
-            obj_pose,
-            obj_bbox,
-            grasp_axis,
-            obj_to_robot,
-            additional_offset=-0.05,
+            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, additional_offset=-0.05
         )
-
-        print(f'Grasp Point: {grasp_point.to_np()}')
-
-        cart_pos = CartesianPosition(
+        logger.debug(f"Grasp point: {grasp_point.to_np()}")
+        grasp_cart = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=grasp_point,
-            name="Grasping",
+            name="grasp_position",
         )
+        grasp_align = Parallel(self._get_orientation_nodes(context, tool_frame, obj_pose))
 
-        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose)
-        parallel = Parallel(align_nodes)
-
-        return [cart_pos, parallel]
+        return (pre_cart, pre_align), (grasp_cart, grasp_align)
 
 
 class CylinderGraspMagic(GraspMagic):
-    def get_pre_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        # TODO: Implement cylinder-specific pre-grasp logic
-        pass
-
-    def get_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
+    def get_grasp_sequence(self, context: BuildContext):
         # TODO: Implement cylinder-specific grasp logic
         pass
 
 
 @dataclass(repr=False, eq=False)
-class PreGraspPose(Goal):
-    manipulator: ParallelGripper = field(kw_only=True)
-    object_geometry: Body = field(kw_only=True)
-    gripper_width: float = field(kw_only=True)
-    gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
-    grasp_magic: Optional[GraspMagic] = field(default=None, kw_only=True)
+class _GraspPhase(Goal):
+    """
+    Internal helper: runs CartesianPosition and orientation in parallel.
+    If wait_for_align is True (pre-grasp), completes when both position AND orientation are satisfied.
+    If wait_for_align is False (grasp), completes when position only is satisfied.
+    """
+
+    _cart: CartesianPosition = field(kw_only=True)
+    _align: Parallel = field(kw_only=True)
+    _wait_for_align: bool = field(kw_only=True, default=True)
 
     def expand(self, context: BuildContext) -> None:
-        if self.grasp_magic is None:
-            self.grasp_magic = BoxGraspMagic(
-                manipulator=self.manipulator,
-                object_geometry=self.object_geometry,
-                gripper_width=self.gripper_width,
-                gripper_vertical=self.gripper_vertical,
-            )
-
-        nodes = self.grasp_magic.get_pre_grasp_nodes(context)
-
-        for node in nodes:
-            self.add_node(node)
-            if isinstance(node, CartesianPosition):
-                self._cart_pose = node
-            elif isinstance(node, Parallel):
-                self.parallel = node
-        print(f'Object pose: {self.object_geometry.global_pose.to_np()}')
-        print('Stop')
+        self.add_node(self._cart)
+        self.add_node(self._align)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        # artifacts.observation = self._cart_pose.observation_variable
-        artifacts.observation = trinary_logic_and(
-            self._cart_pose.observation_variable, self.parallel.observation_variable
-        )
-        return artifacts
-
-
-@dataclass(repr=False, eq=False)
-class Grasping(Goal):
-    manipulator: ParallelGripper = field(kw_only=True)
-    object_geometry: Body = field(kw_only=True)
-    gripper_width: float = field(kw_only=True)
-    gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
-    grasp_magic: Optional[GraspMagic] = field(default=None, kw_only=True)
-
-    def expand(self, context: BuildContext) -> None:
-        if self.grasp_magic is None:
-            self.grasp_magic = BoxGraspMagic(
-                manipulator=self.manipulator,
-                object_geometry=self.object_geometry,
-                gripper_width=self.gripper_width,
-                gripper_vertical=self.gripper_vertical,
-            )
-
-        nodes = self.grasp_magic.get_grasp_nodes(context)
-
-        for node in nodes:
-            self.add_node(node)
-            if isinstance(node, CartesianPosition):
-                self.cart = node
-            elif isinstance(node, Parallel):
-                self.parallel = node
-
-        print(f'Stop2')
-
-    def build(self, context: BuildContext) -> NodeArtifacts:
-        artifacts = super().build(context)
-        artifacts.observation = self.cart.observation_variable
-        return artifacts
-
-
-@dataclass(repr=False, eq=False)
-class CloseHand(Goal):
-    ft: bool = field(kw_only=True, default=False)
-    simulated_execution: bool = field(kw_only=True, default=True)
-
-    def expand(self, context: BuildContext) -> None:
-        if self.simulated_execution:
-            self.close_gripper = JointPositionList(
-                goal_state=JointState.from_str_dict(
-                    {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
-                )
+        if self._wait_for_align:
+            artifacts.observation = trinary_logic_and(
+                self._cart.observation_variable, self._align.observation_variable
             )
         else:
-            self.close_gripper = GripperCommandTask(
-                action_topic="/gripper_controller/grasp",
-                effort=-0.8,
+            artifacts.observation = self._cart.observation_variable
+        return artifacts
+
+
+@dataclass(repr=False, eq=False)
+class GraspingSequence(Goal):
+    """
+    Runs the full grasp sequence (pre-grasp then grasp) as a single Goal.
+    Computes all grasp geometry once and builds both phases from the result.
+    """
+
+    manipulator: ParallelGripper = field(kw_only=True)
+    object_geometry: Body = field(kw_only=True)
+    gripper_width: float = field(kw_only=True)
+    gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+    grasp_magic: Optional[GraspMagic] = field(default=None, kw_only=True)
+
+    def expand(self, context: BuildContext) -> None:
+        if self.grasp_magic is None:
+            self.grasp_magic = BoxGraspMagic(
+                manipulator=self.manipulator,
+                object_geometry=self.object_geometry,
+                gripper_width=self.gripper_width,
+                gripper_vertical=self.gripper_vertical,
             )
-        self.add_node(self.close_gripper)
+
+        (pre_cart, pre_align), (grasp_cart, grasp_align) = self.grasp_magic.get_grasp_sequence(context)
+
+        self._seq = Sequence([
+            _GraspPhase(_cart=pre_cart, _align=pre_align, _wait_for_align=True),
+            _GraspPhase(_cart=grasp_cart, _align=grasp_align, _wait_for_align=False),
+        ])
+        self.add_node(self._seq)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        artifacts.observation = self.close_gripper.observation_variable
+        artifacts.observation = self._seq.observation_variable
         return artifacts
 
 
