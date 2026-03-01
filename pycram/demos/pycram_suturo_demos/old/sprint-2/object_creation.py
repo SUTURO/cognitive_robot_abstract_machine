@@ -22,7 +22,7 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
 
 
 def perceive_and_spawn_all_objects(hsrb_world):
-    perceived_objects_result = robokudo.query_all_objects().res
+    # perceived_objects_result = robokudo.query_all_objects().res
     perceived_objects = {}
     for perceived_object in perceived_objects_result:
         object_size = perceived_object.shape_size[0].dimensions

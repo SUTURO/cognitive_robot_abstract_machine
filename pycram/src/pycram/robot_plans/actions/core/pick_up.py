@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.datastructures.definitions import GripperState
-from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.world_entity import Body
 from ...motions.gripper import MoveGripperMotion, MoveTCPMotion
+from ...motions.pick_up import PickupMotion
 from ....config.action_conf import ActionConfig
 from ....datastructures.enums import (
     Arms,
@@ -25,7 +25,6 @@ from ....failures import ObjectNotInGraspingArea
 from ....language import SequentialPlan
 from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
-from ....utils import translate_pose_along_local_axis
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +163,7 @@ class PickUpAction(ActionDescription):
             ),
             MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
         ).perform()
+
         end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
         # Attach the object to the end effector
@@ -208,6 +208,96 @@ class PickUpAction(ActionDescription):
             object_designator=object_designator,
             arm=arm,
             grasp_description=grasp_description,
+        )
+
+
+@dataclass
+class GiskardPickUpAction(ActionDescription):
+    """
+    Let the robot pick up an object.
+    """
+
+    object_designator: Body = field(default=None, kw_only=True)
+    """
+    Object designator_description describing the object that should be picked up
+    """
+
+    arm: Arms = field(default=Arms.LEFT, kw_only=True)
+    """
+    manipulator that should be used for pick up
+    """
+
+    # If True, the gripper is kept vertically aligned during the grasp
+    # kw_only=True forces this to be passed as a keyword argument
+    gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+
+    _pre_perform_callbacks = []
+    """
+    List to save the callbacks which should be called before performing the action.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def execute(self) -> None:
+        try:
+            from ...motions.pick_up import PickupMotion
+        except ImportError:
+            raise ImportError(
+                "The GiskardPickUpAction requires Giskardpy_ros, not only giskardpy."
+            )
+        manipulator = ViewManager.get_end_effector_view(self.arm, self.robot_view)
+        SequentialPlan(
+            self.context,
+            PickupMotion(
+                manipulator=manipulator,
+                object_geometry=self.object_designator,
+                gripper_vertical=self.gripper_vertical,
+            ),
+        ).perform()
+
+        # Attach the object to the end effector
+        # with self.world.modify_world():
+        #     self.world.move_branch_with_fixed_connection(
+        #         self.object_designator, manipulator.tool_frame
+        #     )
+
+        # SequentialPlan(
+        #     self.context,
+        #     PullUpMotion(
+        #         manipulator=manipulator,
+        #     ),
+        # ).perform()
+
+    def validate(
+        self,
+        result: Optional[Any] = None,
+        max_wait_time: Optional[timedelta] = None,
+    ):
+        """
+        TODO
+        Check if picked up object is in contact with the gripper.
+        """
+        if not has_gripper_grasped_body(self.arm, self.object_designator):
+            raise ObjectNotGraspedError(
+                self.object_designator,
+                World.robot,
+                self.arm,
+                self.grasp_description,
+            )
+
+    @classmethod
+    def description(
+        cls,
+        object_designator: Union[Iterable[Body], Body],
+        arm: Union[Iterable[Arms], Arms] = None,
+        gripper_vertical: Union[Iterable[bool], bool] = True,
+    ) -> PartialDesignator[GiskardPickUpAction]:
+        return PartialDesignator[GiskardPickUpAction](
+            GiskardPickUpAction,
+            object_designator=object_designator,
+            arm=arm,
+            gripper_vertical=gripper_vertical,
         )
 
 
@@ -276,4 +366,5 @@ class GraspingAction(ActionDescription):
 
 ReachActionDescription = ReachAction.description
 PickUpActionDescription = PickUpAction.description
+GiskardPickUpActionDescription = GiskardPickUpAction.description
 GraspingActionDescription = GraspingAction.description
