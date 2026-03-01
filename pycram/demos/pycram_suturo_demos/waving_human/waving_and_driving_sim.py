@@ -1,54 +1,26 @@
 """
-waving_and_driving_sim.py
-==========================
-Queries RoboKudo continuously until a waving human is detected, then
-drives the simulated HSR-B robot toward that human and visualises the
-motion in RViz via VizMarkerPublisher / TFPublisher.
+waving_and_driving_sim.py – Detect a waving human (or use dummy data)
+and drive the HSR-B toward them, keeping a minimum stand-off distance.
 
-Pipeline
---------
-1. Boot the simulation world (HSRB URDF + suturo environment map).
-2. Poll RoboKudo until a waving human is found.
-3. Convert the detected RoboKudo pose (in ``head_rgbd_sensor_rgb_frame``)
-   into a nav target expressed in the *world root* (map) frame by reading
-   the current robot base pose from the simulation world.
-4. Execute ``NavigateActionDescription`` inside a ``SequentialPlan``
-   using ``simulated_robot`` so the motion is visible in RViz.
+Same logic as roboter_to_human.py but falls back to a fixed dummy pose
+when RoboKudo is not available.
 
-Run
----
-    python3 waving_and_driving_sim.py
-
-Make sure RViz is open and subscribed to:
-    - /visualization_marker_array  (VizMarkerPublisher)
-    - /tf                          (TFPublisher)
+Set ``SIMULATED`` to switch between simulation and real robot.
 """
 
 import logging
-import os
-import sys
 import time
 from typing import Optional
 
+import numpy as np
 import rclpy
-from suturo_resources.suturo_map import load_environment
 
-# ---------------------------------------------------------------------------
-# Make sibling packages importable when the script is run directly.
-# ---------------------------------------------------------------------------
-_WAVING_HUMAN_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEMOS_ROOT = os.path.abspath(os.path.join(_WAVING_HUMAN_DIR, ".."))
-_SIM_SETUP_DIR = os.path.abspath(
-    os.path.join(_DEMOS_ROOT, "helper_methods_and_useful_classes")
-)
-for _p in (_DEMOS_ROOT, _SIM_SETUP_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
+from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
+from pycram.external_interfaces.nav2_move import min_distance_2_human
 from pycram.language import SequentialPlan
-from pycram.motion_executor import simulated_robot
-from pycram.robot_plans import NavigateActionDescription
+from pycram.motion_executor import real_robot, simulated_robot
+from pycram.robot_plans import ParkArmsActionDescription, NavigateActionDescription
 
 try:
     from pycram.external_interfaces.robokudo import send_query
@@ -60,24 +32,19 @@ except ModuleNotFoundError:
     )
     send_query = None
     _ROBOKUDO_AVAILABLE = False
-from pycram.external_interfaces import nav2_move
-
-# simulation_setup lives in hsrb_simulation/ and is injected into sys.path above.
-# noinspection PyUnresolvedReferences
-from simulation_setup import setup_hsrb_in_environment  # from hsrb_simulation/
-
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# ---------------------------------------------------------------------------
-# Minimum stand-off distance to the human [m]
-# ---------------------------------------------------------------------------
+# Configuration
+SIMULATED: bool = True
 MIN_DISTANCE_M: float = 1.0
 
-
-# ---------------------------------------------------------------------------
-# RoboKudo helper – same raw extraction as waving_continuous_plain_data.py
-# ---------------------------------------------------------------------------
+_DUMMY = {
+    "frame_id": "map",
+    "position": [3.8683114051818848, 5.459158897399902, 0.0],
+    "orientation": [0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
+}
 
 
 def _extract_pose_fields(result) -> Optional[dict]:
@@ -103,25 +70,13 @@ def _extract_pose_fields(result) -> Optional[dict]:
 
 
 def wait_for_waving_human(
-    retry_interval: float = 0,
+    retry_interval: float = 1.0,
     timeout: Optional[float] = None,
-) -> Optional[dict]:
+) -> dict:
     """Poll RoboKudo until a waving human is found.
 
-    When ``robokudo_msgs`` is not installed the function immediately returns a
-    fixed dummy pose so the rest of the pipeline can be exercised without a
-    real perception back-end.
-
-    :param retry_interval: Seconds between failed queries.
-    :param timeout: Give up after this many seconds (None = forever).
-    :return: Plain dict with frame_id / position / orientation, or None.
+    Falls back to dummy data when RoboKudo is unavailable.
     """
-    _DUMMY = {
-        "frame_id": "map",
-        "position": [3.8683114051818848, 5.459158897399902, 0.0],
-        "orientation": [0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
-    }
-
     if not _ROBOKUDO_AVAILABLE:
         logger.warning("RoboKudo not available – using dummy waving-human pose.")
         return _DUMMY
@@ -133,8 +88,6 @@ def wait_for_waving_human(
         logger.info("Waving query attempt %d …", attempt)
         result = send_query(obj_type="human", attributes=["waving"])
         if result is None:
-            # send_query returns None when the action server is unavailable –
-            # there is no point retrying; fall back to dummy data immediately.
             logger.warning(
                 "RoboKudo action server not available – falling back to dummy data."
             )
@@ -151,123 +104,112 @@ def wait_for_waving_human(
         time.sleep(retry_interval)
 
 
-# ---------------------------------------------------------------------------
-# Coordinate transform helper
-# ---------------------------------------------------------------------------
+if not rclpy.ok():
+    rclpy.init()
 
-
-def _robot_base_pose(world) -> PoseStamped:
-    """Return the current robot base pose in world.root frame."""
-    world_root = world.root
-    base = world.get_body_by_name("base_footprint")
-    return PoseStamped.from_matrix(base.global_pose.to_np(), frame=world_root)
-
-
-def _human_nav_target(
-    human_data: dict,
-    robot_pose: PoseStamped,
-    world,
-    min_distance: float = MIN_DISTANCE_M,
-) -> PoseStamped:
-    """Compute a nav target *min_distance* metres in front of the human.
-
-    Converts PyCRAM PoseStamped objects to ROS PoseStamped, delegates the
-    distance calculation to :func:`nav2_move.min_distance_2_human`, then
-    converts the result back to a PyCRAM PoseStamped in *world.root* frame.
-    """
-    pos = human_data["position"]
-    ori = human_data["orientation"]
-    world_root = world.root
-
-    # Build ROS PoseStamped for the human (in world/map frame).
-    # RoboKudo reports the pose in the camera frame; we use it directly here
-    # as an approximate map-frame pose (valid for simulation validation).
-    human_ros = PoseStamped.from_list(
-        position=pos,
-        orientation=ori,
-        frame=world_root,
-    ).ros_message()
-
-    robot_ros = robot_pose.ros_message()
-
-    target_ros = nav2_move.min_distance_2_human(
-        human_pose=human_ros,
-        robot_pose=robot_ros,
-        min_distance=min_distance,
+# World setup
+if SIMULATED:
+    from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+        robot_setup,
     )
 
-    target = PoseStamped.from_ros_message(target_ros)
-    target.frame_id = world_root
-
-    logger.info(
-        "Nav target: x=%.3f  y=%.3f",
-        float(target.position.x),
-        float(target.position.y),
+    setup_result = robot_setup(simulation=True, with_objects=False)
+    world, robot_view, context = (
+        setup_result.world,
+        setup_result.robot_view,
+        setup_result.context,
     )
-    return target
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-
-def main() -> None:
-
-    # 1. Init ROS 2
-    if not rclpy.ok():
-        rclpy.init()
-
-    # 2. Build simulation world (HSRB + environment, with RViz publishers)
-    logger.info("Setting up simulation world …")
-
-    result = setup_hsrb_in_environment(load_environment=load_environment, with_viz=True)
-    world = result.world
-    context = result.context
-
-    # 3. Detect waving human via RoboKudo
-    logger.info("Waiting for waving human …")
-    human_data = wait_for_waving_human(retry_interval=1.0)
-
-    pos = human_data["position"]
-    ori = human_data["orientation"]
-    frame = human_data["frame_id"]
-    print("\n=== Waving human detected ===")
-    print(f"  frame_id   : {frame}")
-    print(f"  position   : x={pos[0]:.4f}  y={pos[1]:.4f}  z={pos[2]:.4f}")
-    print(
-        f"  orientation: x={ori[0]:.4f}  y={ori[1]:.4f}  z={ori[2]:.4f}  w={ori[3]:.4f}"
-    )
-    print(
-        f"\n  PoseStamped.from_list(\n"
-        f"      position={[round(v, 4) for v in pos]},\n"
-        f"      orientation={[round(v, 4) for v in ori]},\n"
-        f'      frame="{frame}",\n'
-        f"  )"
+else:
+    from demos.pycram_suturo_demos.pycram_basic_hsr_demos.start_up import (
+        setup_hsrb_context,
     )
 
-    # 4. Compute nav target in map/world frame
-    robot_pose = _robot_base_pose(world)
-    nav_target = _human_nav_target(human_data, robot_pose, world)
-
-    print(
-        f"\n  Nav target (world frame): "
-        f"x={float(nav_target.position.x):.3f}  "
-        f"y={float(nav_target.position.y):.3f}"
-    )
-
-    # 5. Execute in simulation (visible in RViz)
-    plan = SequentialPlan(
-        context,
-        NavigateActionDescription(target_location=nav_target),
-    )
-
-    logger.info("Executing navigation plan in simulation …")
-    with simulated_robot:
-        plan.perform()
-
-    logger.info("Done – robot reached the nav target.")
+    _node, world, robot_view, context = setup_hsrb_context()
 
 
-if __name__ == "__main__":
-    main()
+def get_robot_pose() -> PoseStamped:
+    """Return the current robot base pose."""
+    return PoseStamped.from_spatial_type(robot_view.root.global_pose)
+
+
+# Detect waving human
+human_data = wait_for_waving_human(retry_interval=1.0)
+
+pos = human_data["position"]
+ori = human_data["orientation"]
+logger.info("Waving human detected at pos=%s", pos)
+
+
+# Compute navigation target (min distance from human)
+robot_pose = get_robot_pose()
+
+human_pose_clean = PoseStamped.from_list(
+    position=pos,
+    orientation=ori,
+    frame=world.root,
+)
+
+target_ros = min_distance_2_human(
+    human_pose=human_pose_clean.ros_message(),
+    robot_pose=robot_pose.ros_message(),
+    min_distance=MIN_DISTANCE_M,
+)
+
+# Navigation target: position at min_distance from human, facing the human.
+nav_target = PoseStamped.from_list(
+    position=[
+        target_ros.pose.position.x,
+        target_ros.pose.position.y,
+        target_ros.pose.position.z,
+    ],
+    orientation=[
+        target_ros.pose.orientation.x,
+        target_ros.pose.orientation.y,
+        target_ros.pose.orientation.z,
+        target_ros.pose.orientation.w,
+    ],
+    frame=world.root,
+)
+
+logger.info(
+    "Nav target: x=%.3f  y=%.3f",
+    float(nav_target.position.x),
+    float(nav_target.position.y),
+)
+
+# Execute plan
+plan = SequentialPlan(
+    context,
+    ParkArmsActionDescription(Arms.BOTH),
+    NavigateActionDescription(target_location=nav_target),
+)
+
+executor = simulated_robot if SIMULATED else real_robot
+
+with executor:
+    plan.perform()
+
+# Log where the robot actually stopped
+final_pose = get_robot_pose()
+final_pos = [
+    float(final_pose.position.x),
+    float(final_pose.position.y),
+    float(final_pose.position.z),
+]
+goal_pos = [
+    float(nav_target.position.x),
+    float(nav_target.position.y),
+    float(nav_target.position.z),
+]
+
+dist_to_goal = np.linalg.norm(np.array(final_pos[:2]) - np.array(goal_pos[:2]))
+dist_to_human = np.linalg.norm(np.array(final_pos[:2]) - np.array(pos[:2]))
+
+print("=== Navigation result ===")
+print(f"  Robot stopped at:  x={final_pos[0]:.3f}  y={final_pos[1]:.3f}")
+print(f"  Goal was at:       x={goal_pos[0]:.3f}  y={goal_pos[1]:.3f}")
+print(f"  Human is at:       x={pos[0]:.3f}  y={pos[1]:.3f}")
+print(f"  Distance to goal:  {dist_to_goal:.3f} m")
+print(f"  Distance to human: {dist_to_human:.3f} m (requested: {MIN_DISTANCE_M:.1f} m)")
+
+print("Done – robot reached the target.")
