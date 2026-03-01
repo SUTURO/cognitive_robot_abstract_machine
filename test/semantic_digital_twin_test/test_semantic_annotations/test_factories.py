@@ -535,6 +535,34 @@ class TestFactories(unittest.TestCase):
         self.assertEqual(len(world.regions), 1)
         self.assertTrue(len(surface.area.combined_mesh.vertices) > 0)
 
+    def test_supporting_surface_position_on_top_of_table(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        with world.modify_world():
+            table = Table.create_with_new_body_in_world(
+                name=PrefixedName("table"),
+                world=world,
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(z=1.5),
+            )
+        table_scale = Scale(1.0, 1.0, 0.5)
+        table.root.collision = BoundingBoxCollection.from_event(
+            table.root, table_scale.to_simple_event().as_composite_set()
+        ).as_shapes()
+        table.root.visual = table.root.collision
+
+        with world.modify_world():
+            surface = table.calculate_supporting_surface()
+
+        _, max_point = table.min_max_points
+        # supporting surface should be at the height of the table's global z + the max z of the table's bounding box (since the table's origin is at its center)
+        expected_z = table.root.global_pose.z + max_point.z
+
+        self.assertIsNotNone(surface)
+        self.assertEqual(surface, table.supporting_surface)
+        self.assertEqual(expected_z, surface.global_pose.z)
+
     def test_sample_points_from_surface(self):
         world = World()
         root = Body(name=PrefixedName("root"))
