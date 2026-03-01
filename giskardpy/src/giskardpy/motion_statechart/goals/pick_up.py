@@ -70,7 +70,6 @@ class PickUp(Goal):
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
-        logger.debug(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         grasp_magic = BoxGraspMagic(
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
@@ -188,17 +187,26 @@ class GraspMagic(ABC):
             # When approaching along one axis, we grasp across the other two dimensions
             if axis_name == 'x':
                 # Approaching along X: grasp across Y-Z plane
-                perp_dim1, perp_dim2 = obj_bbox.width, obj_bbox.height  # Y and Z dimensions
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.width,
+                    obj_bbox.height,
+                )  # Y and Z dimensions
                 perp_axis1 = Vector3.Y(self.object_geometry)
                 perp_axis2 = Vector3.Z(self.object_geometry)
             elif axis_name == 'y':
                 # Approaching along Y: grasp across X-Z plane
-                perp_dim1, perp_dim2 = obj_bbox.depth, obj_bbox.height  # X and Z dimensions
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.depth,
+                    obj_bbox.height,
+                )  # X and Z dimensions
                 perp_axis1 = Vector3.X(self.object_geometry)
                 perp_axis2 = Vector3.Z(self.object_geometry)
             else:  # axis_name == 'z'
                 # Approaching along Z: grasp across X-Y plane
-                perp_dim1, perp_dim2 = obj_bbox.depth, obj_bbox.width  # X and Y dimensions
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.depth,
+                    obj_bbox.width,
+                )  # X and Y dimensions
                 perp_axis1 = Vector3.X(self.object_geometry)
                 perp_axis2 = Vector3.Y(self.object_geometry)
 
@@ -232,11 +240,6 @@ class GraspMagic(ABC):
 
             if graspable_dim <= self.gripper_width:
                 valid_faces.append((local_axis, axis_in_world, graspable_dim))
-                logger.debug(
-                    f"Valid face found: axis={axis_name}, "
-                    f"approach_dot_z={dot_with_world_z.to_np()[0]:.3f}, "
-                    f"graspable_dim={graspable_dim:.3f}"
-                )
 
         if not valid_faces:
             raise Exception(
@@ -250,8 +253,6 @@ class GraspMagic(ABC):
         grasp_axis = max(valid_faces, key=lambda x: abs(x[1].dot(obj_to_robot)))[0]
         grasp_axis.reference_frame = self.object_geometry
         grasp_axis.scale(1)
-
-        logger.debug(f"Selected grasp axis: {grasp_axis.to_np()}")
 
         return grasp_axis
 
@@ -270,13 +271,13 @@ class GraspMagic(ABC):
             self.object_geometry
         ).bounding_box()
 
-        robot_pos = self.manipulator._robot.root.global_pose
+        robot_pos = self.manipulator.tool_frame.global_pose
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
         obj_to_robot.scale(1)
 
         grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
 
-        logger.debug(f"grasp_axis: {grasp_axis.to_np()}")
+        print(f"grasp_axis: {grasp_axis.to_np()}")
 
         return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
 
@@ -393,9 +394,9 @@ class BoxGraspMagic(GraspMagic):
             PICKUP_PREPOSE_DISTANCE,
         )
 
-        logger.debug(f"-------------------")
-        logger.debug(f"Pre grasp point: {pre_grasp_point}")
-        logger.debug(f"-------------------")
+        print(f"-------------------")
+        print(f"Pre grasp point: {pre_grasp_point.to_np()}")
+        print(f"-------------------")
 
         cart_pos = CartesianPosition(
             root_link=context.world.root,
@@ -406,7 +407,9 @@ class BoxGraspMagic(GraspMagic):
 
         # Get orientation nodes with a looser threshold: pre-grasp only needs to be
         # approximately correct; the grasping phase re-applies tighter constraints.
-        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose, threshold=0.05)
+        align_nodes = self._get_orientation_nodes(
+            context, tool_frame, obj_pose, threshold=0.05
+        )
         parallel = Parallel(align_nodes)
 
         return [cart_pos, parallel]
@@ -424,6 +427,8 @@ class BoxGraspMagic(GraspMagic):
             obj_to_robot,
             additional_offset=-0.05,
         )
+
+        print(f'Grasp Point: {grasp_point.to_np()}')
 
         cart_pos = CartesianPosition(
             root_link=context.world.root,
@@ -473,6 +478,8 @@ class PreGraspPose(Goal):
                 self._cart_pose = node
             elif isinstance(node, Parallel):
                 self.parallel = node
+        print(f'Object pose: {self.object_geometry.global_pose.to_np()}')
+        print('Stop')
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
@@ -508,6 +515,8 @@ class Grasping(Goal):
                 self.cart = node
             elif isinstance(node, Parallel):
                 self.parallel = node
+
+        print(f'Stop2')
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
@@ -565,8 +574,9 @@ class PullUp(Goal):
         )
         self._keep_orientation = CartesianOrientation(
             root_link=context.world.root,
-            tip_link=self.object_geometry, # self.manipulator.tool_frame,
-            goal_orientation=self.object_geometry.global_pose.to_rotation_matrix() # self.manipulator.tool_frame.global_pose.to_rotation_matrix()
+            tip_link=self.object_geometry,  # self.manipulator.tool_frame,
+            goal_orientation=self.object_geometry.global_pose.to_rotation_matrix(),
+            # self.manipulator.tool_frame.global_pose.to_rotation_matrix()
         )
         self.add_node(self._cart_position)
         self.add_node(self._keep_orientation)
