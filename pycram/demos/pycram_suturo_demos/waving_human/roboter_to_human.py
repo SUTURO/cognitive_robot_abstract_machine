@@ -11,6 +11,8 @@ Set ``SIMULATED = True`` for the physics simulation or
 
 import logging
 
+import rclpy
+
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.nav2_move import min_distance_2_human
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SIMULATED: bool = True
 MIN_DISTANCE_M: float = 0.5
+
+if not rclpy.ok():
+    rclpy.init()
 
 # ---------------------------------------------------------------------------
 # World setup – depends on simulation vs. real robot
