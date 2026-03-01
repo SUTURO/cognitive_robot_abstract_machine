@@ -8,12 +8,10 @@ from typing import Callable, Optional, Sequence, Tuple, Any
 
 from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
-from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
-    VizMarkerPublisher,
-)
+
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -43,11 +41,12 @@ class SpawnSpec:
 
 @dataclass(frozen=True)
 class SetupResult:
-    world: World = None
-    robot_view: HSRB = None
-    context: Context = None
+    world: World
+    robot_view: HSRB
+    context: Context
+    manipulator: Manipulator
+    node: Any
     viz: Optional[object] = None
-    node: Any = None
 
 
 def default_paths() -> WorldSetupPaths:
@@ -102,7 +101,7 @@ def merge_robot_into_environment(
         0.0,
         0.0,
     ),
-) -> Tuple[World, HSRB, Context]:
+) -> Tuple[World, HSRB, Context, Manipulator]:
     merged = deepcopy(environment_world)
     x, y, z, r, p, yaw = robot_xyz_rpy
     merged.merge_world_at_pose(
@@ -110,7 +109,8 @@ def merge_robot_into_environment(
         HomogeneousTransformationMatrix.from_xyz_rpy(x, y, z, r, p, yaw),
     )
     robot_view = HSRB.from_world(merged)
-    return merged, robot_view, Context(merged, robot_view)
+    manipulator = merged.get_semantic_annotations_by_type(ParallelGripper)[0]
+    return merged, robot_view, Context(merged, robot_view), manipulator
 
 
 def try_make_viz(world):
@@ -133,9 +133,9 @@ def setup_hsrb_in_environment(
     load_environment: Callable[[], World],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        2.0,
-        1.05,
+        1.16,
+        6.3,
+        0.713,
         0.0,
         0.0,
         0.0,
@@ -175,7 +175,8 @@ def setup_hsrb_in_environment(
                 SpawnSpec(world_path=p.cereal_stl, xyz_rpy=cereal_xyz_rpy),
             ),
         )
-    world, robot_view, context = merge_robot_into_environment(
+
+    world, robot_view, context, manipulator = merge_robot_into_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
 
@@ -190,6 +191,7 @@ def setup_hsrb_in_environment(
         world=world,
         robot_view=robot_view,
         context=context,
-        viz=viz,
         node=node,
+        manipulator=manipulator,
+        viz=viz,
     )

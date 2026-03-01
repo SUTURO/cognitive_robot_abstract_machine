@@ -7,10 +7,13 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.logging import get_logger
 
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+    perceive_and_spawn_all_objects,
+)
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
-from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
 from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.dataclasses import Context
@@ -61,7 +64,7 @@ def setup_ros_node(node_name: str = "pycram_node"):
     # message = LoadModel(primary_key=1, meta_data=mrs.meta_data)
     # mrs.publish(message)
 
-    hsrb_world = fetch_world_from_service(node)
+    hsrb_world: World = fetch_world_from_service(node)
     model_sync = ModelSynchronizer(world=hsrb_world, node=node)
     state_sync = StateSynchronizer(world=hsrb_world, node=node)
 
@@ -70,7 +73,9 @@ def setup_ros_node(node_name: str = "pycram_node"):
         hsrb_world.merge_world(env_world)
     robot_view = hsrb_world.get_semantic_annotations_by_type(HSRB)[0]
 
-    manipulator: Manipulator = next(iter(robot_view.manipulators))
+    manipulator: Manipulator = hsrb_world.get_semantic_annotations_by_type(
+        ParallelGripper
+    )[0]
 
     # Context
     context = Context(
@@ -79,7 +84,7 @@ def setup_ros_node(node_name: str = "pycram_node"):
         ros_node=node,
     )
 
-    return node, hsrb_world, robot_view, context, manipulator
+    return hsrb_world, robot_view, context, manipulator, node
 
 
 def add_box(name: str, scale_xyz: tuple[float, float, float]):
@@ -114,14 +119,17 @@ def test_spawning(hsrb_world: World):
         )
 
 
-def try_make_viz(world, node):
+def try_make_viz(world, node) -> Optional[VizMarkerPublisher]:
     try:
         import rclpy
         from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
             VizMarkerPublisher,
         )
 
-        return VizMarkerPublisher(world, node)
+        viz = VizMarkerPublisher(world, node)
+        viz.with_tf_publisher()
+
+        return viz
     except Exception:
         logger.info(
             "VizMarkerPublisher is unavailable (ROS not running or deps missing)."
@@ -136,23 +144,25 @@ def world_setup_with_test_objects(
 ) -> SetupResult:
     rclpy.init()
 
-    node, hsrb_world, robot_view, context, manipulator = setup_ros_node()
+    hsrb_world, robot_view, context, manipulator, node = setup_ros_node()
 
     if with_object:
         try:
             hsrb_world.get_body_by_name("milk")
         except Exception:
             test_spawning(hsrb_world)
-    try:
+
+    if with_perception:
+        perceive_and_spawn_all_objects(hsrb_world)
+
+    if with_viz:
         viz = try_make_viz(hsrb_world, node)
-        viz.with_tf_publisher()
-    except Exception as e:
-        logger.warn("Failed to setup viz" + str(e))
 
     return SetupResult(
         world=hsrb_world,
         robot_view=robot_view,
-        node=node,
-        manipulator=manipulator,
         context=context,
+        manipulator=manipulator,
+        node=node,
+        viz=viz,
     )
