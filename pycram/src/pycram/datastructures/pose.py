@@ -4,6 +4,7 @@ import copy
 import datetime
 import math
 from dataclasses import dataclass, field
+from numbers import Number
 
 import numpy as np
 from semantic_digital_twin.spatial_types.spatial_types import (
@@ -185,10 +186,10 @@ class PyCramQuaternion:
         # TODO fix this
         # if the object is not fully constructed yet
         if not (
-            hasattr(self, "x")
-            and hasattr(self, "y")
-            and hasattr(self, "z")
-            and hasattr(self, "w")
+            hasattr(self, "x") and isinstance(self.x, Number)
+            and hasattr(self, "y") and isinstance(self.y, Number)
+            and hasattr(self, "z") and isinstance(self.z, Number)
+            and hasattr(self, "w") and isinstance(self.w, Number)
         ):
             return
 
@@ -433,9 +434,11 @@ class Header:
         :return: The ROS message.
         """
         from std_msgs.msg import Header as ROSHeader
+        from builtin_interfaces.msg import Time
 
         split_time = str(self.stamp.timestamp()).split(".")
-        stamp = ROSTime(int(split_time[0]), int(split_time[1]))
+        # stamp = ROSTime(int(split_time[0]), int(split_time[1]))
+        stamp = Time(sec=int(split_time[0]), nanosec=int(split_time[1]))
         return ROSHeader(frame_id=self.frame_id.name.name, stamp=stamp)
 
     def __deepcopy__(self, memo):

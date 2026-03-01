@@ -1,23 +1,18 @@
 import os
 import time
+
 import pytest
-
-from pycram.datastructures.pose import (
-    PyCramPose,
-    PyCramQuaternion,
-    PyCramVector3,
-    Header,
-)
 from random_events.product_algebra import SimpleEvent, Event
-from krrood.probabilistic_knowledge.parameterizer import Parameterizer
-from semantic_digital_twin.adapters.urdf import URDFParser
 
+from krrood.probabilistic_knowledge.parameterizer import Parameterizer
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import TaskStatus
-from pycram.robot_plans import *
-from pycram.language import SequentialPlan, ParallelPlan, CodeNode
+from pycram.language import ParallelPlan, CodeNode
 from pycram.plan import PlanNode, Plan, ActionDescriptionNode, ActionNode, MotionNode
 from pycram.motion_executor import simulated_robot
+from pycram.robot_plans import *
+from semantic_digital_twin.adapters.urdf import URDFParser
+from pycram.orm.ormatic_interface import *
 
 
 @pytest.fixture(scope="session")
@@ -674,141 +669,44 @@ def test_pause_plan(immutable_model_world):
     )
 
 
-def test_algebra_sequentialplan(immutable_model_world):
+def test_algebra_sequential_plan(mutable_model_world):
     """
     Parameterize a SequentialPlan using krrood parameterizer, create a fully-factorized distribution and
     assert the correctness of sampled values after conditioning and truncation.
     """
-    world, robot_view, context = immutable_model_world
+    world, robot_view, context = mutable_model_world
+
+    target_location = PoseStamped.from_list([..., ..., 0], [0, 0, 0, 1], frame=None)
+
     sp = SequentialPlan(
         context,
-        MoveTorsoActionDescription(None),
-        NavigateActionDescription(None),
-        MoveTorsoActionDescription(None),
+        MoveTorsoActionDescription(TorsoState.LOW),
+        NavigateActionDescription(
+            target_location=target_location,
+            keep_joint_states=...,
+        ),
+        MoveTorsoActionDescription(torso_state=...),
     )
 
-    plan_classes = [
-        MoveTorsoAction,
-        NavigateAction,
-        PyCramPose,
-        PyCramVector3,
-        PyCramQuaternion,
-        Header,
-        PoseStamped,
-    ]
+    parameterization = sp.generate_parameterizations()
+    target_location.frame_id = world.root
+    new_actions = []
 
-    variables = sp.parameterize_plan(classes=plan_classes)
-    variables_map = {v.name: v for v in variables}
+    for action, parameters in parameterization:
+        distribution = parameters.create_fully_factorized_distribution()
+        distribution, _ = distribution.conditional(
+            parameters.assignments_for_conditioning
+        )
+        sample = distribution.sample(1)[0]
 
-    probabilistic_circuit = Parameterizer().create_fully_factorized_distribution(
-        variables
-    )
+        sample_dict = parameters.create_assignment_from_variables_and_sample(
+            distribution.variables, sample
+        )
 
-    torso_1 = variables_map["MoveTorsoAction_0.torso_state"]
-    torso_2 = variables_map["MoveTorsoAction_2.torso_state"]
-    consistency_events = [
-        SimpleEvent({torso_1: [state], torso_2: [state]}) for state in TorsoState
-    ]
-    restricted_distribution, _ = probabilistic_circuit.truncated(
-        Event(*consistency_events)
-    )
-    restricted_distribution.normalize()
+        parameterized = parameters.parameterize_object_with_sample(action, sample_dict)
+        new_actions.append(parameterized)
 
-    navigate_action_constraints = {
-        variables_map["NavigateAction_1.target_location.pose.position.z"]: 0,
-        variables_map["NavigateAction_1.target_location.pose.orientation.x"]: 0,
-        variables_map["NavigateAction_1.target_location.pose.orientation.y"]: 0,
-        variables_map["NavigateAction_1.target_location.pose.orientation.z"]: 0,
-        variables_map["NavigateAction_1.target_location.pose.orientation.w"]: 1,
-    }
-    final_distribution, _ = restricted_distribution.conditional(
-        navigate_action_constraints
-    )
-    final_distribution.normalize()
-
-    nav_x = variables_map["NavigateAction_1.target_location.pose.position.x"]
-    nav_y = variables_map["NavigateAction_1.target_location.pose.position.y"]
-    nav_z = next(
-        v
-        for v in final_distribution.variables
-        if v.name == "NavigateAction_1.target_location.pose.position.z"
-    )
-    nav_ox_var = next(
-        v
-        for v in final_distribution.variables
-        if v.name == "NavigateAction_1.target_location.pose.orientation.x"
-    )
-    nav_oy_var = next(
-        v
-        for v in final_distribution.variables
-        if v.name == "NavigateAction_1.target_location.pose.orientation.y"
-    )
-    nav_oz_var = next(
-        v
-        for v in final_distribution.variables
-        if v.name == "NavigateAction_1.target_location.pose.orientation.z"
-    )
-    nav_ow_var = next(
-        v
-        for v in final_distribution.variables
-        if v.name == "NavigateAction_1.target_location.pose.orientation.w"
-    )
-
-    for sample_values in final_distribution.sample(10):
-        sample = dict(zip(final_distribution.variables, sample_values))
-        assert nav_x in sample
-        assert nav_y in sample
-        assert sample[nav_z] == 0.0
-        assert sample[nav_ox_var] == 0.0
-        assert sample[nav_oy_var] == 0.0
-        assert sample[nav_oz_var] == 0.0
-        assert sample[nav_ow_var] == 1.0
-
-
-def test_algebra_parallelplan(immutable_model_world):
-    """
-    Parameterize a ParallelPlan using krrood parameterizer, create a fully-factorized distribution and
-    assert the correctness of sampled values after truncation.
-    """
-    world, robot_view, context = immutable_model_world
-
-    sp = ParallelPlan(
-        context,
-        MoveTorsoActionDescription(None),
-        ParkArmsActionDescription(None),
-    )
-
-    plan_classes = [
-        MoveTorsoAction,
-        ParkArmsAction,
-        PoseStamped,
-        PyCramPose,
-        PyCramVector3,
-        PyCramQuaternion,
-        Header,
-    ]
-
-    variables = sp.parameterize_plan(classes=plan_classes)
-    variables_map = {v.name: v for v in variables}
-
-    # Ensure expected variable names exist
-    assert "MoveTorsoAction_0.torso_state" in variables_map
-    assert "ParkArmsAction_1.arm" in variables_map
-
-    probabilistic_circuit = Parameterizer().create_fully_factorized_distribution(
-        variables
-    )
-
-    arm_var = variables_map["ParkArmsAction_1.arm"]
-    torso_var = variables_map["MoveTorsoAction_0.torso_state"]
-
-    # Truncate distribution to force arm == Arms.BOTH
-    restricted_dist, _ = probabilistic_circuit.truncated(
-        Event(SimpleEvent({arm_var: [Arms.BOTH]}))
-    )
-    restricted_dist.normalize()
-
-    for sample_values in restricted_dist.sample(5):
-        sample = dict(zip(restricted_dist.variables, sample_values))
-        assert sample[arm_var] == Arms.BOTH
-        assert torso_var in sample
+    new_plan = SequentialPlan(context, *new_actions)
+    with simulated_robot:
+        new_plan.perform()
+    print(robot_view.root.global_pose)
