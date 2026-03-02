@@ -42,7 +42,6 @@ class NlpInterfaceDemoStartM3(NlpInterface):
                 elems = []
                 for elem in response[2]:
                     if elem[0] == filter_for.value:
-                        print(("AAAAAAAAAAAAAAH"))
                         elems.append(elem[1])
 
                 if elems:
@@ -57,12 +56,15 @@ def main():
     #nlp.input_confirmation_loop(2)
     resp = nlp.last_output
 
-    print(resp)
+    #print(resp)
 
     match nlp.filter_response(resp, FilterOptions.INTENT):
         case 'seating':
             if "waving" in resp[2][0][4]:
                 print("start seating here")
+        case 'lookup':
+            where = resp[2][0][1]
+            print(f"Start Challenge 'Is there something on the {where}.'")
         case 'deliver':
             re = nlp.filter_response(resp, FilterOptions.FURNITURE)
             item = nlp.filter_response(resp, FilterOptions.ITEM)
@@ -70,18 +72,20 @@ def main():
                 print("Oh no")
             if len(re) == 1:
                 print(f"Start Challenge 'Bring me object {item[0]} from the {re[0]}.'")
+                print(f"I will drive to the {re[0]} now and get the object {item[0]}.")
             elif len(re) == 2:
                 print(f"Start Challenge 'Bring object {item[0]} from the {re[0]} to the {re[1]}.'")
+                print(f"I will drive to the {re[0]} now and get the object {item[0]} and bring it to the {re[1]}.")
             else:
                 print("Oh no")
         case 'open':
             print("Start Challenge 'Open the door.'")
 
 
-    print(f"last intent: {nlp.filter_response(nlp.last_output, FilterOptions.INTENT)}")
-    print(f"last output: {nlp.last_output}")
-    print(f"complete output: {nlp.all_last_outputs}")
-    print(f"last confirmation: {nlp.last_confirmation}")
+    #print(f"last intent: {nlp.filter_response(nlp.last_output, FilterOptions.INTENT)}")
+    #print(f"last output: {nlp.last_output}")
+    #print(f"complete output: {nlp.all_last_outputs}")
+    #print(f"last confirmation: {nlp.last_confirmation}")
 
 
 if __name__ == "__main__":
