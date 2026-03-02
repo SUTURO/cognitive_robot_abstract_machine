@@ -1,15 +1,19 @@
 from typing import Any
 
 import rclpy
+from rclpy import logging
 from rclpy.logging import get_logger
 
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import Arms
+from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot, simulated_robot, ExecutionEnvironment
 from pycram.robot_plans import (
     ParkArmsActionDescription,
     GiskardPickUpActionDescription,
+    PlaceActionDescription,
+    GiskardPlaceActionDescription,
 )
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
     robot_setup,
@@ -18,7 +22,9 @@ from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup imp
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
     attach_object_to_hsrb,
     try_get_object_to_pickup,
+    detach_object_from_hsrb,
 )
+from pycram.ros import sleep
 from semantic_digital_twin.world import World
 
 
@@ -30,7 +36,7 @@ def pickup_demo(
     with_perception: bool = False,
     object_name: str = "",
 ):
-    logger = get_logger(__name__)
+    logger = logging.get_logger(__name__)
 
     SIMULATED: bool = simulation
     with_perception: bool = with_perception
@@ -58,21 +64,20 @@ def pickup_demo(
 
     # -------------------------------- DETERMIN OBJECT_TO_PICKUP
 
-    if SIMULATED:
-        object_name = "milk.stl"
-        object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
-    else:
-        if with_perception:
-            from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
-                perceive_and_spawn_all_objects,
-            )
+    try:
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+            perceive_and_spawn_all_objects,
+        )
 
-            perceived_objects: dict[Any, Any] = perceive_and_spawn_all_objects(
-                hsrb_world
-            )
-            logger.info(f"perceived following objects: '{perceived_objects}'")
-        object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
-        logger.info(f"object_to_Pickup: '{object_to_pickup}'")
+        perceived_objects: dict[Any, Any] = perceive_and_spawn_all_objects(hsrb_world)
+        logger.info(f"perceived following objects: '{perceived_objects}'")
+    except ImportError:
+        logger.info("Could not import robokudo")
+        perceived_objects = {}
+    object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
+    logger.info(f"object_to_Pickup: '{object_to_pickup}'")
+
+    place_pose = PoseStamped.from_list([0, 0, 0], [0, 0, 1, 0.1], frame=hsrb_world.root)
 
     # -------------------------------- PLANNING
     plan = SequentialPlan(
@@ -81,7 +86,8 @@ def pickup_demo(
             object_designator=object_to_pickup, arm=Arms.LEFT, gripper_vertical=True
         ),
     )
-    plan2 = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
+    plan_park = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
+
     # ------------------------ EXECUTION
     try:
         with simulated_robot:
@@ -90,6 +96,7 @@ def pickup_demo(
                 hsrb_world=hsrb_world,
                 object_designator=object_to_pickup,
             )
-            plan2.perform()
+            plan_park.perform()
+
     except Exception as e:
         print(e)
