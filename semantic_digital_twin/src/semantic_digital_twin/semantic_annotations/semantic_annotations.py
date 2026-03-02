@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Self, Tuple
 
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import List, Type
+from typing_extensions import ClassVar, List, Type
 
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
@@ -23,6 +23,7 @@ from .mixins import (
     IsPerceivable,
     HasRootBody,
     HasStorageSpace,
+    HasDestination,
 )
 from ..datastructures.prefixed_name import PrefixedName
 from ..datastructures.variables import SpatialVariables
@@ -380,6 +381,11 @@ class Cupboard(Cabinet, HasDoors): ...
 @dataclass(eq=False)
 class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
 
+@dataclass(eq=False)
+class Sink(HasRootBody):
+    """
+    A sink.
+    """
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
@@ -523,10 +529,11 @@ class Wall(HasApertures):
 
 
 @dataclass(eq=False)
-class Bottle(HasRootBody):
+class Bottle(HasRootBody, HasDestination):
     """
     Abstract class for bottles.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Sink, Cupboard]
 
 
 @dataclass(eq=False)
@@ -559,10 +566,11 @@ class DrinkingContainer(HasRootBody): ...
 
 
 @dataclass(eq=False)
-class Cup(DrinkingContainer, IsPerceivable):
+class Cup(DrinkingContainer, IsPerceivable, HasDestination):
     """
     A cup.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard, Table, Sink]
 
 
 @dataclass(eq=False)
@@ -698,12 +706,13 @@ class Cereal(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Milk(Food, IsPerceivable):
+class Milk(Food, IsPerceivable, HasDestination):
     """
     A container of milk.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Fridge]
 
-    ...
+
 
 
 @dataclass(eq=False)
@@ -853,14 +862,6 @@ class Sofa(Furniture, HasSupportingSurface):
     A sofa.
     """
 
-
-@dataclass(eq=False)
-class Sink(HasRootBody):
-    """
-    A sink.
-    """
-
-
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
 
@@ -899,11 +900,13 @@ class Potato(Produce): ...
 
 
 @dataclass(eq=False)
-class GarbageBin(HasRootBody):
+class GarbageBin(HasRootBody, HasDestination):
     """
     A garbage bin.
     """
-
+    @classproperty
+    def destination_class_names(cls) -> List[Type[SemanticAnnotation]]:
+        return [cls]
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...

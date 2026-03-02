@@ -234,6 +234,26 @@ class HasDrawersDAO_drawers_association(Base, AssociationDataAccessObject):
     )
 
 
+class BottleDAO_simulator_additional_properties_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "BottleDAO_simulator_additional_properties_association"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_bottledao_id: Mapped[int] = mapped_column(
+        ForeignKey("BottleDAO.database_id")
+    )
+    target_simulatoradditionalpropertydao_id: Mapped[int] = mapped_column(
+        ForeignKey("SimulatorAdditionalPropertyDAO.database_id")
+    )
+
+    target: Mapped[SimulatorAdditionalPropertyDAO] = relationship(
+        "SimulatorAdditionalPropertyDAO",
+        foreign_keys=[target_simulatoradditionalpropertydao_id],
+    )
+
+
 class SpoonDAO_simulator_additional_properties_association(
     Base, AssociationDataAccessObject
 ):
@@ -1070,6 +1090,26 @@ class WaferDAO_simulator_additional_properties_association(
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_waferdao_id: Mapped[int] = mapped_column(ForeignKey("WaferDAO.database_id"))
+    target_simulatoradditionalpropertydao_id: Mapped[int] = mapped_column(
+        ForeignKey("SimulatorAdditionalPropertyDAO.database_id")
+    )
+
+    target: Mapped[SimulatorAdditionalPropertyDAO] = relationship(
+        "SimulatorAdditionalPropertyDAO",
+        foreign_keys=[target_simulatoradditionalpropertydao_id],
+    )
+
+
+class GarbageBinDAO_simulator_additional_properties_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "GarbageBinDAO_simulator_additional_properties_association"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_garbagebindao_id: Mapped[int] = mapped_column(
+        ForeignKey("GarbageBinDAO.database_id")
+    )
     target_simulatoradditionalpropertydao_id: Mapped[int] = mapped_column(
         ForeignKey("SimulatorAdditionalPropertyDAO.database_id")
     )
@@ -1993,6 +2033,27 @@ class FieldOfViewDAO(
 
     vertical_angle: Mapped[builtins.float] = mapped_column(use_existing_column=True)
     horizontal_angle: Mapped[builtins.float] = mapped_column(use_existing_column=True)
+
+
+class HasDestinationDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasDestination],
+):
+
+    __tablename__ = "HasDestinationDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "HasDestinationDAO",
+    }
 
 
 class HomogeneousTransformationMatrixMappingDAO(
@@ -3940,7 +4001,7 @@ class BookFrontDAO(
 
 
 class BottleDAO(
-    HasRootBodyDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Bottle
     ],
@@ -3949,14 +4010,44 @@ class BottleDAO(
     __tablename__ = "BottleDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasRootBodyDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
     )
 
+    id: Mapped[uuid.UUID] = mapped_column(
+        sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
+    )
+
+    name_id: Mapped[int] = mapped_column(
+        ForeignKey("PrefixedNameDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    root_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    simulator_additional_properties: Mapped[
+        builtins.list[BottleDAO_simulator_additional_properties_association]
+    ] = relationship(
+        "BottleDAO_simulator_additional_properties_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[BottleDAO_simulator_additional_properties_association.source_bottledao_id]",
+    )
+    name: Mapped[PrefixedNameDAO] = relationship(
+        "PrefixedNameDAO", uselist=False, foreign_keys=[name_id], post_update=True
+    )
+    root: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "BottleDAO",
-        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -4313,7 +4404,7 @@ class DrinkingContainerDAO(
 
 
 class CupDAO(
-    IsPerceivableDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Cup
     ],
@@ -4322,9 +4413,13 @@ class CupDAO(
     __tablename__ = "CupDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(IsPerceivableDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        String(255), use_existing_column=True
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -4359,7 +4454,7 @@ class CupDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "CupDAO",
-        "inherit_condition": database_id == IsPerceivableDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -5179,7 +5274,7 @@ class MayonnaiseDAO(
 
 
 class MilkDAO(
-    IsPerceivableDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Milk
     ],
@@ -5188,9 +5283,13 @@ class MilkDAO(
     __tablename__ = "MilkDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(IsPerceivableDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        String(255), use_existing_column=True
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -5225,7 +5324,7 @@ class MilkDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "MilkDAO",
-        "inherit_condition": database_id == IsPerceivableDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -6835,7 +6934,7 @@ class WaferDAO(
 
 
 class GarbageBinDAO(
-    HasRootBodyDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.GarbageBin
     ],
@@ -6844,14 +6943,44 @@ class GarbageBinDAO(
     __tablename__ = "GarbageBinDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasRootBodyDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
     )
 
+    id: Mapped[uuid.UUID] = mapped_column(
+        sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
+    )
+
+    name_id: Mapped[int] = mapped_column(
+        ForeignKey("PrefixedNameDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    root_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    simulator_additional_properties: Mapped[
+        builtins.list[GarbageBinDAO_simulator_additional_properties_association]
+    ] = relationship(
+        "GarbageBinDAO_simulator_additional_properties_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[GarbageBinDAO_simulator_additional_properties_association.source_garbagebindao_id]",
+    )
+    name: Mapped[PrefixedNameDAO] = relationship(
+        "PrefixedNameDAO", uselist=False, foreign_keys=[name_id], post_update=True
+    )
+    root: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "GarbageBinDAO",
-        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
