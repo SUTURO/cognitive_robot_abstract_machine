@@ -102,15 +102,15 @@ def merge_robot_into_environment(
         0.0,
     ),
 ) -> Tuple[World, HSRB, Context, Manipulator]:
-    merged = deepcopy(environment_world)
+    env_world = environment_world
     x, y, z, r, p, yaw = robot_xyz_rpy
-    merged.merge_world_at_pose(
-        deepcopy(hsrb_world),
+    env_world.merge_world_at_pose(
+        hsrb_world,
         HomogeneousTransformationMatrix.from_xyz_rpy(x, y, z, r, p, yaw),
     )
-    robot_view = HSRB.from_world(merged)
-    manipulator = merged.get_semantic_annotations_by_type(ParallelGripper)[0]
-    return merged, robot_view, Context(merged, robot_view), manipulator
+    robot_view = HSRB.from_world(env_world)
+    manipulator = env_world.get_semantic_annotations_by_type(ParallelGripper)[0]
+    return env_world, robot_view, Context(env_world, robot_view), manipulator
 
 
 def try_make_viz(world):
@@ -133,24 +133,24 @@ def setup_hsrb_in_environment(
     load_environment: Callable[[], World],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        1.16,
-        6.3,
-        0.713,
+        0,
+        0,
+        0.8,
         0.0,
         0.0,
         0.0,
     ),
     cereal_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        1.8,
-        1.05,
+        1.5,
+        6.3,
+        0.8,
         0.0,
         0.0,
         0.0,
     ),
     robot_xyz_rpy: Tuple[float, float, float, float, float, float] = (
         1.5,
-        2.0,
+        5.5,
         0.0,
         0.0,
         0.0,
