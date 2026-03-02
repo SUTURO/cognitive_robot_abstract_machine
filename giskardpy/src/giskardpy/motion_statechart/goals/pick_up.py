@@ -60,6 +60,7 @@ class PickUp(Goal):
     ft: bool = field(kw_only=True, default=False)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
     simulated_execution: bool = field(default=True, kw_only=True)
+    grasp_magic: Optional["GraspMagic"] = field(default=None, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
@@ -72,6 +73,7 @@ class PickUp(Goal):
                     object_geometry=self.object_geometry,
                     gripper_width=HSR_GRIPPER_WIDTH,
                     gripper_vertical=self.gripper_vertical,
+                    grasp_magic=self.grasp_magic,
                 ),
                 CloseHand(ft=self.ft, simulated_execution=self.simulated_execution),
                 # PullUp(
@@ -232,7 +234,7 @@ class GraspMagic(ABC):
 
         grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
 
-        print(f"grasp_axis: {grasp_axis.to_np()}")
+        logger.debug(f"grasp_axis: {grasp_axis.to_np()}")
 
         return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
 
