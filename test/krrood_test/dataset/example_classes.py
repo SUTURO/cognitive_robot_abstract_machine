@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, auto
 from types import FunctionType
-from typing import Set
+from typing import Set, Generic
 
 from sqlalchemy import types, TypeDecorator, JSON
 from typing_extensions import Dict, Any, Sequence, Self
 from typing_extensions import List, Optional, Type
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
-from krrood.entity_query_language.predicate import Symbol
+from krrood.symbol_graph.symbol_graph import Symbol
 from krrood.ormatic.dao import AlternativeMapping, T
 
 
@@ -683,3 +683,21 @@ class NamedNumbers:
 
     def __hash__(self):
         return hash(self.name)
+
+
+@dataclass
+class GenericClass(Generic[T]):
+    value: T
+    optional_value: Optional[T] = None
+    container: List[T] = field(default_factory=list)
+
+
+@dataclass
+class GenericClassAssociation:
+    associated_value: GenericClass[float]
+    associated_value_list: List[GenericClass[Position]]
+
+    associated_value_not_parametrized: GenericClass = None
+    associated_value_not_parametrized_list: List[GenericClass] = field(
+        default_factory=list
+    )
