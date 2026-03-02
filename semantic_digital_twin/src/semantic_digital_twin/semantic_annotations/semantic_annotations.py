@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Self, Tuple
 
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import List, Type
+from typing_extensions import ClassVar, List, Type
 
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
@@ -533,7 +533,7 @@ class Bottle(HasRootBody, HasDestination):
     """
     Abstract class for bottles.
     """
-Bottle.destination_class_names: list[type[SemanticAnnotation]] = [Sink, Cupboard]
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Sink, Cupboard]
 
 
 @dataclass(eq=False)
@@ -570,8 +570,7 @@ class Cup(DrinkingContainer, IsPerceivable, HasDestination):
     """
     A cup.
     """
-# Klassenvariable – definiert, welche Ziele für Cup gelten
-Cup.destination_class_names: list[type[SemanticAnnotation]] = [Cupboard, Table, Sink]
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard, Table, Sink]
 
 
 @dataclass(eq=False)
@@ -711,8 +710,7 @@ class Milk(Food, IsPerceivable, HasDestination):
     """
     A container of milk.
     """
-# Klassenvariable – definiert, welche Ziele für Milk gelten
-Milk.destination_class_names: list[type[SemanticAnnotation]] = [Fridge]
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Fridge]
 
 
 
@@ -906,7 +904,9 @@ class GarbageBin(HasRootBody, HasDestination):
     """
     A garbage bin.
     """
-GarbageBin.destination_class_names: list[type[SemanticAnnotation]] = [GarbageBin]
+    @classproperty
+    def destination_class_names(cls) -> List[Type[SemanticAnnotation]]:
+        return [cls]
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...

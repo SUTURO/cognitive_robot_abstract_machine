@@ -17,6 +17,7 @@ from typing_extensions import (
     Iterable,
     Type,
     TypeVar,
+    ClassVar,
 )
 
 from krrood.ormatic.utils import classproperty
@@ -794,7 +795,7 @@ class HasDestination:
     "Where should this object be brought?"
     """
 
-    destination_class_names: list[type[SemanticAnnotation]] = field(default_factory=list, init=False)
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = []
     """
     List of semantic annotation types representing suitable destinations.
     If empty, no destination is known.
