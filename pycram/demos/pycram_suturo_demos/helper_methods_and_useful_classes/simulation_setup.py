@@ -1,5 +1,6 @@
 import os
 
+import numpy
 import rclpy
 from rclpy.logging import get_logger
 from copy import deepcopy
@@ -72,8 +73,8 @@ def build_hsrb_world(hsrb_urdf: str):
 
 
 def add_objects_and_semantics(
-    world,
-    objects: Sequence[SpawnSpec],
+        world: World,
+        objects: Sequence[SpawnSpec],
 ):
     for spec in objects:
         obj_world = STLParser(spec.world_path).parse()
@@ -92,16 +93,16 @@ def add_objects_and_semantics(
 
 
 def merge_robot_into_environment(
-    hsrb_world,
-    environment_world,
-    robot_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        1.5,
-        2.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    ),
+        hsrb_world,
+        environment_world,
+        robot_xyz_rpy: Tuple[float, float, float, float, float, float] = (
+                1.5,
+                2.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+        ),
 ) -> Tuple[World, HSRB, Context]:
     merged = deepcopy(environment_world)
     x, y, z, r, p, yaw = robot_xyz_rpy
@@ -130,34 +131,32 @@ def try_make_viz(world):
 
 
 def setup_hsrb_in_environment(
-    load_environment: Callable[[], World],
-    paths: Optional[WorldSetupPaths] = None,
-    milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        2.0,
-        1.05,
-        0.0,
-        0.0,
-        0.0,
-    ),
-    cereal_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        1.8,
-        1.05,
-        0.0,
-        0.0,
-        0.0,
-    ),
-    robot_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        1.5,
-        2.0,
-        0.0,
-        0.0,
-        0.0,
-        0.0,
-    ),
-    with_viz: bool = True,
-    with_objects: bool = field(kw_only=True, default=True),
+        load_environment: Callable[[], World],
+        paths: Optional[WorldSetupPaths] = None,
+        milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
+                1.0227,
+                6.1852,
+                0.78073,
+                0.0,
+                0.0,
+                numpy.pi / 2,
+        ),
+        cereal_xyz_rpy: Tuple[float, float, float, float, float, float] = (
+                1.1526, 3.257, 0.68446,
+                0.0,
+                0.0,
+                numpy.pi / 2,
+        ),
+        robot_xyz_rpy: Tuple[float, float, float, float, float, float] = (
+                1.5,
+                2.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+        ),
+        with_viz: bool = True,
+        with_objects: bool = field(kw_only=True, default=True),
 ) -> SetupResult:
     rclpy.init()
     p = paths or default_paths()
