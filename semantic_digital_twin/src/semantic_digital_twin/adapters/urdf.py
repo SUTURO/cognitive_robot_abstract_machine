@@ -91,15 +91,15 @@ def urdf_joint_to_limits(
         offset = urdf_joint.mimic.offset if urdf_joint.mimic.offset is not None else 0
 
         for d2 in Derivatives.range(Derivatives.position, Derivatives.velocity):
-            lower_limits.data[d2] -= offset
-            upper_limits.data[d2] -= offset
+            lower_limits[d2] -= offset
+            upper_limits[d2] -= offset
             if multiplier < 0:
-                upper_limits.data[d2], lower_limits.data[d2] = (
-                    lower_limits.data[d2],
-                    upper_limits.data[d2],
+                upper_limits[d2], lower_limits[d2] = (
+                    lower_limits[d2],
+                    upper_limits[d2],
                 )
-            upper_limits.data[d2] /= multiplier
-            lower_limits.data[d2] /= multiplier
+            upper_limits[d2] /= multiplier
+            lower_limits[d2] /= multiplier
     return lower_limits, upper_limits
 
 
@@ -135,6 +135,8 @@ class URDFParser:
     def from_file(cls, file_path: str, prefix: Optional[str] = None) -> URDFParser:
         if file_path.endswith(".xacro"):
             return cls.from_xacro(file_path, prefix)
+
+        file_path = CompositePathResolver().resolve(file_path)
         if file_path is not None:
             with open(file_path, "r") as file:
                 # Since parsing URDF causes a lot of warning messages which can't be deactivated, we suppress them
