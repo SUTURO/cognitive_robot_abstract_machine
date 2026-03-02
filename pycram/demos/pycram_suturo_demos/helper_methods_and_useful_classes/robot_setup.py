@@ -7,7 +7,6 @@ from suturo_resources.suturo_map import load_environment
 def robot_setup(
     simulation: bool = field(default=True, kw_only=True),
     with_objects: bool = field(default=True, kw_only=True),
-    with_perception: bool = field(default=False, kw_only=True),
 ):
     """
     Method that calls either simulation or real, based on the bool
@@ -32,8 +31,9 @@ def robot_setup(
             world_setup_with_test_objects,
         )
 
-        setup_result = world_setup_with_test_objects(
-            with_object=with_objects, with_perception=with_perception
-        )
+        setup_result = world_setup_with_test_objects(with_object=with_objects)
 
     return setup_result
+
+
+load_environment
