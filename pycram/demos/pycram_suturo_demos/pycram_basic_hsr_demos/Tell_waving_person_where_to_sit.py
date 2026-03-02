@@ -105,10 +105,7 @@ with real_robot:
     # 2. Drive to the human
     drive_to_pose(human_pose)
 
-    # 3. Tell the human to follow
-    text_pub.publish_text("Please follow me")
-
-    # 4. Drive to sofa
+    # 3. Drive to sofa
     sofa_pose = PoseStamped.from_list(
         position=[3.60, 1.20, 0.0],
         orientation=[0.0, 0.0, 0.0, 1.0],
@@ -116,13 +113,13 @@ with real_robot:
     )
     drive_to_pose(sofa_pose)
 
-    # 5. Find a free seat
+    # 4. Find a free seat
     result = find_free_seat()
 
-    # 6. Drive back to the human
+    # 5. Drive back to the human
     drive_to_pose(human_pose)
 
-    # 7. Tell the human where to sit
+    # 6. Tell the human where to sit
     text_pub.publish_text(f"Free seat at {result}")
 
     shutdown_robokudo_interface()
