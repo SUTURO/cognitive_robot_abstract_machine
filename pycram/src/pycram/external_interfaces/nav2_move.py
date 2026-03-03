@@ -227,7 +227,7 @@ def change_orientation(start_pose: PoseStamped) -> PoseStamped:
     return new_pose
 
 
-def min_distance_2_human(
+def min_distance_2_position(
     human_pose: PoseStamped, robot_pose: PoseStamped, min_distance: float
 ) -> PoseStamped:
     """

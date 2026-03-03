@@ -1,16 +1,24 @@
+import json
 import os
+from typing import List
 
-import numpy as np
+from suturo_resources.suturo_map import load_environment
 
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
+    get_object_class_from_string,
+)
+from pycram.datastructures.pose import PoseStamped
 from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import WorldEntityNotFoundError
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
-from semantic_digital_twin.exceptions import WorldEntityNotFoundError
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from suturo_resources.suturo_map import load_environment
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+)
 
 
 def add_box(name: str, scale_xyz: tuple[float, float, float]):
@@ -30,47 +38,97 @@ def add_milk(name: str, scale_xyz: tuple[float, float, float]):
     return body
 
 
-def perceive_and_spawn_all_objects(hsrb_world: World):
+def extract_name_from_json_string(json_string: str) -> str:
+    """
+    Extracts the name of an object from a JSON string.
+    Expects the JSON string to have a "type" field containing the name of the object.
+
+    :param json_string: The JSON string containing the object information
+    :return: The extracted name
+    """
+
+    data = json.loads(json_string)
+    return data["type"]
+
+
+def try_remove_semantic_annotation_and_body(name: str, world: World):
+    """
+    Tries to remove a semantic annotation and its associated body from the world based on the provided name.
+    If no annotation with the provided name exists, it does nothing.
+    """
+
+    try:
+        object_to_remove = world.get_semantic_annotation_by_name(name)
+        with world.modify_world():
+            world.remove_semantic_annotation(object_to_remove)
+            for body in object_to_remove.bodies:
+                world.remove_kinematic_structure_entity(body)
+    except WorldEntityNotFoundError:
+        pass
+
+
+def spawn_semantic_with_body(
+    semantic_type: str,
+    name: str,
+    dimensions: List[float],
+    pose: PoseStamped,
+    world: World,
+):
+    """
+    Spawns a semantic annotation with a body in the world based on the provided information.
+    If an annotation with the same name already exists, it is removed before spawning the new one.
+
+    :param semantic_type: The type of the semantic annotation to spawn
+    :param name: The name of the semantic annotation to spawn
+    :param dimensions: The dimensions of the object to spawn
+    :param pose: The pose of the object to spawn
+    :param world: The world in which to spawn the object
+    :return: The spawned semantic annotation
+    """
+
+    semantic_class: HasRootBody = get_object_class_from_string(semantic_type)
+    scale = Scale(*dimensions)
+    try_remove_semantic_annotation_and_body(name, world)
+    with world.modify_world():
+        object_to_spawn = semantic_class.create_with_new_body_in_world(
+            name=PrefixedName(name),
+            world=world,
+            scale=scale,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_quaternion(
+                pos_x=pose.position.x,
+                pos_y=pose.position.y,
+                pos_z=pose.position.z,
+                quat_x=pose.orientation.x,
+                quat_y=pose.orientation.y,
+                quat_z=pose.orientation.z,
+                quat_w=pose.orientation.w,
+            ),
+        )
+    return object_to_spawn
+
+
+def perceive_and_spawn_all_objects(world: World):
+    """
+    Query all perceived objects via the robokudo interface, extracts the relevant information for each object,
+    and spawns them in the world using the spawn_semantic_with_body method.
+
+    :param world: The world in which to spawn the perceived objects
+    """
+
     try:
         from pycram.external_interfaces import robokudo
     except ImportError:
         raise ImportError()
-        return {}
-    perceived_objects = {}
     perceived_objects_result = robokudo.query_all_objects().res
     for perceived_object in perceived_objects_result:
-        object_size = perceived_object.shape_size[0].dimensions
+        object_dimensions = perceived_object.shape_size[0].dimensions
         object_pose = perceived_object.pose[0].pose
-        object_time = perceived_object.pose[0].header.stamp
-        object_name = f"{perceived_object.type}"
-        try:
-            object_to_spawn = hsrb_world.get_body_by_name(object_name)
-            with hsrb_world.modify_world():
-                hsrb_world.move_branch_to_new_world(object_to_spawn)
-        except WorldEntityNotFoundError:
-            pass
-        object_to_spawn = add_box(
-            object_name,
-            (object_size.x, object_size.y, object_size.z),
+        object_name = extract_name_from_json_string(perceived_object.attribute)
+        object_type = perceived_object.type
+        spawn_semantic_with_body(
+            semantic_type=object_type,
+            name=object_name,
+            dimensions=object_dimensions,
+            pose=object_pose,
+            world=world,
         )
-        # object_to_spawn = add_milk(
-        #     object_name,
-        #     (object_size.x, object_size.y, object_size.z),
-        # )
-        env_world = load_environment()
-        perceived_objects[object_name] = object_to_spawn
-        with hsrb_world.modify_world():
-            hsrb_world.merge_world(env_world)
-            hsrb_world.merge_world_at_pose(
-                object_to_spawn,
-                pose=HomogeneousTransformationMatrix.from_xyz_quaternion(
-                    pos_x=object_pose.position.x,
-                    pos_y=object_pose.position.y,
-                    pos_z=object_pose.position.z,
-                    quat_x=object_pose.orientation.x,
-                    quat_y=object_pose.orientation.y,
-                    quat_z=object_pose.orientation.z,
-                    quat_w=object_pose.orientation.w,
-                ),
-            )
-    return perceived_objects
