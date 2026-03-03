@@ -227,6 +227,41 @@ def change_orientation(start_pose: PoseStamped) -> PoseStamped:
     return new_pose
 
 
+def buffer_in_front_of(target_pose: PoseStamped, min_distance: float) -> PoseStamped:
+    from pycram.tf_transformations import euler_from_quaternion
+
+    tx = target_pose.pose.position.x
+    ty = target_pose.pose.position.y
+
+    # Extract yaw from the object's orientation
+    quat = (
+        target_pose.pose.orientation.x,
+        target_pose.pose.orientation.y,
+        target_pose.pose.orientation.z,
+        target_pose.pose.orientation.w,
+    )
+    _, _, yaw = euler_from_quaternion(quat)
+
+    # Step `min_distance` in the direction the object faces
+    stand_x = tx + min_distance * np.cos(yaw)
+    stand_y = ty + min_distance * np.sin(yaw)
+
+    # Keep the same orientation (facing away from the object = driving direction)
+    standoff = PoseStamped()
+    standoff.header = target_pose.header
+    standoff.pose.position.x = stand_x
+    standoff.pose.position.y = stand_y
+    standoff.pose.position.z = 0.0
+    standoff.pose.orientation = target_pose.pose.orientation
+
+    logger.info(
+        f"buffer_in_front_of: object at ({tx:.2f}, {ty:.2f}) yaw={np.degrees(yaw):.1f}°, "
+        f"standoff at ({stand_x:.2f}, {stand_y:.2f}), distance={min_distance:.2f}m"
+    )
+
+    return standoff
+
+
 def min_distance_2_position(
     human_pose: PoseStamped, robot_pose: PoseStamped, min_distance: float
 ) -> PoseStamped:

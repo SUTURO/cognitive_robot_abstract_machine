@@ -9,7 +9,7 @@ from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from demos.pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
 
-from pycram.external_interfaces.nav2_move import min_distance_2_position
+from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
 from pycram.external_interfaces.robokudo import shutdown_robokudo_interface
 from pycram.external_interfaces.robokudo_ros1 import query_specific_region
 from pycram.ros_utils.text_to_image import TextToImagePublisher
@@ -57,14 +57,19 @@ def look_in_direction(direction: Direction):
 
 
 def drive_to_pose(target_pose: PoseStamped):
-    robot = get_robot_pose()
-    nav_target = min_distance_2_position(
-        human_pose=target_pose.ros_message(),
-        robot_pose=robot.ros_message(),
+    # Standoff point: purely based on object orientation, not robot position
+    nav_target = buffer_in_front_of(
+        target_pose.ros_message(),
         min_distance=MIN_DISTANCE_M,
     )
+    # Phase 1: park arms & drive to the standoff point (scanners forward)
     park_arms()
     nav2_move.start_nav_to_pose(nav_target)
+
+    # Phase 2: rotate 180° in place so the robot faces the object
+    arrived_pose = get_robot_pose()
+    turned_pose = change_orientation(arrived_pose.ros_message())
+    nav2_move.start_nav_to_pose(turned_pose)
 
 
 def scan_for_waving_human() -> Optional[PoseStamped]:
