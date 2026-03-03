@@ -1251,7 +1251,7 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
                 [
                     node.origin.to_np()[0, 3],
                     node.origin.to_np()[1, 3],
-                    target_position.z.to_np()[0] + 0.2,
+                    float(target_position.z + 0.2),
                 ]
                 for node in free_space_graph.graph.nodes()
             ]
@@ -1318,12 +1318,12 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
         link_searchspace = BoundingBoxCollection(
             [
                 BoundingBox(
-                    target_position.x.to_np()[0] - search_distance,
-                    target_position.y.to_np()[0] - search_distance,
+                    float(target_position.x - search_distance),
+                    float(target_position.y - search_distance),
                     0,
-                    target_position.x.to_np()[0] + search_distance,
-                    target_position.y.to_np()[0] + search_distance,
-                    target_position.z.to_np()[0] + 0.35,
+                    float(target_position.x + search_distance),
+                    float(target_position.y + search_distance),
+                    float(target_position.z + 0.35),
                     origin=world.root.global_pose,
                 )
             ],
@@ -1385,17 +1385,17 @@ class ProbabilisticCostmapLocation(LocationDesignatorDescription):
         p_point_root = ProductUnit(probabilistic_circuit=navigation_circuit)
         circuit_root.add_subcircuit(p_point_root, 1.0)
         target_x_p = DiracDeltaDistribution(
-            self.target_x, target_position.x.to_np()[0], 1.0
+            self.target_x, float(target_position.x), 1.0
         )
         target_y_p = DiracDeltaDistribution(
-            self.target_y, target_position.y.to_np()[0], 1.0
+            self.target_y, float(target_position.y), 1.0
         )
 
         nav_x_p = GaussianDistribution(
-            SpatialVariables.x.value, target_position.x.to_np()[0], scale
+            SpatialVariables.x.value, float(target_position.x), scale
         )
         nav_y_p = GaussianDistribution(
-            SpatialVariables.y.value, target_position.y.to_np()[0], scale
+            SpatialVariables.y.value, float(target_position.y), scale
         )
 
         p_point_root.add_subcircuit(leaf(target_x_p, navigation_circuit))

@@ -550,7 +550,7 @@ def test_facing(immutable_multiple_robot_apartment):
             world.get_body_by_name("milk.stl").global_pose,
             robot_view.root,
         )
-        assert milk_in_robot_frame.to_position().y.to_np()[0] == pytest.approx(
+        assert float(milk_in_robot_frame.to_position().y) == pytest.approx(
             0.0, abs=0.01
         )
 

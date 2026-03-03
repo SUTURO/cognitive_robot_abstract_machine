@@ -48,8 +48,7 @@ class ResolutionStrategyObject(ObjectDesignatorDescription):
                 if callable(self.method):
                     yield self.method()
                 elif is_iterable(self.method()):
-                    for i in self.method():
-                        yield i
+                    yield from self.method()
 
         if isinstance(resolution_strategy, Plan):
             resolution_strategy = resolution_strategy.perform

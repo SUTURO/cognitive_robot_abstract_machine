@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from giskardpy.motion_statechart.goals.cartesian_goals import DiffDriveBaseGoal
+from giskardpy.motion_statechart.goals.cartesian_goals import DifferentialDriveBaseGoal
 from giskardpy.motion_statechart.goals.open_close import Close
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
@@ -64,7 +64,7 @@ class StretchMoveSim(MoveMotion, AlternativeMotion[Stretch]):
     @property
     def _motion_chart(self):
 
-        return DiffDriveBaseGoal(
+        return DifferentialDriveBaseGoal(
             goal_pose=self.target.to_homogeneous_matrix(),
         )
 

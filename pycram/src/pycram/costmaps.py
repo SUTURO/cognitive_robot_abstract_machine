@@ -341,12 +341,15 @@ class Costmap:
         if self.width != other_cm.width or self.height != other_cm.height:
             raise ValueError("You can only merge costmaps of the same size.")
         elif (
-            self.origin.to_position().x.to_np()[0]
-            != other_cm.origin.to_position().x.to_np()[0]
-            or self.origin.to_position().y.to_np()[0]
-            != other_cm.origin.to_position().y.to_np()[0]
-            or self.origin.to_quaternion().to_np()[0]
-            != other_cm.origin.to_quaternion().to_np()[0]
+            not np.allclose(
+                self.origin.to_position().x, other_cm.origin.to_position().x
+            )
+            or not np.allclose(
+                self.origin.to_position().y, other_cm.origin.to_position().y
+            )
+            or not np.allclose(
+                self.origin.to_quaternion(), other_cm.origin.to_quaternion()
+            )
         ):
             raise ValueError(
                 "To merge costmaps, the x and y coordinate as well as the orientation must be equal."
@@ -783,15 +786,11 @@ class VisibilityCostmap(Costmap):
         # of the range for every coordinate and r_max contains the end for each
         # coordinate
         r_min = (
-            np.arctan(
-                (self.min_height - self.origin.to_position().z.to_np()[0]) / distances
-            )
+            np.arctan((self.min_height - self.origin.to_position().z) / distances)
             * self.width
         ) + self.width / 2
         r_max = (
-            np.arctan(
-                (self.max_height - self.origin.to_position().z.to_np()[0]) / distances
-            )
+            np.arctan((self.max_height - self.origin.to_position().z) / distances)
             * self.width
         ) + self.width / 2
 
@@ -1101,7 +1100,7 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         :return: The left event.
         """
         self.check_valid_area_exists()
-        y_origin = self.origin.to_position().y.to_np()[0]
+        y_origin = float(self.origin.to_position().y)
         left = self.original_valid_area[self.y].simple_sets[0].lower
         left += margin
         event = SimpleEvent(
@@ -1116,7 +1115,7 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         :return: The right event.
         """
         self.check_valid_area_exists()
-        y_origin = self.origin.to_position().y.to_np()[0]
+        y_origin = float(self.origin.to_position().y)
         right = self.original_valid_area[self.y].simple_sets[0].upper
         right -= margin
         event = SimpleEvent(
@@ -1131,7 +1130,7 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         :return: The top event.
         """
         self.check_valid_area_exists()
-        x_origin = self.origin.to_position().x.to_np()[0]
+        x_origin = float(self.origin.to_position().x)
         top = self.original_valid_area[self.x].simple_sets[0].upper
         top -= margin
         event = SimpleEvent(
@@ -1146,7 +1145,7 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         :return: The bottom event.
         """
         self.check_valid_area_exists()
-        x_origin = self.origin.to_position().x.to_np()[0]
+        x_origin = float(self.origin.to_position().x)
         lower = self.original_valid_area[self.x].simple_sets[0].lower
         lower += margin
         event = SimpleEvent(
@@ -1179,8 +1178,8 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         for rectangle in self.partitioning_rectangles():
             # rectangle.scale(1/self.resolution, 1/self.resolution)
             rectangle.translate(
-                self.origin.to_position().x.to_np()[0],
-                self.origin.to_position().y.to_np()[0],
+                float(self.origin.to_position().x),
+                float(self.origin.to_position().y),
             )
             rectangle_event = SimpleEvent(
                 {
@@ -1213,11 +1212,11 @@ class AlgebraicSemanticCostmap(SemanticCostmap):
         """
         x = sample[0]
         y = sample[1]
-        position = [x, y, self.origin.to_position().z.to_np()[0]]
+        position = [x, y, self.origin.to_position().z]
         angle = (
             np.arctan2(
-                position[1] - self.origin.to_position().y.to_np()[0],
-                position[0] - self.origin.to_position().x.to_np()[0],
+                position[1] - self.origin.to_position().y,
+                position[0] - self.origin.to_position().x,
             )
             + np.pi
         )

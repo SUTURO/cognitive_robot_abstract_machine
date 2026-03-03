@@ -180,7 +180,7 @@ def test_semantic_iterate(immutable_model_world):
     for sample in iter(costmap):
         assert isinstance(sample, Pose)
         assert costmap.valid_area.contains(
-            [sample.to_position().x.to_np()[0], sample.to_position().y.to_np()[0]]
+            [sample.to_position().x, sample.to_position().y]
         )
 
 
@@ -241,7 +241,7 @@ def test_sample_reachability(immutable_model_world):
     assert np.sum(reach_map.map[:200, :]) < 5
 
     for pose in reach_map:
-        assert pose.to_position().x.to_np()[0] > 3
+        assert pose.to_position().x > 3
 
 
 # ----- Sampling test ---------------
@@ -261,8 +261,8 @@ def test_position_generation(immutable_model_world):
     gaussian_map.map = np_map
 
     for pose in gaussian_map:
-        assert 0.8 <= pose.to_position().x.to_np()[0] <= 1.2
-        assert 0.8 <= pose.to_position().y.to_np()[0] <= 1.2
+        assert 0.8 <= pose.to_position().x <= 1.2
+        assert 0.8 <= pose.to_position().y <= 1.2
 
 
 def test_segment_map(immutable_model_world):
@@ -323,7 +323,7 @@ def test_sample_x_axis(immutable_model_world):
     gaussian_map.map = np_map
 
     for pose in gaussian_map:
-        assert -0.05 < pose.to_position().y.to_np()[0] < 0.05
+        assert -0.05 < pose.to_position().y < 0.05
 
 
 def test_sample_x_axis_offset(immutable_model_world):
@@ -342,8 +342,8 @@ def test_sample_x_axis_offset(immutable_model_world):
     gaussian_map.map = np_map
 
     for pose in gaussian_map:
-        assert -0.2 <= pose.to_position().y.to_np()[0] <= 0.2
-        assert 0.4 <= pose.to_position().x.to_np()[0] <= 0.8
+        assert -0.2 <= pose.to_position().y <= 0.2
+        assert 0.4 <= pose.to_position().x <= 0.8
 
 
 def test_sample_x_axis_offset_non_id(immutable_model_world):
@@ -362,8 +362,8 @@ def test_sample_x_axis_offset_non_id(immutable_model_world):
 
     tolerance = 0.01
     for pose in gaussian_map:
-        assert 1.8 <= pose.to_position().y.to_np()[0] <= 2.2 + tolerance
-        assert 3.4 <= pose.to_position().x.to_np()[0] <= 3.8 + tolerance
+        assert 1.8 <= pose.to_position().y <= 2.2 + tolerance
+        assert 3.4 <= pose.to_position().x <= 3.8 + tolerance
 
 
 def test_sample_to_pose_gau(immutable_model_world):
@@ -390,8 +390,8 @@ def test_sample_to_pose_gau(immutable_model_world):
     final_map = gaussian_map + gaussian_map2
 
     for pose in final_map:
-        assert -1.8 < pose.to_position().y.to_np()[0] < 2.2
-        assert 2.6 <= pose.to_position().x.to_np()[0] <= 3.6
+        assert -1.8 < pose.to_position().y < 2.2
+        assert 2.6 <= pose.to_position().x <= 3.6
 
 
 def test_sample_y_axis(immutable_model_world):
@@ -408,7 +408,7 @@ def test_sample_y_axis(immutable_model_world):
 
     gaussian_map.map = np_map
     for pose in gaussian_map:
-        assert -0.05 < pose.to_position().x.to_np()[0] < 0.05
+        assert -0.05 < pose.to_position().x < 0.05
 
 
 def test_sample_rotated(immutable_model_world):
@@ -426,16 +426,16 @@ def test_sample_rotated(immutable_model_world):
     assert len(list(gaussian_map)) == 2
 
     for pose in gaussian_map:
-        assert -0.05 < pose.to_position().y.to_np()[0] < 0.05
-        assert 0.4 <= pose.to_position().x.to_np()[0] <= 0.45
+        assert -0.05 < pose.to_position().y < 0.05
+        assert 0.4 <= pose.to_position().x <= 0.45
 
     gaussian_map.origin = Pose.from_xyz_quaternion(0, 0, 0, 0, 0, 1, 1, world.root)
 
     assert len(list(gaussian_map)) == 2
 
     for pose in gaussian_map:
-        assert -0.05 < pose.to_position().y.to_np()[0] < 0.05
-        assert 0.4 <= pose.to_position().x.to_np()[0] <= 0.45
+        assert -0.05 < pose.to_position().y < 0.05
+        assert 0.4 <= pose.to_position().x <= 0.45
 
 
 def test_sample_to_pose(immutable_model_world):
@@ -455,9 +455,9 @@ def test_sample_to_pose(immutable_model_world):
 
     pose = list(gaussian_map)[0]
 
-    assert pose.to_position().x.to_np()[0] == 1.6
-    assert pose.to_position().y.to_np()[0] == 2.2
-    assert pose.to_position().z.to_np()[0] == 0
+    assert pose.to_position().x == 1.6
+    assert pose.to_position().y == 2.2
+    assert pose.to_position().z == 0
 
 
 def test_sample_highest_first(immutable_model_world):

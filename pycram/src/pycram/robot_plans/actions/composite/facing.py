@@ -11,7 +11,10 @@ from semantic_digital_twin.spatial_types import (
     Quaternion,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
-from pycram.robot_plans.actions.core.navigation import LookAtActionDescription, NavigateActionDescription
+from pycram.robot_plans.actions.core.navigation import (
+    LookAtActionDescription,
+    NavigateActionDescription,
+)
 from pycram.config.action_conf import ActionConfig
 from pycram.datastructures.partial_designator import PartialDesignator
 from pycram.language import SequentialPlan
@@ -40,10 +43,8 @@ class FaceAtAction(ActionDescription):
         # calculate orientation for robot to face the object
         angle = (
             np.arctan2(
-                robot_position.to_position().y.to_np()[0]
-                - self.pose.to_position().y.to_np()[0],
-                robot_position.to_position().x.to_np()[0]
-                - self.pose.to_position().x.to_np()[0],
+                robot_position.to_position().y - self.pose.to_position().y,
+                robot_position.to_position().x - self.pose.to_position().x,
             )
             + np.pi
         )

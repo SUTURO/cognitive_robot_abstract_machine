@@ -2956,7 +2956,9 @@ class RevoluteConnectionDAO(
 
 class DiffDriveDAO(
     ActiveConnectionDAO,
-    DataAccessObject[semantic_digital_twin.world_description.connections.DiffDrive],
+    DataAccessObject[
+        semantic_digital_twin.world_description.connections.DifferentialDrive
+    ],
 ):
 
     __tablename__ = "DiffDriveDAO"

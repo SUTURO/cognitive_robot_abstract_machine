@@ -416,6 +416,7 @@ class GraspPose(Pose):
         super().__init__(position, orientation, reference_frame)
         self.arm = arm
         self.grasp_description = grasp_description
+
     @classmethod
     def from_pose(cls, pose: Pose, arm: Arms, grasp_description: GraspDescription):
         return cls(position=pose.to_position(), orientation=pose.to_quaternion(), reference_frame=pose.reference_frame,
