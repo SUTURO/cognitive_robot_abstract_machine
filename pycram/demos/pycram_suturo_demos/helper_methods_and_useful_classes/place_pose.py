@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_poses_on_semantic_annotation_for_object(
-    semantic_annotation: str,
+    semantic_annotation: SemanticAnnotation | str,
     for_object: SemanticAnnotation | str,
     world: World,
     amount_of_locations: int = 100,
@@ -31,27 +31,29 @@ def get_poses_on_semantic_annotation_for_object(
     or if the semantic annotation has no supporting surface.
     """
 
-    semantic_annotation_entity: SemanticAnnotation = (
-        world.get_semantic_annotation_by_name(semantic_annotation)
-    )
-    if not isinstance(semantic_annotation_entity, HasSupportingSurface):
+    # Get semantic annotation if given as string and check if it has supporting surface
+    if isinstance(semantic_annotation, str):
+        semantic_annotation: SemanticAnnotation = world.get_semantic_annotation_by_name(
+            for_object
+        )
+    if not isinstance(semantic_annotation, HasSupportingSurface):
         logger.warning(
             f'Semantic annotation with name "{semantic_annotation}" has no supporting surface. Cannot sample points from surface.'
         )
         return None
 
+    # Get for_object if given as string and check if it of Type HasRootBody
     if isinstance(for_object, str):
         for_object: SemanticAnnotation = world.get_semantic_annotation_by_name(
             for_object
         )
-
     if not isinstance(for_object, HasRootBody):
         logger.warning(
             f'Object with name "{for_object.name}" has no root body. Cannot sample points for object.'
         )
         return None
 
-    points = semantic_annotation_entity.sample_points_from_surface(
+    points = semantic_annotation.sample_points_from_surface(
         for_object, amount=amount_of_locations
     )
 
@@ -62,7 +64,7 @@ def get_poses_on_semantic_annotation_for_object(
 
 
 def get_pose_on_semantic_annotation_for_object_by_semantic_annotation(
-    semantic_annotation: str,
+    semantic_annotation: SemanticAnnotation | str,
     for_object: SemanticAnnotation | str,
     world: World,
 ) -> Pose | None:
