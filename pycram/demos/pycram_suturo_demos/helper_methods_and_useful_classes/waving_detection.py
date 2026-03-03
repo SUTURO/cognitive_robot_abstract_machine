@@ -2,11 +2,13 @@ import time
 import logging
 from typing import Optional
 
+import semantic_digital_twin
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.robokudo import query_waving_human
 
 
 logger = logging.getLogger(__name__)
+logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
 
 class ContinuousWavingDetector:

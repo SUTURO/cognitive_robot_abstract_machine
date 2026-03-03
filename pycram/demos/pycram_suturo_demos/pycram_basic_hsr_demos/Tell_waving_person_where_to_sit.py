@@ -11,7 +11,6 @@ from pycram.external_interfaces import nav2_move
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
-
 from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
 from pycram.external_interfaces.robokudo import shutdown_robokudo_interface
 from pycram.external_interfaces.robokudo_ros1 import query_specific_region
@@ -24,7 +23,6 @@ from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
-# rclpy.init()
 rclpy_node, world, robot_view, context = setup_hsrb_context()
 
 camera_frame = robot_view.get_default_camera().root
@@ -46,6 +44,44 @@ def get_robot_pose() -> PoseStamped:
     return PoseStamped.from_spatial_type(robot_view.root.global_pose)
 
 
+def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
+    """Transform a pose from the perception (camera) frame into the map frame.
+
+    Mirrors the ROS1 ``transform_camera_to_x`` logic:
+      1. Transform the position from the camera frame into the map frame.
+      2. Set z = 0 (floor level – the robot drives on the ground).
+      3. Replace the orientation with the head_pan_link orientation so that
+         the resulting pose faces the same direction as Toya's head.
+    """
+    frame_id = perception_pose.header.frame_id
+    if isinstance(frame_id, str):
+        reference_body = world.get_body_by_name(frame_id)
+    else:
+        reference_body = frame_id
+
+    pose_in_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
+        pos_x=float(perception_pose.position.x),
+        pos_y=float(perception_pose.position.y),
+        pos_z=float(perception_pose.position.z),
+        quat_x=float(perception_pose.orientation.x),
+        quat_y=float(perception_pose.orientation.y),
+        quat_z=float(perception_pose.orientation.z),
+        quat_w=float(perception_pose.orientation.w),
+        reference_frame=reference_body,
+    )
+
+    pose_in_map = world.transform(pose_in_camera, world.root)
+    result = PoseStamped.from_spatial_type(pose_in_map)
+
+    result.position.z = 0.0
+
+    head_pan = world.get_body_by_name("head_pan_link")
+    head_pan_pose = PoseStamped.from_spatial_type(head_pan.global_pose)
+    result.orientation = head_pan_pose.orientation
+
+    return result
+
+
 def park_arms():
     SequentialPlan(
         context,
@@ -62,21 +98,23 @@ def look_in_direction(direction: HomogeneousTransformationMatrix):
 
 
 def drive_to_pose(target_pose: PoseStamped):
-    # Standoff point: purely based on object orientation, not robot position
+    """Drive to a point MIN_DISTANCE_M in front of *target_pose*, then turn
+    180° so the robot faces the object.
+
+    The standoff point is computed purely from the object's orientation,
+    not the robot's current position.
+    """
     nav_target = buffer_in_front_of(
         target_pose.ros_message(),
         min_distance=MIN_DISTANCE_M,
     )
-    print(f"nav_target: {nav_target}")
-    # Phase 1: park arms & drive to the standoff point (scanners forward)
-    # park_arms()
-    nav2_move.start_nav_to_pose(target_pose.ros_message())
-    print("sind wir hier?")
 
-    # Phase 2: rotate 180° in place so the robot faces the object
-    # arrived_pose = get_robot_pose()
-    # turned_pose = change_orientation(arrived_pose.ros_message())
-    # nav2_move.start_nav_to_pose(turned_pose)
+    park_arms()
+    nav2_move.start_nav_to_pose(nav_target)
+
+    arrived_pose = get_robot_pose()
+    turned_pose = change_orientation(arrived_pose.ros_message())
+    nav2_move.start_nav_to_pose(turned_pose)
 
 
 def scan_for_waving_human() -> Optional[PoseStamped]:
@@ -121,18 +159,12 @@ with real_robot:
     look_at_pose_in_map = world.transform(look_at_pose, world.root)
     look_in_direction(look_at_pose_in_map)
     human = scan_for_waving_human()
-    print(human)
     if human is None:
         text_pub.publish_text("No waving human found, giving up.")
         shutdown_robokudo_interface()
         exit(1)
 
-    human_pose = PoseStamped.from_list(
-        position=human.position.to_list(),
-        orientation=human.orientation.to_list(),
-        frame=world.root,
-    )
-    print(human_pose)
+    human_pose = transform_perception_to_map(human)
 
     # 2. Drive to the human
     # drive_to_pose(human_pose)
@@ -143,9 +175,7 @@ with real_robot:
         orientation=[0.0, 0.0, 0.0, 1.0],
         frame=world.root,
     )
-    # goal = sofa_pose.ros_message()
-    print(sofa_pose)
-    # drive_to_pose(sofa_pose)
+    drive_to_pose(sofa_pose)
 
     # 4. Find a free seat
     # result = find_free_seat()
