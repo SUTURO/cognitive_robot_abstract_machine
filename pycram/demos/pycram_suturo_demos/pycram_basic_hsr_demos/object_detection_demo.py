@@ -8,9 +8,10 @@ from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
     robot_setup,
 )
-from pycram.datastructures.pose import PoseStamped
 from pycram.motion_executor import simulated_robot, real_robot
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -34,14 +35,13 @@ def simulation_demo():
         setup_result.robot_view,
         setup_result.context,
     )
+
     # Spawning an object with example data from perception.
-    t = spawn_semantic_with_body(
+    spawn_semantic_with_body(
         "Spoon",
         "spoon_dinner_redgrip",
-        [0.206, 0.052, 0.0287],
-        PoseStamped.from_list(
-            position=[1.427, 4.993, 0.723], orientation=[0.0, 0.0, 0.998, 0.054]
-        ),
+        Scale(0.206, 0.052, 0.0287),
+        Pose.from_xyz_quaternion(1.427, 4.993, 0.723, 0.0, 0.0, 0.998, 0.054),
         world,
     )
 

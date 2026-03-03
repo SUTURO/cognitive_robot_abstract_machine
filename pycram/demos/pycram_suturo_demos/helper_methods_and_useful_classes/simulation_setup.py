@@ -102,15 +102,19 @@ def merge_robot_into_environment(
         0.0,
     ),
 ) -> Tuple[World, HSRB, Context, Manipulator]:
-    merged = deepcopy(environment_world)
     x, y, z, r, p, yaw = robot_xyz_rpy
-    merged.merge_world_at_pose(
+    environment_world.merge_world_at_pose(
         deepcopy(hsrb_world),
         HomogeneousTransformationMatrix.from_xyz_rpy(x, y, z, r, p, yaw),
     )
-    robot_view = HSRB.from_world(merged)
-    manipulator = merged.get_semantic_annotations_by_type(ParallelGripper)[0]
-    return merged, robot_view, Context(merged, robot_view), manipulator
+    robot_view = HSRB.from_world(environment_world)
+    manipulator = environment_world.get_semantic_annotations_by_type(ParallelGripper)[0]
+    return (
+        environment_world,
+        robot_view,
+        Context(environment_world, robot_view),
+        manipulator,
+    )
 
 
 def try_make_viz(world):

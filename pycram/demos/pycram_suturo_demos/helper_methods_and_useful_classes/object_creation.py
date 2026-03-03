@@ -1,18 +1,18 @@
 import json
 import os
-from typing import List
-
-from suturo_resources.suturo_map import load_environment
 
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
     get_object_class_from_string,
 )
-from pycram.datastructures.pose import PoseStamped
 from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import WorldEntityNotFoundError
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import (
+    Point3,
+    Quaternion,
+)
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
@@ -70,8 +70,8 @@ def try_remove_semantic_annotation_and_body(name: str, world: World):
 def spawn_semantic_with_body(
     semantic_type: str,
     name: str,
-    dimensions: List[float],
-    pose: PoseStamped,
+    scale: Scale,
+    pose: Pose,
     world: World,
 ):
     """
@@ -80,29 +80,29 @@ def spawn_semantic_with_body(
 
     :param semantic_type: The type of the semantic annotation to spawn
     :param name: The name of the semantic annotation to spawn
-    :param dimensions: The dimensions of the object to spawn
+    :param scale: The scale of the object to spawn
     :param pose: The pose of the object to spawn
     :param world: The world in which to spawn the object
     :return: The spawned semantic annotation
     """
 
     semantic_class: HasRootBody = get_object_class_from_string(semantic_type)
-    scale = Scale(*dimensions)
+
+    # If the pose has a frame_id, we need to transform it to the world root frame.
+    # Otherwise, we can assume it is already in the world root frame.
+    if pose.reference_frame is not None and pose.reference_frame != world.root:
+        world_root_T_self = world.transform(pose, world.root).to_homogeneous_matrix()
+    else:
+        world_root_T_self = pose.to_homogeneous_matrix()
+
     try_remove_semantic_annotation_and_body(name, world)
+
     with world.modify_world():
         object_to_spawn = semantic_class.create_with_new_body_in_world(
             name=PrefixedName(name),
             world=world,
             scale=scale,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_quaternion(
-                pos_x=pose.position.x,
-                pos_y=pose.position.y,
-                pos_z=pose.position.z,
-                quat_x=pose.orientation.x,
-                quat_y=pose.orientation.y,
-                quat_z=pose.orientation.z,
-                quat_w=pose.orientation.w,
-            ),
+            world_root_T_self=world_root_T_self,
         )
     return object_to_spawn
 
@@ -119,16 +119,27 @@ def perceive_and_spawn_all_objects(world: World):
         from pycram.external_interfaces import robokudo
     except ImportError:
         raise ImportError()
+
     perceived_objects_result = robokudo.query_all_objects().res
     for perceived_object in perceived_objects_result:
+
         object_dimensions = perceived_object.shape_size[0].dimensions
-        object_pose = perceived_object.pose[0].pose
+        object_scale = Scale(*object_dimensions)
+
+        object_pose_stamped = perceived_object.pose[0].pose
+        object_pose = Pose(
+            position=Point3(*object_pose_stamped.position.to_list()),
+            orientation=Quaternion(*object_pose_stamped.orientation.to_list()),
+            reference_frame=object_pose_stamped.frame_id,
+        )
+
         object_name = extract_name_from_json_string(perceived_object.attribute)
         object_type = perceived_object.type
+
         spawn_semantic_with_body(
             semantic_type=object_type,
             name=object_name,
-            dimensions=object_dimensions,
+            scale=object_scale,
             pose=object_pose,
             world=world,
         )

@@ -1,16 +1,22 @@
-import rclpy
-
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.place_pose import (
-    get_pose_for_object_on_body,
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+    spawn_semantic_with_body,
 )
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
     robot_setup,
 )
+from pycram.motion_executor import simulated_robot, real_robot
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
+from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world_description.geometry import Scale
+
+SIMULATED = True
+"""
+Set this flag to True to run the demo in a simulated environment, 
+or False to run it on the real robot.
+"""
 
 
 def simulation_demo():
-    rclpy.init()
-
     setup_result = robot_setup(
         simulation=True, with_objects=True, with_perception=False
     )
@@ -20,20 +26,29 @@ def simulation_demo():
         setup_result.context,
     )
 
-    location = get_pose_for_object_on_body(
-        for_object=world.get_body_by_name("milk.stl"),
-        body=world.get_body_by_name("diningTable_body"),
-        world=world,
-        link_is_center_link=True,
+    # Get semantic annotation of object you want to sample points from
+    table: Table = world.get_semantic_annotations_by_name("desk_annotation")[0]
+
+    # Example object to sample for
+    milk = spawn_semantic_with_body(
+        "Milk", "milk_carton", Scale(0.1, 0.1, 0.2), Pose(), world
     )
-    print(location)
+
+    # Sample points from surface and get the first one
+    points = table.sample_points_from_surface(milk)
+    point = points[0]
+
+    # Spawn object at newfound location
+    milk = spawn_semantic_with_body(
+        "Milk",
+        "milk_carton",
+        Scale(0.1, 0.1, 0.2),
+        Pose(position=point, reference_frame=point.reference_frame),
+        world,
+    )
 
 
-# Not tested yet
 def real_demo():
-    # Not sure if real robot need rclpy.init(). Uncomment if needed.
-    # rclpy.init()
-
     setup_result = robot_setup(
         simulation=False, with_objects=True, with_perception=False
     )
@@ -43,14 +58,14 @@ def real_demo():
         setup_result.context,
     )
 
-    location = get_pose_for_object_on_body(
-        for_object=world.get_body_by_name("milk.stl"),
-        body=world.get_body_by_name("diningTable_body"),
-        world=world,
-        link_is_center_link=True,
-    )
-    print(location)
+    # TODO: Implement
+    pass
 
 
 if __name__ == "__main__":
-    simulation_demo()
+    if SIMULATED:
+        with simulated_robot:
+            simulation_demo()
+    else:
+        with real_robot:
+            real_demo()
