@@ -22,6 +22,12 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
         orientation=[0.0, 0.0, 0.72, 0.64],
         frame=world.root,
     )
+    ROBOT_PRE_START_POSE = PoseStamped.from_list(
+        position=[1.3, 0.0, 0.0],
+        orientation=[0.0, 0.0, -0.72, 0.64],
+        frame=world.root,
+    )
+
     ROBOT_START_POSE = PoseStamped.from_list(
         position=[0.0, 0.0, 0.0],
         orientation=[0, 0, 0, 1],
@@ -48,6 +54,7 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
 
     match target_pose:
         case "ROBOT_START_POSE":
+            robot_move(target_pose=ROBOT_PRE_START_POSE)
             robot_move(target_pose=ROBOT_START_POSE)
         case "CABINET":
             robot_move(target_pose=CABINET)

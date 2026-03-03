@@ -89,6 +89,12 @@ def main():
             context=context,
             object_name=object_name,
         )
+        move_demo(
+            simulated=simulated,
+            world=world,
+            context=context,
+            target_pose="ROBOT_START_POSE",
+        )
         world.clear()
     finally:
         rclpy.shutdown()

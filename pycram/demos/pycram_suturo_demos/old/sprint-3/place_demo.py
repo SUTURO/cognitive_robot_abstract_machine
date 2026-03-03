@@ -79,7 +79,6 @@ from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
-
 logger = logging.getLogger(__name__)
 
 # Setup ROS node and fetch the world
