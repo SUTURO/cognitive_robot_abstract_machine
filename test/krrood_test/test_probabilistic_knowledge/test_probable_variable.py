@@ -142,3 +142,15 @@ def test_query_writing_with_match_and_copy():
     copied = copy_partial_object(obj)
     assert obj is not copied
     assert obj == copied
+
+
+def test_probable_variable_with_concrete_kwarg():
+    probable_pose = probable_variable(Pose)
+
+    prob_q = probable_pose(
+        position=probable(Position)(x=..., y=..., z=...),
+        orientation=Orientation(x=0.0, y=0.0, z=0.0, w=1.0),
+    ).where(probable_pose.variable.position.x > 0.5)
+
+    instance = MatchToInstanceTranslator(prob_q).translate()
+    assert instance.orientation == Orientation(x=0.0, y=0.0, z=0.0, w=1.0)
