@@ -248,7 +248,7 @@ def buffer_in_front_of(target_pose: PoseStamped, min_distance: float) -> PoseSta
 
     # Keep the same orientation (facing away from the object = driving direction)
     standoff = PoseStamped()
-    standoff.header = target_pose.header
+    standoff.header.frame_id = "map"
     standoff.pose.position.x = stand_x
     standoff.pose.position.y = stand_y
     standoff.pose.position.z = 0.0

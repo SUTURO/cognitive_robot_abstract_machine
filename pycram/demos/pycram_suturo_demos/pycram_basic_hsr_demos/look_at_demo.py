@@ -28,11 +28,12 @@ look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
     x=1, y=0, z=0.5, reference_frame=robot_view.root
 )
 look_at_pose_in_map = world.transform(look_at_pose, world.root)
+
 plan = SequentialPlan(
     context,
-    ParkArmsActionDescription(Arms.BOTH),
-    MoveTorsoActionDescription(TorsoState.HIGH),
-    LookAtActionDescription([look_at_pose_in_map]),
+    # ParkArmsActionDescription(Arms.BOTH),
+    # MoveTorsoActionDescription(TorsoState.LOW),
+    LookAtActionDescription([look_at_pose_in_map.to_pose()]),
 )
 print(look_at_pose_in_map.to_pose())
 
