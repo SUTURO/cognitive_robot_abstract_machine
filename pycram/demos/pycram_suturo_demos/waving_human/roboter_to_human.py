@@ -1,6 +1,5 @@
 import logging
 
-import numpy as np
 import rclpy
 
 from pycram.datastructures.enums import Arms
@@ -10,7 +9,9 @@ from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot, simulated_robot
 from pycram.robot_plans import ParkArmsActionDescription, NavigateActionDescription
 
-from waving_detection import ContinuousWavingDetector
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
+    ContinuousWavingDetector,
+)
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARN)
