@@ -111,6 +111,15 @@ with real_robot:
     text_pub = TextToImagePublisher()
 
     # 1. Scan for a waving human
+    front = Direction.FRONT
+    look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=front.value[0],
+        y=front.value[1],
+        z=front.value[2],
+        reference_frame=robot_view.root,
+    )
+    look_at_pose_in_map = world.transform(look_at_pose, world.root)
+    look_in_direction(look_at_pose_in_map)
     human = scan_for_waving_human()
     print(human)
     if human is None:
