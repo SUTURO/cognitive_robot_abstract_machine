@@ -11,6 +11,7 @@ from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.spatial_types import (
     Point3,
     Quaternion,
+    Vector3,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
@@ -124,15 +125,27 @@ def perceive_and_spawn_all_objects(world: World):
     for perceived_object in perceived_objects_result:
 
         object_dimensions = perceived_object.shape_size[0].dimensions
-        object_scale = Scale(*object_dimensions)
-
-        object_pose_stamped = perceived_object.pose[0].pose
-        object_pose = Pose(
-            position=Point3(*object_pose_stamped.position.to_list()),
-            orientation=Quaternion(*object_pose_stamped.orientation.to_list()),
-            reference_frame=object_pose_stamped.frame_id,
+        object_scale = Scale(
+            object_dimensions.x, object_dimensions.y, object_dimensions.z
         )
 
+        object_pose_stamped = perceived_object.pose[0]
+        object_pose = Pose(
+            position=Point3(
+                object_pose_stamped.pose.position.x,
+                object_pose_stamped.pose.position.y,
+                object_pose_stamped.pose.position.z,
+            ),
+            orientation=Quaternion(
+                object_pose_stamped.pose.orientation.x,
+                object_pose_stamped.pose.orientation.y,
+                object_pose_stamped.pose.orientation.z,
+                object_pose_stamped.pose.orientation.w,
+            ),
+            reference_frame=object_pose_stamped.header.frame_id,
+        )
+
+        # TODO: Needs testing if this is correct and more error handling
         object_name = extract_name_from_json_string(perceived_object.attribute)
         object_type = perceived_object.type
 
