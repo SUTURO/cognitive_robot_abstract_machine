@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from giskardpy.motion_statechart.goals.place import Place, Retracting
 
-from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp
+from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp, BoxGraspMagic, GraspSide
 from giskardpy.data_types.exceptions import DuplicateNameException
 from giskardpy.executor import Executor, SimulationPacer
 from giskardpy.model.collision_matrix_manager import CollisionRequest, CollisionAvoidanceTypes
@@ -2195,7 +2195,13 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
         "base_footprint"
     )
 
-    pre = PickUp(manipulator=hand, object_geometry=box)
+    maigc = BoxGraspMagic(
+        manipulator=hand,
+        object_geometry=box,
+        preferred_side=GraspSide.TOP,
+    )
+
+    pre = PickUp(manipulator=hand, object_geometry=box, grasp_magic=maigc)
     msc.add_node(pre)
 
     msc.add_node(EndMotion.when_true(pre))

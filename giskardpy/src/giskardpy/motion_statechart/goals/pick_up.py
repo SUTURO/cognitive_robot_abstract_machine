@@ -1,6 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Tuple
 from typing_extensions import Optional, List
 
@@ -41,9 +42,31 @@ from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
 
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+
+class GraspSide(Enum):
+    """Which face of the object to approach for grasping.
+
+    CLOSEST selects the face most aligned with the current robot position (default).
+    All other options force a specific face and bypass the gripper-width validity check,
+    so TOP/BOTTOM can be selected even when they would normally be skipped.
+
+    Axes are in the object's local frame:
+      X_POS / X_NEG  – approach along the object's X axis from the positive/negative side
+      Y_POS / Y_NEG  – approach along the object's Y axis from the positive/negative side
+      TOP            – approach from above  (+Z in object frame, i.e. from the top face)
+      BOTTOM         – approach from below  (-Z in object frame, i.e. from the bottom face)
+    """
+    CLOSEST = "closest"
+    X_POS = "x_pos"
+    X_NEG = "x_neg"
+    Y_POS = "y_pos"
+    Y_NEG = "y_neg"
+    TOP = "top"
+    BOTTOM = "bottom"
+
 
 PICKUP_PREPOSE_DISTANCE = 0.2
 HSR_GRIPPER_WIDTH = 0.15
@@ -64,7 +87,7 @@ class PickUp(Goal):
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
-        logger.debug(f"Object pose: {self.object_geometry.global_pose.to_np()}")
+        print(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         self.sequence = Sequence(
             [
                 OpenHand(simulated_execution=self.simulated_execution),
@@ -95,13 +118,14 @@ class PickUp(Goal):
 class GraspMagic(ABC):
     manipulator: ParallelGripper = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
-    gripper_width: float = field(kw_only=True)
+    gripper_width: float = field(kw_only=True, default=HSR_GRIPPER_WIDTH)
     prefer_front_grasp: bool = field(default=False, kw_only=True)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+    preferred_side: GraspSide = field(default=GraspSide.CLOSEST, kw_only=True)
 
     @abstractmethod
     def get_grasp_sequence(
-        self, context: BuildContext
+            self, context: BuildContext
     ) -> Tuple[Tuple[CartesianPosition, "Parallel"], Tuple[CartesianPosition, "Parallel"]]:
         """
         Compute all grasp geometry once and return nodes for both phases:
@@ -111,12 +135,43 @@ class GraspMagic(ABC):
 
     def _select_optimal_grasp_axis(
             self, context: BuildContext, obj_bbox: BoundingBox, obj_to_robot: Vector3
-    ) -> Vector3:
+    ) -> Tuple[Vector3, Optional[float]]:
         """
         Select the best grasp axis based on gripper width constraints and approach direction.
-        Returns the axis most aligned with the robot approach direction that satisfies width constraints.
+
+        Returns ``(grasp_axis, forced_sign)`` where:
+        - ``grasp_axis`` is the object-local axis to approach along.
+        - ``forced_sign`` is ``+1.0`` or ``-1.0`` when ``preferred_side`` forces a specific
+          approach direction, or ``None`` when it should be inferred from the robot position
+          (default CLOSEST behaviour).
+
+        When ``preferred_side`` is not CLOSEST the width-validity check is bypassed so that
+        faces like TOP / BOTTOM can always be chosen explicitly.
         Uses transforms to properly handle arbitrary object orientations.
         """
+        # --- Forced side: skip validity check and return directly ---
+        if self.preferred_side != GraspSide.CLOSEST:
+            _side_to_axis_sign = {
+                GraspSide.X_POS: ('x', +1.0),
+                GraspSide.X_NEG: ('x', -1.0),
+                GraspSide.Y_POS: ('y', +1.0),
+                GraspSide.Y_NEG: ('y', -1.0),
+                GraspSide.TOP: ('z', +1.0),
+                GraspSide.BOTTOM: ('z', -1.0),
+            }
+            axis_name, forced_sign = _side_to_axis_sign[self.preferred_side]
+            if axis_name == 'x':
+                local_axis = Vector3.X(self.object_geometry)
+            elif axis_name == 'y':
+                local_axis = Vector3.Y(self.object_geometry)
+            else:
+                local_axis = Vector3.Z(self.object_geometry)
+            local_axis.reference_frame = self.object_geometry
+            local_axis.scale(1)
+            print(f"preferred_side={self.preferred_side.value}: using axis={axis_name}, sign={forced_sign}")
+            return local_axis, forced_sign
+
+        # --- Default: pick the closest valid face ---
         world_z = Vector3.Z(context.world.root)
 
         # Define candidate faces: each face is defined by its approach axis
@@ -211,14 +266,17 @@ class GraspMagic(ABC):
         grasp_axis.reference_frame = self.object_geometry
         grasp_axis.scale(1)
 
-        return grasp_axis
+        return grasp_axis, None
 
     def _compute_grasp_geometry(
             self, context: BuildContext
-    ) -> Tuple[HomogeneousTransformationMatrix, Body, BoundingBox, Vector3, Vector3]:
+    ) -> Tuple[HomogeneousTransformationMatrix, Body, BoundingBox, Vector3, Vector3, Optional[float]]:
         """
         Compute common geometric data needed for both pre-grasp and grasp.
-        Returns: (obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis)
+        Returns: (obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis, forced_sign)
+
+        ``forced_sign`` is ``+1.0`` / ``-1.0`` when ``preferred_side`` fixes the approach
+        direction, or ``None`` to infer the sign from the robot position at runtime.
         """
         obj_pose = self.object_geometry.global_pose
         tool_frame = self.manipulator.tool_frame
@@ -232,11 +290,11 @@ class GraspMagic(ABC):
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
         obj_to_robot.scale(1)
 
-        grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
+        grasp_axis, forced_sign = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
 
-        logger.debug(f"grasp_axis: {grasp_axis.to_np()}")
+        print(f"grasp_axis: {grasp_axis.to_np()}, forced_sign: {forced_sign}")
 
-        return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
+        return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis, forced_sign
 
     def _compute_offset_along_axis(
             self, obj_bbox: BoundingBox, grasp_axis: Vector3, additional_offset: float = 0.0
@@ -261,18 +319,25 @@ class GraspMagic(ABC):
             grasp_axis: Vector3,
             obj_to_robot: Vector3,
             additional_offset: float = 0.0,
+            forced_sign: Optional[float] = None,
     ) -> Point3:
         """
         Compute position by offsetting from object center along grasp axis.
         Offset distance accounts for object extent and additional clearance.
+
+        ``forced_sign`` (+1.0 / -1.0) overrides the automatic sign derived from the
+        robot position and should be set when ``preferred_side`` is not CLOSEST.
         """
         grasp_axis_world = context.world.transform(
             spatial_object=grasp_axis, target_frame=context.world.root
         )
         grasp_axis_world.reference_frame = context.world.root
 
-        dot_along: Scalar = grasp_axis_world.dot(obj_to_robot)
-        approach_sign = 1.0 if dot_along >= 0.0 else -1.0
+        if forced_sign is not None:
+            approach_sign = forced_sign
+        else:
+            dot_along: Scalar = grasp_axis_world.dot(obj_to_robot)
+            approach_sign = 1.0 if dot_along >= 0.0 else -1.0
 
         offset_distance = self._compute_offset_along_axis(
             obj_bbox, grasp_axis, additional_offset
@@ -291,7 +356,12 @@ class GraspMagic(ABC):
             threshold: float = 0.01,
     ) -> List[MotionStatechartNode]:
         """
-        Create orientation constraint nodes based on gripper_vertical parameter.
+        Create orientation constraint nodes based on gripper_vertical parameter and preferred_side.
+
+        For TOP/BOTTOM grasps the gripper Z axis already points straight at the object
+        (up or down), so adding an AlignPlanes constraint on X/Y would create a redundant
+        or conflicting secondary constraint that prevents the pre-grasp from terminating.
+        In those cases only the Pointing constraint is applied.
         """
         align_nodes: List[MotionStatechartNode] = [
             Pointing(
@@ -304,7 +374,23 @@ class GraspMagic(ABC):
             )
         ]
 
-        if self.gripper_vertical:
+        # For top/bottom grasps the approach axis is vertical.  Pin the gripper's yaw by
+        # aligning its X axis (opening direction) with the object's local X axis.  Without
+        # this the roll around the approach axis is a free DOF and the gripper drifts.
+        # Enforcing the same constraint for Bottom Grasp is hard for some grippers to reach
+        # and prevents them from terminating
+        if self.preferred_side in (GraspSide.TOP, GraspSide.BOTTOM):
+            align_nodes.append(
+                AlignPlanes(
+                    tip_link=tool_frame,
+                    tip_normal=Vector3.X(tool_frame),
+                    root_link=context.world.root,
+                    goal_normal=Vector3.X(self.object_geometry),
+                    threshold=threshold,
+                    name="align_gripper_yaw_to_object",
+                )
+            )
+        elif self.gripper_vertical:
             # Vertical gripper: align gripper X axis to world Z
             align_nodes.append(
                 AlignPlanes(
@@ -338,15 +424,16 @@ class GraspMagic(ABC):
 @dataclass(repr=False, eq=False)
 class BoxGraspMagic(GraspMagic):
     def get_grasp_sequence(
-        self, context: BuildContext
+            self, context: BuildContext
     ) -> Tuple[Tuple[CartesianPosition, Parallel], Tuple[CartesianPosition, Parallel]]:
         # Compute geometry once for both phases
-        obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = self._compute_grasp_geometry(context)
+        obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis, forced_sign = self._compute_grasp_geometry(context)
 
         pre_grasp_point = self._compute_position_along_axis(
-            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, PICKUP_PREPOSE_DISTANCE
+            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, PICKUP_PREPOSE_DISTANCE,
+            forced_sign=forced_sign,
         )
-        logger.debug(f"Pre grasp point: {pre_grasp_point.to_np()}")
+        print(f"Pre grasp point: {pre_grasp_point.to_np()}")
         pre_cart = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
@@ -357,9 +444,10 @@ class BoxGraspMagic(GraspMagic):
         pre_align = Parallel(self._get_orientation_nodes(context, tool_frame, obj_pose, threshold=0.05))
 
         grasp_point = self._compute_position_along_axis(
-            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, additional_offset=-0.05
+            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, additional_offset=-0.05,
+            forced_sign=forced_sign,
         )
-        logger.debug(f"Grasp point: {grasp_point.to_np()}")
+        print(f"Grasp point: {grasp_point.to_np()}")
         grasp_cart = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
@@ -428,8 +516,9 @@ class GraspingSequence(Goal):
 
         (pre_cart, pre_align), (grasp_cart, grasp_align) = self.grasp_magic.get_grasp_sequence(context)
 
+        bottom_grasp = self.grasp_magic.preferred_side == GraspSide.BOTTOM
         self._seq = Sequence([
-            _GraspPhase(_cart=pre_cart, _align=pre_align, _wait_for_align=True),
+            _GraspPhase(_cart=pre_cart, _align=pre_align, _wait_for_align=not bottom_grasp),
             _GraspPhase(_cart=grasp_cart, _align=grasp_align, _wait_for_align=False),
         ])
         self.add_node(self._seq)
