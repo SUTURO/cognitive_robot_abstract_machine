@@ -227,67 +227,36 @@ def change_orientation(start_pose: PoseStamped) -> PoseStamped:
     return new_pose
 
 
-def buffer_in_front_of(
-    target_pose: PoseStamped,
-    min_distance: float,
-    robot_pose: PoseStamped | None = None,
-) -> PoseStamped:
-    from pycram.tf_transformations import euler_from_quaternion, quaternion_from_euler
+def buffer_in_front_of(target_pose: PoseStamped, min_distance: float) -> PoseStamped:
 
-    tx = target_pose.pose.position.x
-    ty = target_pose.pose.position.y
+    from pycram.tf_transformations import quaternion_matrix
 
-    if robot_pose is not None:
-        # ── approach direction from robot → target ──────────────────────
-        rx = robot_pose.pose.position.x
-        ry = robot_pose.pose.position.y
-        dx = tx - rx
-        dy = ty - ry
-        dist = np.hypot(dx, dy)
+    quat = [
+        target_pose.pose.orientation.x,
+        target_pose.pose.orientation.y,
+        target_pose.pose.orientation.z,
+        target_pose.pose.orientation.w,
+    ]
 
-        if dist < 1e-6:
-            # robot is already on top of the target – fall back to yaw=0
-            approach_yaw = 0.0
-        else:
-            approach_yaw = np.arctan2(dy, dx)
+    # 4x4 rotation matrix -> extract the forward (x-axis) column
+    rot_matrix = quaternion_matrix(quat)
+    forward_vector = rot_matrix[:3, 0]  # first column = x-axis
 
-        # Stand *min_distance* back along the approach vector
-        # (i.e. between robot and human)
-        stand_x = tx - min_distance * np.cos(approach_yaw)
-        stand_y = ty - min_distance * np.sin(approach_yaw)
+    # Step *back* along the forward vector by min_distance
+    stand_x = target_pose.pose.position.x - min_distance * forward_vector[0]
+    stand_y = target_pose.pose.position.y - min_distance * forward_vector[1]
 
-        # Orientation: face the target (= approach_yaw)
-        quat = quaternion_from_euler(0.0, 0.0, approach_yaw)
-
-    else:
-        # ── legacy: use the target's own orientation ────────────────────
-        quat_in = (
-            target_pose.pose.orientation.x,
-            target_pose.pose.orientation.y,
-            target_pose.pose.orientation.z,
-            target_pose.pose.orientation.w,
-        )
-        _, _, yaw = euler_from_quaternion(quat_in)
-
-        stand_x = tx + min_distance * np.cos(yaw)
-        stand_y = ty + min_distance * np.sin(yaw)
-
-        # Face back toward the target (180° flip)
-        quat = quaternion_from_euler(0.0, 0.0, yaw + np.pi)
-
-    # Build standoff pose in map frame
+    # Build standoff pose - keep the same orientation (already faces the target)
     standoff = PoseStamped()
     standoff.header.frame_id = "map"
-    standoff.pose.position.x = stand_x
-    standoff.pose.position.y = stand_y
+    standoff.pose.position.x = float(stand_x)
+    standoff.pose.position.y = float(stand_y)
     standoff.pose.position.z = 0.0
-    standoff.pose.orientation.x = quat[0]
-    standoff.pose.orientation.y = quat[1]
-    standoff.pose.orientation.z = quat[2]
-    standoff.pose.orientation.w = quat[3]
+    standoff.pose.orientation = target_pose.pose.orientation
 
     logger.info(
-        f"buffer_in_front_of: target at ({tx:.2f}, {ty:.2f}), "
+        f"buffer_in_front_of: target at "
+        f"({target_pose.pose.position.x:.2f}, {target_pose.pose.position.y:.2f}), "
         f"standoff at ({stand_x:.2f}, {stand_y:.2f}), distance={min_distance:.2f}m"
     )
 

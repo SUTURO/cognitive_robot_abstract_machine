@@ -11,7 +11,7 @@ from pycram.external_interfaces import nav2_move
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
-from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
+from pycram.external_interfaces.nav2_move import buffer_in_front_of
 from pycram.external_interfaces.robokudo import shutdown_robokudo_interface
 from pycram.external_interfaces.robokudo_ros1 import query_specific_region
 from pycram.ros_utils.text_to_image import TextToImagePublisher
@@ -45,14 +45,6 @@ def get_robot_pose() -> PoseStamped:
 
 
 def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
-    """Transform a pose from the perception (camera) frame into the map frame.
-
-    Mirrors the ROS1 ``transform_camera_to_x`` logic:
-      1. Transform the position from the camera frame into the map frame.
-      2. Set z = 0 (floor level – the robot drives on the ground).
-      3. Replace the orientation with the head_pan_link orientation so that
-         the resulting pose faces the same direction as Toya's head.
-    """
     frame_id = perception_pose.header.frame_id
     if isinstance(frame_id, str):
         reference_body = world.get_body_by_name(frame_id)
@@ -98,12 +90,7 @@ def look_in_direction(direction: HomogeneousTransformationMatrix):
 
 
 def drive_to_pose(target_pose: PoseStamped):
-    """Drive to a point MIN_DISTANCE_M in front of *target_pose*, then turn
-    180° so the robot faces the object.
 
-    The standoff point is computed purely from the object's orientation,
-    not the robot's current position.
-    """
     nav_target = buffer_in_front_of(
         target_pose.ros_message(),
         min_distance=MIN_DISTANCE_M,
@@ -111,10 +98,6 @@ def drive_to_pose(target_pose: PoseStamped):
 
     park_arms()
     nav2_move.start_nav_to_pose(nav_target)
-
-    arrived_pose = get_robot_pose()
-    turned_pose = change_orientation(arrived_pose.ros_message())
-    nav2_move.start_nav_to_pose(turned_pose)
 
 
 def scan_for_waving_human() -> Optional[PoseStamped]:

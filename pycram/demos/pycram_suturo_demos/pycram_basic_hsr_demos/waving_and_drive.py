@@ -74,12 +74,9 @@ def park_arms():
 
 def drive_to_pose(target_pose: PoseStamped):
 
-    robot_pose = get_robot_pose()
-
     nav_target = buffer_in_front_of(
         target_pose.ros_message(),
         min_distance=MIN_DISTANCE_M,
-        robot_pose=robot_pose.ros_message(),
     )
 
     logger.info(f"Driving to standoff: {nav_target}")
