@@ -363,7 +363,6 @@ class ShelfLayer(HasSupportingSurface):
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """
 
-
 @dataclass(eq=False)
 class Table(Furniture, HasSupportingSurface):
     """
@@ -800,6 +799,12 @@ class Banana(Fruit):
     A banana.
     """
 
+@dataclass(eq=False)
+class Leg(HasRootBody):
+    """
+    A semantic annotation representing a leg of a furniture item.
+    """
+    pass
 
 @dataclass(eq=False)
 class CoffeeTable(Table):
@@ -809,10 +814,102 @@ class CoffeeTable(Table):
 
 
 @dataclass(eq=False)
-class DiningTable(Table):
+class DiningTable(Table, HasLegs):
     """
     A dining table.
     """
+    @classmethod
+    def create_with_new_body_in_world(
+        cls,
+        name: PrefixedName,
+        world: World,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        length: float = 1.60,  # Standard Länge
+        width: float = 0.90,   # Standard Breite
+        color: Color = Color(0.6, 0.4, 0.2), # Holzfarbe
+        **kwargs,
+    ) -> Self:
+        """
+        Creates a dining table with a surface and 4 legs.
+
+        :param length: The dimension along the X-axis (surface).
+        :param width: The dimension along the Y-axis (surface).
+        """
+        # definition of the sizes
+        total_height = 0.76 # default size 76cm
+        plate_thickness = 0.04
+        leg_width = 0.06
+        leg_height = total_height - plate_thickness
+
+        # Scale for the root-body (surface of the table)
+        # root is the center of the table
+        # root-body is the table-surface
+        plate_scale = Scale(length, width, plate_thickness)
+
+        # creation of the table-surface (Root)
+        # usage of the base-method to create the surface
+        table = super().create_with_new_body_in_world(
+            name=name,
+            world=world,
+            world_root_T_self=world_root_T_self,
+            scale=plate_scale,
+            **kwargs
+        )
+
+        # creation of the legs
+        leg_scale = Scale(leg_width, leg_width, leg_height)
+
+        # calculation of the positions in relation to the surface center
+        # the legs are moving downwards (-Z)
+        # X/Y Position: in the corner, but inset by half a leg's width so that they aline
+        x_offset = (length / 2) - (leg_width / 2)
+        y_offset = (width / 2) - (leg_width / 2)
+        z_pos = -(plate_thickness / 2) - (leg_height / 2)
+
+        # Liste der 4 Ecken (Vorzeichen für X und Y)
+        corners = [
+            (1, 1),  # Vorne Links
+            (1, -1),  # Vorne Rechts
+            (-1, 1),  # Hinten Links
+            (-1, -1)  # Hinten Rechts
+        ]
+
+        for i, (sign_x, sign_y) in enumerate(corners):
+            leg_name = PrefixedName(f"{name.name}_leg_{i}", name.prefix)
+
+            # create leg
+            leg = Leg.create_with_new_body_in_world(
+                name=leg_name,
+                world=world,
+                scale=leg_scale
+            )
+
+        # Position and connect the leg relative to the plate
+        # We need to set the connection manually because create_with_new_body_in_world
+        # the leg is attached to world.root by default.
+
+        # 1. remove old connection
+        world.remove_connection(leg.root.parent_connection)
+
+        # 2. add new connection to the table
+        table_C_leg = FixedConnection(
+            parent=table.root,
+            child=leg.root,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=sign_x * x_offset,
+                y=sign_y * y_offset,
+                z=z_pos
+            )
+        )
+
+        # add connection to world
+        world.add_connection(table_C_leg)
+        table.add_leg(leg)
+
+        # Calculate supporting surface
+        # Since it's a table, we want to register the surface as a storage area.
+        table.calculate_supporting_surface()
+        return table
 
 
 @dataclass(eq=False)
