@@ -85,8 +85,8 @@ with real_robot:
     # Driving to shelf (Koordinaten anpassen!)
     text_pub.publish_text("Driving to shelf.")
     shelf_pose = PoseStamped.from_list(
-        position=[3.60, 1.20, 0.0],
-        orientation=[0.0, 0.0, 0.0, 1.0],
+        position=[3.8683114051818848, 5.459158897399902, 0.0],
+        orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
         frame=world.root,
     )
     park_arms()
