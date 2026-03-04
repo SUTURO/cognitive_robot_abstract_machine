@@ -825,9 +825,9 @@ class DiningTable(Table, HasLegs):
         name: PrefixedName,
         world: World,
         world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
-        length: float = 1.60,  # Standard Länge
-        width: float = 0.90,   # Standard Breite
-        color: Color = Color(0.6, 0.4, 0.2), # Holzfarbe
+        length: float = 1.60,  # Standard length
+        width: float = 0.90,   # Standard width
+        color: Color = Color(0.6, 0.4, 0.2), # Wood color
         **kwargs,
     ) -> Self:
         """
@@ -872,12 +872,12 @@ class DiningTable(Table, HasLegs):
         y_offset = (width / 2) - (leg_width / 2)
         z_pos = -(plate_thickness / 2) - (leg_height / 2)
 
-        # Liste der 4 Ecken (Vorzeichen für X und Y)
+        # List of the 4 corners (signs for X and Y)
         corners = [
-            (1, 1),  # Vorne Links
-            (1, -1),  # Vorne Rechts
-            (-1, 1),  # Hinten Links
-            (-1, -1)  # Hinten Rechts
+            (1, 1),  # Front Left
+            (1, -1),  # Front Right
+            (-1, 1),  # Back Left
+            (-1, -1)  # Back Right
         ]
 
         for i, (sign_x, sign_y) in enumerate(corners):
