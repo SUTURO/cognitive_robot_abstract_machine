@@ -89,11 +89,18 @@ def park_arms():
     ).perform()
 
 
-def look_in_direction(direction: HomogeneousTransformationMatrix):
+def look_in_direction(direction: Direction):
+    look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=direction.value[0],
+        y=direction.value[1],
+        z=direction.value[2],
+        reference_frame=robot_view.root,
+    )
+    look_at_pose_in_map = world.transform(look_at_pose, world.root)
     SequentialPlan(
         context,
         ParkArmsActionDescription(Arms.BOTH),
-        LookAtActionDescription([direction.to_pose()]),
+        LookAtActionDescription([look_at_pose_in_map.to_pose()]),
     ).perform()
 
 
@@ -126,16 +133,9 @@ def scan_for_waving_human() -> Optional[PoseStamped]:
     for direction in [Direction.LEFT, Direction.RIGHT, Direction.BACK, Direction.FRONT]:
         if s_human is not None:
             break
-        look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=direction.value[0],
-            y=direction.value[1],
-            z=direction.value[2],
-            reference_frame=robot_view.root,
-        )
-        look_at_pose_in_map = world.transform(look_at_pose, world.root)
-        look_in_direction(look_at_pose_in_map)
+        look_in_direction(direction)
         s_human = detector.wait_for_waving_human(timeout=WAVING_TIMEOUT_PER_DIRECTION)
-
+    look_in_direction(Direction.FRONT)
     return s_human
 
 
@@ -149,15 +149,8 @@ with real_robot:
     text_pub = TextToImagePublisher()
 
     # 1. Scan for a waving human
-    front = Direction.FRONT
-    look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=front.value[0],
-        y=front.value[1],
-        z=front.value[2],
-        reference_frame=robot_view.root,
-    )
-    look_at_pose_in_map = world.transform(look_at_pose, world.root)
-    look_in_direction(look_at_pose_in_map)
+    text_pub.publish_text("Looking for human.")
+    look_in_direction(Direction.FRONT)
     human = scan_for_waving_human()
     if human is None:
         text_pub.publish_text("No waving human found, giving up.")
