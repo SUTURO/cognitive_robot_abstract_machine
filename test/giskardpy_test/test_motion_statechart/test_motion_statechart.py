@@ -2156,8 +2156,8 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     with hsr_world_setup.modify_world():
         box = Body(
             name=PrefixedName("muh"),
-            collision=ShapeCollection([Box(scale=Scale(0.2, 0.1, 0.2))]),
-            visual=ShapeCollection([Box(scale=Scale(0.2, 0.1, 0.2))]),
+            collision=ShapeCollection([Box(scale=Scale(0.1, 0.2, 0.2))]),
+            visual=ShapeCollection([Box(scale=Scale(0.1, 0.2, 0.2))]),
         )
         dof_limits = DegreeOfFreedomLimits(lower=DerivativeMap(None, -1.0, None, None),
                                            upper=DerivativeMap(None, 1.0, None, None))
@@ -2169,7 +2169,7 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
             child=box,
             axis=Vector3.Z(reference_frame=hsr_world_setup.root),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=2, y=1, z=0.5, yaw=2.5 * np.pi / 2
+                x=2, y=1, z=1.1, yaw=2.5 * np.pi / 2
             ),
         )
         hsr_world_setup.add_connection(connection)
@@ -2199,9 +2199,10 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
         manipulator=hand,
         object_geometry=box,
         preferred_side=GraspSide.TOP,
+        gripper_vertical=True
     )
 
-    pre = PickUp(manipulator=hand, object_geometry=box, grasp_magic=maigc)
+    pre = PickUp(grasp_magic=maigc)
     msc.add_node(pre)
 
     msc.add_node(EndMotion.when_true(pre))
