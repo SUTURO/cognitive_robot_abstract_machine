@@ -7,7 +7,7 @@ from typing import Iterable, Optional, Self, Tuple
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
-
+from semantic_digital_twin.world_description.geometry import Color
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from .mixins import (
@@ -17,6 +17,7 @@ from .mixins import (
     HasDoors,
     HasShelfLayers,
     HasHandle,
+    HasLegs,
     HasCaseAsRootBody,
     HasHinge,
     HasSlider,
@@ -855,6 +856,11 @@ class DiningTable(Table, HasLegs):
             scale=plate_scale,
             **kwargs
         )
+        
+        # Apply color to the table surface
+        if table.root.visual:
+            for shape in table.root.visual.shapes:
+                shape.color = color
 
         # creation of the legs
         leg_scale = Scale(leg_width, leg_width, leg_height)
@@ -883,28 +889,33 @@ class DiningTable(Table, HasLegs):
                 world=world,
                 scale=leg_scale
             )
+            
+            # Apply color to the leg
+            if leg.root.visual:
+                for shape in leg.root.visual.shapes:
+                    shape.color = color
 
-        # Position and connect the leg relative to the plate
-        # We need to set the connection manually because create_with_new_body_in_world
-        # the leg is attached to world.root by default.
+            # Position and connect the leg relative to the plate
+            # We need to set the connection manually because create_with_new_body_in_world
+            # the leg is attached to world.root by default.
 
-        # 1. remove old connection
-        world.remove_connection(leg.root.parent_connection)
+            # 1. remove old connection
+            world.remove_connection(leg.root.parent_connection)
 
-        # 2. add new connection to the table
-        table_C_leg = FixedConnection(
-            parent=table.root,
-            child=leg.root,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=sign_x * x_offset,
-                y=sign_y * y_offset,
-                z=z_pos
+            # 2. add new connection to the table
+            table_C_leg = FixedConnection(
+                parent=table.root,
+                child=leg.root,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=sign_x * x_offset,
+                    y=sign_y * y_offset,
+                    z=z_pos
+                )
             )
-        )
 
-        # add connection to world
-        world.add_connection(table_C_leg)
-        table.add_leg(leg)
+            # add connection to world
+            world.add_connection(table_C_leg)
+            table.add_leg(leg)
 
         # Calculate supporting surface
         # Since it's a table, we want to register the surface as a storage area.
