@@ -12,8 +12,10 @@ from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
 from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
-from pycram.external_interfaces.robokudo import shutdown_robokudo_interface
-from pycram.external_interfaces.robokudo_ros1 import query_specific_region
+from pycram.external_interfaces.robokudo import (
+    shutdown_robokudo_interface,
+    query_specific_region,
+)
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
@@ -24,9 +26,6 @@ logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
 rclpy_node, world, robot_view, context = setup_hsrb_context()
-
-camera_frame = robot_view.get_default_camera().root
-base_frame = world.get_body_by_name("base_link")
 
 MIN_DISTANCE_M: float = 0.5
 WAVING_TIMEOUT_PER_DIRECTION: float = 4.0
