@@ -88,6 +88,16 @@ class HessianOneConditioning(Conditioning):
 
 
 @dataclass
+class MyConditioning(Conditioning):
+    def _apply_column_scaling(self, qp_data: QPData) -> QPData:
+        asdf = np.abs(qp_data.eq_matrix.toarray()).max(axis=0)
+        asdf[qp_data.quadratic_weights != 0] = 1
+        asdf[qp_data.quadratic_weights == 0] = 1 / asdf[qp_data.quadratic_weights == 0]
+        self.C = sp.diags(asdf, format="csc")
+        return super()._apply_column_scaling(qp_data)
+
+
+@dataclass
 class Relaxo:
     def partially_relaxed(self, relaxed_solution: np.ndarray) -> QPData:
         relaxed_qp_data = QPData(

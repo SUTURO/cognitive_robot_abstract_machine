@@ -14,6 +14,8 @@ from giskardpy.qp.qp_data import (
     ZeroWeightQPDataFilter,
     QPDataFilter,
     HessianOneConditioning,
+    MyConditioning,
+    Conditioning,
 )
 from line_profiler import profile
 
@@ -468,15 +470,19 @@ class QPController:
             num_neq_slack_variables=self.qp_adapter.num_neq_slack_variables,
         )
         filtered_qp_data = zero_weight_filter.apply_filters(qp_data_raw)
-        # conditioner = HessianOneConditioning.from_qp_data(filtered_qp_data)
-        # filtered_qp_data_conditioned = conditioner.apply(filtered_qp_data)
+        conditioner = HessianOneConditioning()
+        filtered_qp_data_conditioned = conditioner.apply(filtered_qp_data)
         try:
             try:
-                self.xdot_full = self.qp_solver.solver_call(filtered_qp_data)
-                # self.xdot_full = conditioner.unapply(xdot_full)
+                self.xdot_full = self.qp_solver.solver_call(
+                    filtered_qp_data_conditioned
+                )
+                self.xdot_full = conditioner.unapply(self.xdot_full)
             except InfeasibleException as e:
-                print(filtered_qp_data.pretty_print_problem())
-                self.xdot_full = self.qp_solver.solver_call(filtered_qp_data)
+                print(filtered_qp_data_conditioned.pretty_print_problem())
+                self.xdot_full = self.qp_solver.solver_call(
+                    filtered_qp_data_conditioned
+                )
 
                 self.config.retries_with_relaxed_constraints -= 1
                 self.xdot_full = self.qp_solver.solver_call(filtered_qp_data)

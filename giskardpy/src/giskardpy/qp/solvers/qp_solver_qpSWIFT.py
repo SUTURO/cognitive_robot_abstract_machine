@@ -70,6 +70,7 @@ class QPSolverQPSwift(QPSolver):
             options=self.opts,
         )
         exit_flag = result.exit_flag
+        print(result)
         if not self.ignore_fail:
             if exit_flag == 4:
                 # print(":((")
