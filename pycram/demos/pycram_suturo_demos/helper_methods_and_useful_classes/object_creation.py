@@ -12,13 +12,16 @@ from semantic_digital_twin.spatial_types import (
     Point3,
     Quaternion,
     Vector3,
+    HomogeneousTransformationMatrix,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     Body,
+    SemanticAnnotation,
 )
 
 
@@ -68,6 +71,25 @@ def try_remove_semantic_annotation_and_body(name: str, world: World):
         pass
 
 
+def move_object_to_new_pose(
+    semantic_annotation: HasRootBody, new_transform: HomogeneousTransformationMatrix
+):
+    world = semantic_annotation._world
+    new_transform_world = world.transform(new_transform, world.root)
+    parent_connection = semantic_annotation.root.parent_connection
+    parent_connection_parent = parent_connection.parent
+    parent_connection_child = parent_connection.child
+    new_transform_world.reference_frame = parent_connection_parent
+    new_transform_world.child_frame = parent_connection_child
+    new_parent_connection = FixedConnection(
+        parent=parent_connection_parent,
+        child=parent_connection_child,
+        parent_T_connection_expression=new_transform_world,
+    )
+    world.remove_connection(parent_connection)
+    world.add_connection(new_parent_connection)
+
+
 def spawn_semantic_with_body(
     semantic_type: HasRootBody | str,
     name: str,
@@ -90,8 +112,7 @@ def spawn_semantic_with_body(
     if isinstance(semantic_type, str):
         semantic_type: HasRootBody = get_object_class_from_string(semantic_type)
 
-    pose.z -= 0.025  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
-
+    pose.z -= 0.015  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
     # If the pose has a frame_id, we need to transform it to the world root frame.
     # Otherwise, we can assume it is already in the world root frame.
     if pose.reference_frame is not None and pose.reference_frame != world.root:
