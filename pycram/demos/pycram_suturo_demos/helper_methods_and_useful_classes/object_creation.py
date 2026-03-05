@@ -69,7 +69,7 @@ def try_remove_semantic_annotation_and_body(name: str, world: World):
 
 
 def spawn_semantic_with_body(
-    semantic_type: str,
+    semantic_type: HasRootBody | str,
     name: str,
     scale: Scale,
     pose: Pose,
@@ -87,7 +87,10 @@ def spawn_semantic_with_body(
     :return: The spawned semantic annotation
     """
 
-    semantic_class: HasRootBody = get_object_class_from_string(semantic_type)
+    if isinstance(semantic_type, str):
+        semantic_type: HasRootBody = get_object_class_from_string(semantic_type)
+
+    pose.z -= 0.025  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
 
     # If the pose has a frame_id, we need to transform it to the world root frame.
     # Otherwise, we can assume it is already in the world root frame.
@@ -99,7 +102,7 @@ def spawn_semantic_with_body(
     try_remove_semantic_annotation_and_body(name, world)
 
     with world.modify_world():
-        object_to_spawn = semantic_class.create_with_new_body_in_world(
+        object_to_spawn = semantic_type.create_with_new_body_in_world(
             name=PrefixedName(name),
             world=world,
             scale=scale,
