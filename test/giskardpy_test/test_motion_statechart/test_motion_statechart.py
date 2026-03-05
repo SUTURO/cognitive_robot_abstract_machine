@@ -2169,7 +2169,7 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
             child=box,
             axis=Vector3.Z(reference_frame=hsr_world_setup.root),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=2, y=1, z=1.1, yaw=2.5 * np.pi / 2
+                x=2, y=1, z=0.5, pitch=-0.1, yaw=1.5 * np.pi / 2
             ),
         )
         hsr_world_setup.add_connection(connection)
@@ -2187,7 +2187,6 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     kstp.compile(motion_statechart=msc_tp)
     kstp.tick_until_end()
 
-    hsr = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
     hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
     msc = MotionStatechart()
     orientation_goal = hand.front_facing_orientation.to_rotation_matrix()
@@ -2198,8 +2197,8 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     maigc = BoxGraspMagic(
         manipulator=hand,
         object_geometry=box,
-        preferred_side=GraspSide.TOP,
-        gripper_vertical=True
+        preferred_side=GraspSide.BOTTOM,
+        gripper_vertical=True,
     )
 
     pre = PickUp(grasp_magic=maigc)

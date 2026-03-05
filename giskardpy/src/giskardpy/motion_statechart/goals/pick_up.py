@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, auto
 from typing import Tuple
 from typing_extensions import Optional, List
 
@@ -16,13 +16,11 @@ from giskardpy.motion_statechart.graph_node import (
 )
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import ForceImpactMonitor
 from giskardpy.motion_statechart.ros2_nodes.gripper_control import OpenHand, CloseHand
-from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition, CartesianOrientation
-from giskardpy.motion_statechart.tasks.pointing import Pointing
-from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
 from krrood.symbolic_math.symbolic_math import trinary_logic_not, trinary_logic_and
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
-from semantic_digital_twin.spatial_types import Vector3, Point3, HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import Vector3, Point3, HomogeneousTransformationMatrix, RotationMatrix
 from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.world_entity import Body, KinematicStructureEntity
 
@@ -42,16 +40,16 @@ class GraspSide(Enum):
       TOP            – approach from above  (+Z)
       BOTTOM         – approach from below  (-Z)
     """
-    CLOSEST = "closest"
-    X_POS = "x_pos"
-    X_NEG = "x_neg"
-    Y_POS = "y_pos"
-    Y_NEG = "y_neg"
-    TOP = "top"
-    BOTTOM = "bottom"
+    CLOSEST = auto()
+    X_POS = auto()
+    X_NEG = auto()
+    Y_POS = auto()
+    Y_NEG = auto()
+    TOP = auto()
+    BOTTOM = auto()
 
 
-PICKUP_PREPOSE_DISTANCE = 0.2
+PICKUP_PREPOSE_DISTANCE = 0.15
 HSR_GRIPPER_WIDTH = 0.15
 AXIS_ALIGNMENT_THRESHOLD = 0.9
 
@@ -202,66 +200,48 @@ class GraspMagic(ABC):
             self,
             context: BuildContext,
             tool_frame: KinematicStructureEntity,
-            obj_pose: HomogeneousTransformationMatrix,
-            threshold: float = 0.01,
+            grasp_axis: Vector3,
+            forced_sign: Optional[float],
+            obj_to_robot: Vector3,
             obj_bbox: Optional[BoundingBox] = None,
+            weight: float = DefaultWeights.WEIGHT_ABOVE_CA,
     ) -> List[MotionStatechartNode]:
-        if self.preferred_side == GraspSide.BOTTOM:
-            # Pointing is position-dependent and drives Z into -X when the object is to
-            # the side of the starting arm config. Enforce Z vertical directly instead.
-            return [
-                AlignPlanes(
-                    tip_link=tool_frame,
-                    tip_normal=Vector3.Z(tool_frame),
-                    root_link=context.world.root,
-                    goal_normal=Vector3.Z(context.world.root),
-                    threshold=threshold,
-                    name="enforce_tool_z_up",
-                )
-            ]
+        grasp_axis_world = context.world.transform(grasp_axis, context.world.root)
+        grasp_axis_world.reference_frame = context.world.root
+        approach_sign = forced_sign if forced_sign is not None else (
+            1.0 if grasp_axis_world.dot(obj_to_robot) >= 0.0 else -1.0
+        )
 
-        align_nodes: List[MotionStatechartNode] = [
-            Pointing(
-                tip_link=tool_frame,
-                goal_point=obj_pose.to_position(),
-                root_link=context.world.root,
-                pointing_axis=Vector3.Z(tool_frame),
-                threshold=threshold,
-                name="point_at_object",
-            )
-        ]
+        # Tool Z points toward the object (opposite of the outward approach direction).
+        z_tool = grasp_axis_world * (-approach_sign)
+        z_tool.reference_frame = context.world.root
 
-        if self.preferred_side == GraspSide.TOP:
-            align_nodes.append(AlignPlanes(
-                tip_link=tool_frame,
-                tip_normal=Vector3.X(tool_frame),
-                root_link=context.world.root,
-                goal_normal=Vector3.X(self.object_geometry),
-                threshold=threshold,
-                name="align_gripper_yaw_to_object",
-            ))
-        elif self.gripper_vertical is True:
-            align_nodes.append(AlignPlanes(
-                tip_link=tool_frame,
-                tip_normal=Vector3.X(tool_frame),
-                root_link=context.world.root,
-                goal_normal=Vector3.Z(context.world.root),
-                threshold=threshold,
-                name="enforce_gripper_vertical",
-            ))
+        world_z = Vector3.Z(context.world.root)
+        if self.preferred_side in (GraspSide.TOP, GraspSide.BOTTOM):
+            # Align X with the longer horizontal object axis so the opening (Y) faces
+            # the shorter dimension and the object fits within the gripper width.
+            obj_x = context.world.transform(Vector3.X(self.object_geometry), context.world.root)
+            obj_y = context.world.transform(Vector3.Y(self.object_geometry), context.world.root)
+            obj_x.reference_frame = context.world.root
+            obj_y.reference_frame = context.world.root
+            x_tool = obj_x if (obj_bbox is None or obj_bbox.depth >= obj_bbox.width) else obj_y
         elif self.gripper_vertical is False:
-            align_nodes.append(AlignPlanes(
-                tip_link=tool_frame,
-                tip_normal=Vector3.Y(tool_frame),
-                root_link=context.world.root,
-                goal_normal=Vector3.Z(context.world.root),
-                threshold=threshold,
-                name="enforce_gripper_horizontal",
-            ))
+            # Y should align with world Z.  from_vectors computes Y = Z × X,
+            # so X = world_Z × z_tool satisfies that.
+            x_tool = world_z.cross(z_tool)
+            x_tool.reference_frame = context.world.root
         else:
-            align_nodes.append(ConstTrueNode())
+            # gripper_vertical=True or None: X aligned with world Z.
+            x_tool = world_z
 
-        return align_nodes
+        goal_orientation = RotationMatrix.from_vectors(x=x_tool, z=z_tool, reference_frame=context.world.root)
+        return [CartesianOrientation(
+            root_link=context.world.root,
+            tip_link=tool_frame,
+            goal_orientation=goal_orientation,
+            weight=weight,
+            name="grasp_orientation",
+        )]
 
 
 @dataclass(repr=False, eq=False)
@@ -279,7 +259,10 @@ class BoxGraspMagic(GraspMagic):
             root_link=context.world.root, tip_link=tool_frame,
             goal_point=pre_grasp_point, name="pre_grasp_position",
         )
-        pre_align = Parallel(self._get_orientation_nodes(context, tool_frame, obj_pose, threshold=0.05))
+        pre_align = Parallel(self._get_orientation_nodes(
+            context, tool_frame, grasp_axis, forced_sign, obj_to_robot, obj_bbox=obj_bbox,
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
+        ))
 
         grasp_point = self._compute_position_along_axis(
             context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, additional_offset=-0.05, forced_sign=forced_sign,
@@ -288,8 +271,11 @@ class BoxGraspMagic(GraspMagic):
         grasp_cart = CartesianPosition(
             root_link=context.world.root, tip_link=tool_frame,
             goal_point=grasp_point, name="grasp_position",
+
         )
-        grasp_align = Parallel(self._get_orientation_nodes(context, tool_frame, obj_pose))
+        grasp_align = Parallel(self._get_orientation_nodes(
+            context, tool_frame, grasp_axis, forced_sign, obj_to_robot, obj_bbox=obj_bbox,
+        ))
 
         return (pre_cart, pre_align), (grasp_cart, grasp_align)
 
@@ -313,9 +299,7 @@ class _GraspPhase(Goal):
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
         if self._wait_for_align:
-            artifacts.observation = trinary_logic_and(
-                self._cart.observation_variable, self._align.observation_variable
-            )
+            artifacts.observation = trinary_logic_and(self._cart.observation_variable, self._align.observation_variable)
         else:
             artifacts.observation = self._cart.observation_variable
         return artifacts
@@ -327,9 +311,8 @@ class GraspingSequence(Goal):
 
     def expand(self, context: BuildContext) -> None:
         (pre_cart, pre_align), (grasp_cart, grasp_align) = self.grasp_magic.get_grasp_sequence(context)
-        bottom_grasp = self.grasp_magic.preferred_side == GraspSide.BOTTOM
         self._seq = Sequence([
-            _GraspPhase(_cart=pre_cart, _align=pre_align, _wait_for_align=not bottom_grasp),
+            _GraspPhase(_cart=pre_cart, _align=pre_align, _wait_for_align=False),
             _GraspPhase(_cart=grasp_cart, _align=grasp_align, _wait_for_align=False),
         ])
         self.add_node(self._seq)
