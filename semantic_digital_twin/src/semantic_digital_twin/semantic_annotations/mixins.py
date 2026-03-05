@@ -59,6 +59,7 @@ if TYPE_CHECKING:
         Slider,
         Aperture,
         ShelfLayer,
+        Leg,
     )
 
 
@@ -556,6 +557,23 @@ class HasDoors(HasRootKinematicStructureEntity, ABC):
 
         self._attach_child_entity_in_kinematic_structure(door.root)
         self.doors.append(door)
+
+
+@dataclass(eq=False)
+class HasLegs(HasRootKinematicStructureEntity, ABC):
+    """
+    A mixin class for semantic annotations that have legs.
+    """
+
+    legs: List[Leg] = field(default_factory=list, hash=False, kw_only=True)
+    """
+    The legs of the semantic annotation.
+    """
+
+    @synchronized_attribute_modification
+    def add_leg(self, leg: Leg):
+        self._attach_child_entity_in_kinematic_structure(leg.root)
+        self.legs.append(leg)
 
 
 @dataclass(eq=False)

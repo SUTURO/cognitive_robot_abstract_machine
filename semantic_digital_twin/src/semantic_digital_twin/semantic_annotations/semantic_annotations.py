@@ -7,7 +7,7 @@ from typing import Iterable, Optional, Self, Tuple
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
-
+from semantic_digital_twin.world_description.geometry import Color
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from .mixins import (
@@ -17,6 +17,7 @@ from .mixins import (
     HasDoors,
     HasShelfLayers,
     HasHandle,
+    HasLegs,
     HasCaseAsRootBody,
     HasHinge,
     HasSlider,
@@ -362,7 +363,6 @@ class ShelfLayer(HasSupportingSurface):
     """
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """
-
 
 @dataclass(eq=False)
 class Table(Furniture, HasSupportingSurface):
@@ -800,6 +800,12 @@ class Banana(Fruit):
     A banana.
     """
 
+@dataclass(eq=False)
+class Leg(HasRootBody):
+    """
+    A semantic annotation representing a leg of a furniture item.
+    """
+    pass
 
 @dataclass(eq=False)
 class CoffeeTable(Table):
@@ -809,7 +815,7 @@ class CoffeeTable(Table):
 
 
 @dataclass(eq=False)
-class DiningTable(Table):
+class DiningTable(Table, HasLegs):
     """
     A dining table.
     """
