@@ -1,5 +1,4 @@
 import threading
-import time
 from dataclasses import dataclass
 
 import rclpy
@@ -8,15 +7,11 @@ from rclpy.executors import SingleThreadedExecutor
 import logging
 from suturo_resources.suturo_map import load_environment
 
-import semantic_digital_twin.exceptions
-from pycram.datastructures import dataclasses
 from pycram.datastructures.dataclasses import Context
-from semantic_digital_twin.adapters.ros.messages import LoadModel
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelSynchronizer,
     StateSynchronizer,
-    ModelReloadSynchronizer,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB

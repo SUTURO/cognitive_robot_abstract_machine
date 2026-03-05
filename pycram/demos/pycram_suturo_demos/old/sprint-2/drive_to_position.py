@@ -14,7 +14,6 @@ from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.robots.hsrb import HSRB
-import pycram.alternative_motion_mappings.hsrb_motion_mapping
 
 logger = logging.getLogger(__name__)
 

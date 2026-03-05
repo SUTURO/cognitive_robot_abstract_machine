@@ -47,11 +47,11 @@ class Place(Sequence):
             ft=self.ft,
         )
         open_gripper = OpenHand(simulated_execution=self.simulated)
-        # retracting = Retracting(manipulator=self.manipulator)
+        retracting = Retracting(manipulator=self.manipulator)
 
         self.nodes.append(approach)
         self.nodes.append(open_gripper)
-        # self.nodes.append(retracting)
+        self.nodes.append(retracting)
 
 
 @dataclass(repr=False, eq=False)

@@ -156,17 +156,17 @@ class GiskardPlaceAction(ActionDescription):
     Places an Object at a position using an arm. By directly called GiskardMotion
     """
 
-    object_designator: Body
+    object_designator: Body = field(kw_only=True)
     """
     Object designator_description describing the object that should be place
     """
 
-    target_location: PoseStamped
+    target_location: PoseStamped = field(kw_only=True)
     """
     Pose in the world at which the object should be placed
     """
 
-    arm: Arms
+    arm: Arms = field(kw_only=True)
     """
     Arm that is currently holding the object
     """
@@ -255,5 +255,59 @@ class GiskardPlaceAction(ActionDescription):
         )
 
 
+@dataclass
+class GiskardRetractAction(ActionDescription):
+    """
+    Places an Object at a position using an arm. By directly called GiskardMotion
+    """
+
+    arm: Arms
+    """
+    Arm that is currently holding the object
+    """
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+    _pre_perform_callbacks = []
+    """
+    List to save the callbacks which should be called before performing the action.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def execute(self) -> None:
+        arm = ViewManager.get_arm_view(self.arm, self.robot_view)
+        manipulator = arm.manipulator
+        SequentialPlan(
+            self.context,
+            GiskardMoveGripperMotion(
+                simulated=self.simulated,
+                motion=GripperState.OPEN,
+                gripper=manipulator,
+                allow_gripper_collision=False,
+            ),
+        ).perform()
+
+    @classmethod
+    def description(
+        cls,
+        object_designator: Union[Iterable[Body], Body],
+        target_location: Union[Iterable[PoseStamped], PoseStamped],
+        arm: Union[Iterable[Arms], Arms],
+        simulated: bool,
+    ) -> PartialDesignator[GiskardRetractAction]:
+        return PartialDesignator[GiskardRetractAction](
+            GiskardRetractAction,
+            object_designator=object_designator,
+            target_location=target_location,
+            arm=arm,
+            simulated=simulated,
+        )
+
 PlaceActionDescription = PlaceAction.description
 GiskardPlaceActionDescription = GiskardPlaceAction.description
+GiskardRetractActionDescription = GiskardRetractAction.description

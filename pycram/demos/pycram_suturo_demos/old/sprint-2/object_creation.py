@@ -1,14 +1,10 @@
-import os
-
 import numpy as np
 
-from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from pycram.external_interfaces import robokudo
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from suturo_resources.suturo_map import load_environment
 

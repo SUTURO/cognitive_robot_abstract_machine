@@ -17,7 +17,6 @@ from semantic_digital_twin.world_description.degree_of_freedom import (
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from test.conftest import hsr_world_setup
 
 rospy.init_node("pickup_test")
 giskard = GiskardWrapper(node_handle=rospy.node)

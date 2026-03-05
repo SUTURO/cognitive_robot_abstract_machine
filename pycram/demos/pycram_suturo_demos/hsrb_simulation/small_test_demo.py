@@ -1,11 +1,6 @@
-import time
-from time import sleep
-
 import rclpy
 
 from pycram.datastructures.grasp import GraspDescription
-from pycram.datastructures.pose import PoseStamped
-from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.enums import (
@@ -20,8 +15,6 @@ from pycram.robot_plans import (
     MoveTorsoActionDescription,
     ParkArmsActionDescription,
     PickUpActionDescription,
-    TransportActionDescription,
-    NavigateActionDescription,
 )
 from simulation_setup import setup_hsrb_in_environment
 

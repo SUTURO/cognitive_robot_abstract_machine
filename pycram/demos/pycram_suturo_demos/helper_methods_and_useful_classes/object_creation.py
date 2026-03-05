@@ -2,8 +2,6 @@ import json
 import os
 from typing import List
 
-from suturo_resources.suturo_map import load_environment
-
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
     get_object_class_from_string,
 )

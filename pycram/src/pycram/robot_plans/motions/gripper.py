@@ -303,12 +303,6 @@ class GiskardMoveGripperMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        arm = ViewManager().get_end_effector_view(self.gripper, self.robot_view)
         if self.motion == GripperState.OPEN:
-            OpenHand()
-        return JointPositionList(
-            goal_state=arm.get_joint_state_by_type(self.motion),
-            name=(
-                "OpenGripper" if self.motion == GripperState.OPEN else "CloseGripper"
-            ),
-        )
+            openHand = OpenHand(simulated_execution=self.simulated)
+        return openHand

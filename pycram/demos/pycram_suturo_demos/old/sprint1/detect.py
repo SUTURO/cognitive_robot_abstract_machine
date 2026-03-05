@@ -3,47 +3,33 @@ import time
 import os
 import logging
 
-import numpy as np
 import rclpy
-import robokudo_msgs.action
 from rclpy.executors import SingleThreadedExecutor
-from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.enums import (
     TorsoState,
-    Arms,
     ApproachDirection,
     VerticalAlignment,
 )
 from pycram.datastructures.grasp import GraspDescription
 from pycram.external_interfaces import robokudo
-from pycram.language import SequentialPlan
 from pycram.process_module import simulated_robot, real_robot
-from semantic_digital_twin import world
 from semantic_digital_twin.adapters.ros.world_fetcher import (
-    FetchWorldServer,
     fetch_world_from_service,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
-    Synchronizer,
     ModelSynchronizer,
     StateSynchronizer,
 )
 from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from pycram.robot_plans import (
     SimplePouringActionDescription,
-    MoveTorsoActionDescription,
-    PickUpAction,
-    PickUpActionDescription,
 )
-from pycram.robot_plans import ParkArmsActionDescription
 from pycram.datastructures.dataclasses import Context
-from semantic_digital_twin.adapters.mesh import STLParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-import pycram.alternative_motion_mappings.hsrb_motion_mapping
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection

@@ -5,28 +5,20 @@ import logging
 
 import numpy as np
 import rclpy
-from rclpy.action import ActionClient
 from rclpy.executors import SingleThreadedExecutor
 from suturo_resources.suturo_map import load_environment
-from tmc_control_msgs.action import GripperApplyEffort
 
 from pycram.datastructures.enums import (
     TorsoState,
     Arms,
-    ApproachDirection,
-    VerticalAlignment,
     GripperState,
 )
-from pycram.datastructures.grasp import GraspDescription
-from pycram.language import SequentialPlan, CodeNode, CodePlan
+from pycram.language import SequentialPlan
 from pycram.process_module import simulated_robot, real_robot
-from semantic_digital_twin.adapters.pose_publisher import PosePublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import (
-    FetchWorldServer,
     fetch_world_from_service,
 )
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
-    Synchronizer,
     ModelSynchronizer,
     StateSynchronizer,
 )
@@ -34,18 +26,12 @@ from semantic_digital_twin.adapters.viz_marker import VizMarkerPublisher
 from pycram.robot_plans import (
     SimplePouringActionDescription,
     MoveTorsoActionDescription,
-    PickUpAction,
-    PickUpActionDescription,
-    MoveGripperMotion,
-    SetGripperActionDescription,
 )
 from pycram.robot_plans import ParkArmsActionDescription
 from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
-from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-import pycram.alternative_motion_mappings.hsrb_motion_mapping
 from pycram.external_interfaces import tmc
 
 logger = logging.getLogger(__name__)
