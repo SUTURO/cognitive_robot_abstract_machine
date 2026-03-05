@@ -11,26 +11,22 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property
-from inspect import isclass, ismethod
-from typing import Callable
+from typing import assert_never
 
 import rustworkx as rx
+from sphinx.util.inspect import ismethod, isclass
 from typing_extensions import (
     Optional,
     Type,
-    Dict,
-    Any,
     List,
     Union,
-    Self,
     Generic,
     TYPE_CHECKING,
+    Self,
 )
 
-from krrood.entity_query_language.query.quantifiers import An
 from krrood.entity_query_language.core.base_expressions import (
     Selectable,
-    SymbolicExpression,
 )
 from krrood.entity_query_language.core.mapped_variable import (
     Attribute,
@@ -42,7 +38,9 @@ from krrood.entity_query_language.failures import (
     NoKwargsInMatchVar,
 )
 from krrood.entity_query_language.predicate import HasType
+from krrood.entity_query_language.query.quantifiers import An
 from krrood.entity_query_language.utils import T
+from krrood.patterns.callable_with_kwargs import HasFactoryAndKwargs
 from krrood.rustworkx_utils import RWXNode
 
 if TYPE_CHECKING:
@@ -59,16 +57,10 @@ class AbstractMatchExpression(Generic[T], ABC):
     which are used to structural pattern matching in the form of nested match expressions with keyword arguments.
     """
 
-    type_: Optional[Type[T]] = field(default=None, kw_only=True)
+    type_: Optional[Type[T]] = field(default=None, init=False)
     """
     The type of the variable.
     """
-
-    factory: Callable[..., T] = field(default=None, kw_only=True)
-    """
-    The factory function to create the variable from the type and kwargs.
-    """
-
     variable: Optional[Selectable[T]] = field(default=None, kw_only=True)
     """
     The created variable from the type and kwargs.
@@ -93,12 +85,6 @@ class AbstractMatchExpression(Generic[T], ABC):
     """
     The child matches of this match expression.
     """
-
-    def __post_init__(self):
-        if self.type_ is None:
-            self.type_ = self.factory.__class__
-        elif self.factory is None:
-            self.factory = self.type_
 
     @cached_property
     @abstractmethod
@@ -162,7 +148,7 @@ class AbstractMatchExpression(Generic[T], ABC):
 
 
 @dataclass(eq=False)
-class Match(AbstractMatchExpression[T]):
+class Match(AbstractMatchExpression[T], HasFactoryAndKwargs[T]):
     """
     Construct a query that looks for the pattern provided by the type and the keyword arguments.
     Example usage where we look for an object of type Drawer with body of type Body that has the name"drawer_1":
@@ -173,11 +159,6 @@ class Match(AbstractMatchExpression[T]):
         >>> class Drawer:
         >>>     body: Body
         >>> drawer = match_variable(Drawer, domain=None)(body=match(Body)(name="drawer_1")))
-    """
-
-    kwargs: Dict[str, Any] = field(init=False, default_factory=dict)
-    """
-    The keyword arguments to match against.
     """
 
     _expression: Query = field(init=False, default=None)
@@ -191,6 +172,19 @@ class Match(AbstractMatchExpression[T]):
     A list of all conditions that have been applied to this instance using the `where` method.
     """
 
+    _has_been_called: bool = field(init=False, default=False)
+    """
+    Flag indicating whether the match instance has been called with keyword arguments.
+    """
+
+    def __post_init__(self):
+        if ismethod(self.factory):
+            self.type_ = self.factory.__class__
+        elif isclass(self.factory):
+            self.type_ = self.factory
+        else:
+            assert_never(self.factory)
+
     def __call__(self, **kwargs) -> Union[Self, T, CanBehaveLikeAVariable[T]]:
         """
         Update the match with new keyword arguments to constrain the type we are matching with.
@@ -198,7 +192,10 @@ class Match(AbstractMatchExpression[T]):
         :param kwargs: The keyword arguments to match against.
         :return: The current match instance after updating it with the new keyword arguments.
         """
+        if self._has_been_called:
+            raise ValueError("Match instance has already been called")
         self.kwargs = kwargs
+        self._has_been_called = True
         return self
 
     @property
@@ -420,7 +417,7 @@ class AttributeMatch(AbstractMatchExpression[T]):
         return self.name
 
 
-class UnderspecifiedVariable(MatchVariable):
+class UnderspecifiedVariable(MatchVariable[T]):
     """
     A special type of MatchVariable that represents a variable with underspecified constraints.
     """

@@ -11,10 +11,9 @@ from krrood.entity_query_language.failures import (
 from krrood.entity_query_language.query.match import UnderspecifiedVariable
 from krrood.entity_query_language.query.query import Query
 from krrood.ormatic.eql_interface import eql_to_sql
-from krrood.underspecified_knowledge.model_registries import ModelRegistry
-from krrood.underspecified_knowledge.parameterizer import (
-    UnderspecifiedToCallableAndKwargsTranslator,
-    CallableAndKwargs,
+from krrood.parametrization.model_registries import ModelRegistry
+from krrood.parametrization.parameterizer import (
+    UnderspecifiedFactory,
     UnderspecifiedParameters,
 )
 
@@ -56,12 +55,12 @@ class GenerativeBackend(QueryBackend, ABC):
 
     def _generate_factory_from_expression(
         self, expression: UnderspecifiedVariable
-    ) -> CallableAndKwargs:
+    ) -> UnderspecifiedFactory:
         """
         :param expression: A match expression describing the structure of an instance.
         :return: An instance described by the match expression.
         """
-        return UnderspecifiedToCallableAndKwargsTranslator(expression).translate()
+        return UnderspecifiedFactory(expression)
 
     def evaluate(self, expression: Query) -> Iterable[T]:
         if not isinstance(expression, UnderspecifiedVariable):
@@ -139,12 +138,12 @@ class ProbabilisticBackend(GenerativeBackend):
 
         samples = truncated.sample(self.number_of_samples)
 
-        # create new objects and bind there values to the samples values
+        # create new objects with the values from the samples
         for sample in samples:
 
             sample_dict = parameters.create_assignment_from_variables_and_sample(
                 truncated.variables, sample
             )
             parameters.factory.apply_assignments(sample_dict)
-            instance = parameters.factory.construct_instance()
+            instance = parameters.factory.statement.construct_instance()
             yield instance

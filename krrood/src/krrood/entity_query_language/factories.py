@@ -98,7 +98,7 @@ def match(
     :param type_: The type of the variable (i.e., The class you want to instantiate).
     :return: The Match instance.
     """
-    return Match(type_=type_)
+    return Match(factory=type_)
 
 
 def match_variable(
@@ -112,7 +112,7 @@ def match_variable(
     :param domain: The domain used for the variable created by the match.
     :return: The Match instance.
     """
-    return MatchVariable(type_=type_, domain=domain)
+    return MatchVariable(factory=type_, domain=domain)
 
 
 def underspecified(
@@ -128,14 +128,7 @@ def underspecified(
         Calling an UnderspecifiedVariable will return an UnderspecifiedVariable instead of its expression.
     """
 
-    if ismethod(expression):
-        return UnderspecifiedVariable(factory=expression)
-
-    elif isclass(expression):
-        return UnderspecifiedVariable(type_=expression)
-
-    else:
-        assert_never(expression)
+    return UnderspecifiedVariable(factory=expression)
 
 
 # %% Variable Declaration
@@ -251,7 +244,7 @@ def flat_variable(
 # %% Logical Operators
 
 
-def and_(*conditions: ConditionType):
+def and_(*conditions: ConditionType) -> Union[AND, ConditionType]:
     """
     Logical conjunction of conditions.
 

@@ -13,14 +13,14 @@ from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.operators.comparator import Comparator
 from krrood.entity_query_language.operators.core_logical_operators import OR, AND
-from krrood.underspecified_knowledge.exceptions import (
+from krrood.parametrization.exceptions import (
     WhereExpressionNotInDisjunctiveNormalForm,
 )
 from random_events.interval import closed_open, closed, open
 from random_events.product_algebra import Event, SimpleEvent
 
 if TYPE_CHECKING:
-    from krrood.underspecified_knowledge.parameterizer import ParametrizationVariable
+    from krrood.parametrization.parameterizer import ParametrizationVariable
 
 
 @dataclass
@@ -30,10 +30,9 @@ class WhereExpressionToRandomEventTranslator:
     Requires that the query is in disjunctive normal form.
 
     Check the documentation of `is_disjunctive_normal_form` for more information.
-
     """
 
-    conditions_root: Comparator
+    conditions_root: SymbolicExpression
     """
     The query in disjunctive normal form to translate.
     """
@@ -44,7 +43,6 @@ class WhereExpressionToRandomEventTranslator:
     """
 
     def __post_init__(self):
-
         if self.conditions_root is not None and not is_disjunctive_normal_form(
             self.conditions_root
         ):

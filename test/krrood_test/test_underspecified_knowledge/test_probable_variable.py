@@ -10,10 +10,9 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.query.match import (
     UnderspecifiedVariable,
 )
-from krrood.underspecified_knowledge.parameterizer import (
-    UnderspecifiedToCallableAndKwargsTranslator,
-)
-from krrood.underspecified_knowledge.random_events_translator import (
+from krrood.parametrization.parameterizer import UnderspecifiedFactory
+
+from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
     is_disjunctive_normal_form,
 )
@@ -41,10 +40,7 @@ def test_parameterizer_with_where():
         underspecified_pose.variable.orientation.x != 1.0,
     )
 
-    factory = UnderspecifiedToCallableAndKwargsTranslator(
-        underspecified_pose
-    ).translate()
-    # q.expression.build()
+    factory = UnderspecifiedFactory(underspecified_pose)
     t = WhereExpressionToRandomEventTranslator(
         and_(*q._where_expressions), factory.flat_variables
     )
@@ -100,9 +96,7 @@ def test_dnf_checking():
     where_expression = and_(*q2._where_expressions)
     assert is_disjunctive_normal_form(where_expression)
 
-    factory = UnderspecifiedToCallableAndKwargsTranslator(
-        underspecified_pose
-    ).translate()
+    factory = UnderspecifiedFactory(underspecified_pose)
 
     t = WhereExpressionToRandomEventTranslator(where_expression, factory.flat_variables)
     translated = t.translate()
@@ -142,9 +136,8 @@ def test_query_writing_with_match_and_copy():
         position=underspecified(Position)(x=0.1, y=..., z=...), orientation=None
     )
 
-    translator = UnderspecifiedToCallableAndKwargsTranslator(var)
-    factory = translator.translate()
-    obj = factory.construct_instance()
+    factory = UnderspecifiedFactory(var)
+    obj = factory.statement.construct_instance()
     assert obj.position.x == 0.1
     assert obj.position.y == ...
     assert obj.position.z == ...
@@ -159,8 +152,8 @@ def test_probable_variable_with_concrete_kwarg():
         orientation=Orientation(x=0.0, y=0.0, z=0.0, w=1.0),
     ).where(probable_pose.variable.position.x > 0.5)
 
-    factory = UnderspecifiedToCallableAndKwargsTranslator(prob_q).translate()
-    instance = factory.construct_instance()
+    factory = UnderspecifiedFactory(prob_q)
+    instance = factory.statement.construct_instance()
     assert instance.orientation == Orientation(x=0.0, y=0.0, z=0.0, w=1.0)
 
     assert len(factory.flat_variables) == 4
@@ -174,7 +167,7 @@ def test_new_underspecified_translator():
         orientation=Orientation(x=0.0, y=0.0, z=0.0, w=1.0),
     ).where(probable_pose.variable.position.x > 0.5)
 
-    factory = UnderspecifiedToCallableAndKwargsTranslator(prob_q).translate()
+    factory = UnderspecifiedFactory(prob_q)
 
     assignments = {}
 
@@ -183,5 +176,5 @@ def test_new_underspecified_translator():
             assignments[v] = 0.0
 
     factory.apply_assignments(assignments)
-    r = factory.construct_instance()
+    r = factory.statement.construct_instance()
     assert r == Pose(Position(0.0, 0.0, 0.0), Orientation(0.0, 0.0, 0.0, 1.0))

@@ -8,8 +8,8 @@ from krrood.entity_query_language.factories import (
     variable_from,
     underspecified,
 )
-from krrood.underspecified_knowledge.model_registries import DictRegistry
-from krrood.underspecified_knowledge.parameterizer import UnderspecifiedParameters
+from krrood.parametrization.model_registries import DictRegistry
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
 from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
 
 from pycram.datastructures.dataclasses import Context

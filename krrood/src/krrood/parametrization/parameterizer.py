@@ -2,22 +2,25 @@ from __future__ import annotations
 
 import enum
 import typing
-from copy import deepcopy
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Dict, Callable, Type, Optional
+from typing import Dict, Type, Optional
 
 import numpy as np
 from typing_extensions import Any, List, get_args
 
 import random_events.variable
 from krrood.adapters.json_serializer import list_like_classes, leaf_types
+from krrood.patterns.callable_with_kwargs import HasFactoryAndKwargs
 from krrood.class_diagrams.utils import get_type_hint_of_keyword_argument
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.core.mapped_variable import MappedVariable
+from krrood.entity_query_language.core.mapped_variable import (
+    MappedVariable,
+    CanBehaveLikeAVariable,
+)
 from krrood.entity_query_language.factories import variable, and_
 from krrood.entity_query_language.query.match import UnderspecifiedVariable
-from krrood.underspecified_knowledge.random_events_translator import (
+from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
 )
 from random_events.product_algebra import Event
@@ -26,27 +29,15 @@ from random_events.variable import variable_from_name_and_type
 
 
 @dataclass
-class CallableAndKwargs:
+class UnderspecifiedFactory:
     """
-    A hierarchy of callables and their keyword arguments.
-    This behaves like a factory for underspecified method calls where the missing parameters are indicated by Ellipsis.
-    """
-
-    callable: Callable
-    """
-    The callable to call when all parameters are specified.
+    This behaves like a factory for underspecified method calls where Ellipsis indicates the missing parameters.
     """
 
-    kwargs: Dict[str, Any] = field(default_factory=dict)
+    statement: UnderspecifiedVariable
     """
-    The keyword arguments to pass to the callable.
+    The UnderspecifiedVariable that contains the ellipsis statements.
     """
-
-    def __deepcopy__(self, memo):
-        return self.__class__(
-            self.callable,
-            {name: deepcopy(value) for name, value in self.kwargs.items()},
-        )
 
     @cached_property
     def flat_variables(
@@ -57,8 +48,8 @@ class CallableAndKwargs:
         """
         result = []
 
-        symbolic_access_for_kwargs = variable(self.callable, [])
-        symbolic_access_for_where = variable(self.callable, [])
+        symbolic_access_for_kwargs = variable(self.statement.factory, [])
+        symbolic_access_for_where = variable(self.statement.factory, [])
         symbolic_access = ParametrizationVariable(
             variable_in_kwargs=symbolic_access_for_kwargs,
             variable_in_where_conditions=symbolic_access_for_where,
@@ -66,11 +57,13 @@ class CallableAndKwargs:
             value=None,
         )
 
-        self._flat_variables(symbolic_access, result)
+        self._flat_variables(self.statement, symbolic_access, result)
         return result
 
+    @classmethod
     def _flat_variables(
-        self,
+        cls,
+        current_statement: UnderspecifiedVariable,
         symbolic_access: ParametrizationVariable,
         result: List,
     ):
@@ -81,12 +74,12 @@ class CallableAndKwargs:
         :param result: The dictionary to store the extracted variables and their values.
         """
         symbolic_access.variable_in_kwargs = symbolic_access.variable_in_kwargs.kwargs
-        for key, value in self.kwargs.items():
+        for key, value in current_statement.kwargs.items():
 
             # update access patterns
             current_symbolic_access = symbolic_access.apply_attribute_access(key)
             current_symbolic_access._update_type_hint(
-                get_type_hint_of_keyword_argument(self.callable, key)
+                get_type_hint_of_keyword_argument(current_statement.factory, key)
             )
 
             if isinstance(value, list_like_classes):
@@ -98,10 +91,15 @@ class CallableAndKwargs:
                         current_symbolic_access.apply_index_access(index)
                     )
                     current_symbolic_access._update_type_hint(
-                        (get_type_hint_of_keyword_argument(self.callable, key))
+                        (
+                            get_type_hint_of_keyword_argument(
+                                current_statement.factory, key
+                            )
+                        )
                     )  # get the type hint from the signature of the function
-                    if isinstance(element, CallableAndKwargs):
-                        element._flat_variables(
+                    if isinstance(element, UnderspecifiedVariable):
+                        cls._flat_variables(
+                            element,
                             current_symbolic_access_index,
                             result,
                         )
@@ -110,8 +108,9 @@ class CallableAndKwargs:
                         current_symbolic_access.value = element
                         result.append(current_symbolic_access)
 
-            elif isinstance(value, CallableAndKwargs):
-                value._flat_variables(
+            elif isinstance(value, UnderspecifiedVariable):
+                cls._flat_variables(
+                    value,
                     current_symbolic_access,
                     result,
                 )
@@ -128,85 +127,9 @@ class CallableAndKwargs:
         :param bindings: A dictionary mapping symbolic accesses from this instance to their values.
         """
         for variable, value in bindings.items():
-            variable.variable_in_kwargs._set_external_instance_value_(self, value)
-
-    def construct_instance(self):
-        """
-        Construct a python object from the CallableAndKwargs instance.
-
-        ..note:: This method may work with ellipsis, but it's not guaranteed to work with all types.
-
-        :return: The constructed object.
-        """
-        constructed_kwargs = {}
-        for key, value in self.kwargs.items():
-            if isinstance(value, list_like_classes):
-                constructed_kwargs[key] = type(value)(
-                    (
-                        element.construct_instance()
-                        if isinstance(element, CallableAndKwargs)
-                        else element
-                    )
-                    for element in value
-                )
-
-            elif isinstance(value, CallableAndKwargs):
-                constructed_kwargs[key] = value.construct_instance()
-            else:
-                constructed_kwargs[key] = value
-        return self.callable(**constructed_kwargs)
-
-
-@dataclass
-class UnderspecifiedToCallableAndKwargsTranslator:
-    """
-    Extract CallableAndKwargs object from an UnderspecifiedVariable.
-    """
-
-    statement: UnderspecifiedVariable
-    """
-    The UnderspecifiedVariable to translate.
-    """
-
-    def translate(self) -> CallableAndKwargs:
-        """
-        :return: A CallableAndKwargs object extracted from the UnderspecifiedVariable.
-        """
-        return self._translate(self.statement)
-
-    def _translate(
-        self,
-        statement: UnderspecifiedVariable,
-    ) -> CallableAndKwargs:
-        """
-        Extract CallableAndKwargs object from an UnderspecifiedVariable recoursively.
-        :param statement: The statement to translate.
-        :return: A CallableAndKwargs object extracted from the statement.
-        """
-
-        current_callable = statement.factory
-
-        kwargs = dict()
-
-        for key, argument in statement.kwargs.items():
-
-            if isinstance(argument, list_like_classes):
-
-                kwargs[key] = type(argument)(
-                    (
-                        self._translate(element)
-                        if isinstance(element, UnderspecifiedVariable)
-                        else element
-                    )
-                    for element in argument
-                )
-
-            elif isinstance(argument, UnderspecifiedVariable):
-                kwargs[key] = self._translate(argument)
-
-            else:
-                kwargs[key] = argument
-        return CallableAndKwargs(current_callable, kwargs)
+            variable.variable_in_kwargs._set_external_instance_value_(
+                self.statement, value
+            )
 
 
 @dataclass
@@ -215,13 +138,13 @@ class ParametrizationVariable:
     Grouping of variables that appear in different expressions but mean the same thing.
     """
 
-    variable_in_kwargs: MappedVariable
+    variable_in_kwargs: CanBehaveLikeAVariable
     """
     The variable in the kwargs of the factory used for constructing the final object.
     This one is guaranteed to appear.
     """
 
-    variable_in_where_conditions: MappedVariable
+    variable_in_where_conditions: CanBehaveLikeAVariable
     """
     The variable in the where conditions. This one is very likely to exist. 
     """
@@ -318,11 +241,6 @@ class UnderspecifiedParameters:
     The UnderspecifiedVariable to extract information from.
     """
 
-    _factory_compiler: UnderspecifiedToCallableAndKwargsTranslator = field(init=False)
-    """
-    The UnderspecifiedToCallableAndKwargsTranslator that extracts the factory from the statement
-    """
-
     _random_event_compiler: Optional[WhereExpressionToRandomEventTranslator] = field(
         init=False
     )
@@ -331,7 +249,7 @@ class UnderspecifiedParameters:
     Only exists if the statement has a where condition.
     """
 
-    factory: CallableAndKwargs = field(init=False)
+    factory: UnderspecifiedFactory = field(init=False)
     """
     The factory for constructing new objects from samples.
     """
@@ -343,10 +261,7 @@ class UnderspecifiedParameters:
     """
 
     def __post_init__(self):
-        self._factory_compiler = UnderspecifiedToCallableAndKwargsTranslator(
-            self.statement
-        )
-        self.factory = self._factory_compiler.translate()
+        self.factory = UnderspecifiedFactory(self.statement)
 
         self._random_event_compiler = WhereExpressionToRandomEventTranslator(
             and_(*self.statement._where_expressions), self.factory.flat_variables
