@@ -37,6 +37,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Milk,
     Cereal,
     DiningTable,
+    Leg,
 )
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -729,13 +730,47 @@ class TestFactories(unittest.TestCase):
         root = Body(name=PrefixedName("root"))
         with world.modify_world():
             world.add_body(root)
+
+        # Dimensions
+        table_len = 1.6
+        table_width = 0.9
+        table_height = 0.75
+        plate_thickness = 0.05
+        leg_width = 0.05
+        leg_height = table_height - plate_thickness
+
         with world.modify_world():
+            # 1. Create Table Top (Minimal version)
             table = DiningTable.create_with_new_body_in_world(
                 name=PrefixedName("dining_table"),
                 world=world,
-                length=1.6,
-                width=0.9
+                scale=Scale(table_len, table_width, plate_thickness),
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(z=table_height - plate_thickness / 2)
             )
+
+            world.update_forward_kinematics()
+
+            # 2. Create and add legs manually
+            offsets = [
+                (table_len / 2 - leg_width / 2, table_width / 2 - leg_width / 2),
+                (table_len / 2 - leg_width / 2, -table_width / 2 + leg_width / 2),
+                (-table_len / 2 + leg_width / 2, table_width / 2 - leg_width / 2),
+                (-table_len / 2 + leg_width / 2, -table_width / 2 + leg_width / 2)
+            ]
+
+            for i, (x, y) in enumerate(offsets):
+                leg_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=table.root.global_pose.x + x,
+                    y=table.root.global_pose.y + y,
+                    z=leg_height / 2
+                )
+                leg = Leg.create_with_new_body_in_world(
+                    name=PrefixedName(f"leg_{i}"),
+                    world=world,
+                    scale=Scale(leg_width, leg_width, leg_height),
+                    world_root_T_self=leg_pose
+                )
+                table.add_leg(leg)
 
         # Check if table exists and has legs
         self.assertIsNotNone(table)
@@ -746,7 +781,9 @@ class TestFactories(unittest.TestCase):
             self.assertEqual(leg.root.parent_kinematic_structure_entity, table.root)
             self.assertIsInstance(leg.root.parent_connection, FixedConnection)
 
-        # Check if supporting surface was calculated automatically
+        # Check if supporting surface can be calculated
+        with world.modify_world():
+            table.calculate_supporting_surface()
         self.assertIsNotNone(table.supporting_surface)
 
     def test_wall_doors(self):
