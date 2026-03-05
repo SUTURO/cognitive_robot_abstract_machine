@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from giskardpy.motion_statechart.goals.place import Place, Retracting
 
-from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp, BoxGraspMagic, GraspSide
+from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp, BoxGraspMagic, CylinderGraspMagic, GraspSide
 from giskardpy.data_types.exceptions import DuplicateNameException
 from giskardpy.executor import Executor, SimulationPacer
 from giskardpy.model.collision_matrix_manager import CollisionRequest, CollisionAvoidanceTypes
@@ -2152,7 +2152,7 @@ class TestVelocityTasks:
         ), f"tight ({tight_cycles}) should take >= loose ({2 * loose_cycles}) control cycles"
 
 
-def test_pick_up(hsr_world_setup: World, rclpy_node):
+def test_pick_up_box(hsr_world_setup: World, rclpy_node):
     with hsr_world_setup.modify_world():
         box = Body(
             name=PrefixedName("muh"),
@@ -2225,17 +2225,71 @@ def test_pick_up(hsr_world_setup: World, rclpy_node):
     kin_sim_pickup.compile(motion_statechart=msc_pickup)
     kin_sim_pickup.tick_until_end()
 
-    # place_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-    #     x=0, y=0, z=0.5, roll=0, pitch=0, yaw=0, reference_frame=hsr_world_setup.root
-    # )
-    #
-    # msc_place = MotionStatechart()
-    # msc_place.add_node(place := Place(manipulator=hand, object_geometry=box, goal_pose=place_pose))
-    # msc_place.add_node(EndMotion.when_true(place))
-    # kin_sim_place = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
-    # kin_sim_place.compile(motion_statechart=msc_place)
-    # kin_sim_place.tick_until_end()
-    print("doneeee")
+def test_pick_up_cylinder(hsr_world_setup: World, rclpy_node):
+    with hsr_world_setup.modify_world():
+        cylinder = Body(
+            name=PrefixedName("cylinder"),
+            collision=ShapeCollection([Cylinder(width=0.1, height=0.2)]),
+            visual=ShapeCollection([Cylinder(width=0.1, height=0.2)]),
+        )
+        dof_limits = DegreeOfFreedomLimits(lower=DerivativeMap(None, -1.0, None, None),
+                                           upper=DerivativeMap(None, 1.0, None, None))
+        dof = DegreeOfFreedom(limits=dof_limits)
+        hsr_world_setup.add_degree_of_freedom(dof)
+        connection = PrismaticConnection(
+            dof_id=dof.id,
+            parent=hsr_world_setup.root,
+            child=cylinder,
+            axis=Vector3.Z(reference_frame=hsr_world_setup.root),
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=2, y=1, z=0.5, yaw=1.5 * np.pi / 2
+            ),
+        )
+        hsr_world_setup.add_connection(connection)
+
+    TFPublisher(hsr_world_setup, rclpy_node)
+    VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
+    msc_tp = MotionStatechart()
+    tp = SetOdometry(
+        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=3, y=1, z=0, yaw=2 * np.pi / 2,
+                                                               reference_frame=hsr_world_setup.root),
+    )
+    msc_tp.add_node(tp)
+    msc_tp.add_node(EndMotion.when_true(tp))
+    kstp = Executor(world=hsr_world_setup)
+    kstp.compile(motion_statechart=msc_tp)
+    kstp.tick_until_end()
+
+    hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
+    msc = MotionStatechart()
+
+    magic = CylinderGraspMagic(
+        manipulator=hand,
+        object_geometry=cylinder,
+    )
+
+    pre = PickUp(grasp_magic=magic)
+    msc.add_node(pre)
+    msc.add_node(EndMotion.when_true(pre))
+    kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+    with hsr_world_setup.modify_world():
+        old_connection = hsr_world_setup.get_connection(parent=hsr_world_setup.root, child=cylinder)
+        hsr_world_setup.remove_connection(old_connection)
+        root_T_cylinder = hsr_world_setup.transform(target_frame=hand.tool_frame, spatial_object=cylinder.global_pose)
+        new_connection = FixedConnection(
+            parent=hand.tool_frame, child=cylinder, parent_T_connection_expression=root_T_cylinder
+        )
+        hsr_world_setup.add_connection(new_connection)
+
+    msc_pickup = MotionStatechart()
+    msc_pickup.add_node(p := PullUp(manipulator=hand, object_geometry=cylinder))
+    msc_pickup.add_node(EndMotion.when_true(p))
+    kin_sim_pickup = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim_pickup.compile(motion_statechart=msc_pickup)
+    kin_sim_pickup.tick_until_end()
 
 
 def test_milestone2(hsr_world_setup: World, rclpy_node):

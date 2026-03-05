@@ -1,5 +1,6 @@
 from typing import Any
 
+import numpy
 import rclpy
 from rclpy.logging import get_logger
 
@@ -19,7 +20,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.geometry import Box, Scale, Cylinder
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 from suturo_resources.suturo_map import load_environment
@@ -33,6 +34,17 @@ def try_get_object_to_pickup(world, object_name_method) -> Body | None:
         return object_to_pickup_method
     except semantic_digital_twin.exceptions.WorldEntityNotFoundError:
         raise Exception(f"object with name '{object_name_method}' not found")
+
+
+def add_cylinder(name: str, width: float, height: float):
+    body = Body(
+        name=PrefixedName(name),
+        collision=ShapeCollection([Cylinder(width=width, height=height)]),
+    )
+    new_world = World()
+    with new_world.modify_world():
+        new_world.add_body(body)
+    return new_world
 
 
 def add_box(name: str, scale_xyz: tuple[float, float, float]):
@@ -99,6 +111,7 @@ def attach_object(manipulator: ParallelGripper, world: World, object_designator:
 logger = get_logger(__name__)
 
 SIMULATED: bool = True
+USE_TEST_CYLINDER: bool = True  # set True to spawn a test cylinder instead of milk.stl
 with_perception: bool = False
 object_name: str = ""
 
@@ -125,7 +138,16 @@ if hasattr(context, "node") and getattr(context, "node", None) is None:
 manipulator = hsrb_world.get_semantic_annotations_by_type(ParallelGripper)[0]
 # -------------------------------- DETERMIN OBJECT_TO_PICKUP
 if SIMULATED:
-    object_name = "milk.stl"
+    if USE_TEST_CYLINDER:
+        object_name = "test_cylinder"
+        cylinder_world = add_cylinder(object_name, width=0.06, height=0.2)
+        with hsrb_world.modify_world():
+            hsrb_world.merge_world_at_pose(
+                cylinder_world,
+                pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=2.4027, y=-1.5056, z=0.64681, yaw=numpy.pi / 4),
+            )
+    else:
+        object_name = "milk.stl"
     object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
 else:
     if with_perception:

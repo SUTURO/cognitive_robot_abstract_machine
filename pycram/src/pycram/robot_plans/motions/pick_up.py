@@ -4,7 +4,7 @@ from typing import Optional
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.world_entity import Body
 from .base import BaseMotion
-from giskardpy.motion_statechart.goals.pick_up import PickUp
+from giskardpy.motion_statechart.goals.pick_up import PickUp, CylinderGraspMagic
 
 
 @dataclass
@@ -37,9 +37,15 @@ class PickupMotion(BaseMotion):
         The motion framework queries this property to insert the task
         into the MotionStatechart.
         """
+        # pickup = PickUp(
+        #     manipulator=self.manipulator,
+        #     object_geometry=self.object_geometry,
+        #     gripper_vertical=self.gripper_vertical,
+        # )
         pickup = PickUp(
-            manipulator=self.manipulator,
-            object_geometry=self.object_geometry,
-            gripper_vertical=self.gripper_vertical,
+            grasp_magic=CylinderGraspMagic(
+                object_geometry=self.object_geometry,
+                manipulator=self.manipulator,
+            )
         )
         return pickup

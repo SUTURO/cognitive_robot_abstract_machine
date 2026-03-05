@@ -18,6 +18,7 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import ForceImp
 from giskardpy.motion_statechart.ros2_nodes.gripper_control import OpenHand, CloseHand
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition, CartesianOrientation
+from semantic_digital_twin.world_description.geometry import Cylinder
 from krrood.symbolic_math.symbolic_math import trinary_logic_not, trinary_logic_and
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.spatial_types import Vector3, Point3, HomogeneousTransformationMatrix, RotationMatrix
@@ -49,7 +50,6 @@ class GraspSide(Enum):
     BOTTOM = auto()
 
 
-PICKUP_PREPOSE_DISTANCE = 0.15
 HSR_GRIPPER_WIDTH = 0.15
 AXIS_ALIGNMENT_THRESHOLD = 0.9
 
@@ -82,6 +82,7 @@ class GraspMagic(ABC):
     gripper_width: float = field(kw_only=True, default=HSR_GRIPPER_WIDTH)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
     preferred_side: GraspSide = field(default=GraspSide.CLOSEST, kw_only=True)
+    pre_grasp_distance: float = field(default=0.15, kw_only=True)
 
     @abstractmethod
     def get_grasp_sequence(
@@ -252,7 +253,7 @@ class BoxGraspMagic(GraspMagic):
         obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis, forced_sign = self._compute_grasp_geometry(context)
 
         pre_grasp_point = self._compute_position_along_axis(
-            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, PICKUP_PREPOSE_DISTANCE, forced_sign=forced_sign,
+            context, obj_pose, obj_bbox, grasp_axis, obj_to_robot, self.pre_grasp_distance, forced_sign=forced_sign,
         )
         logger.debug(f"pre_grasp_point: {pre_grasp_point.to_np()}")
         pre_cart = CartesianPosition(
@@ -280,10 +281,56 @@ class BoxGraspMagic(GraspMagic):
         return (pre_cart, pre_align), (grasp_cart, grasp_align)
 
 
+@dataclass(repr=False, eq=False)
 class CylinderGraspMagic(GraspMagic):
-    def get_grasp_sequence(self, context: BuildContext):
-        # TODO: Implement cylinder-specific grasp logic
-        pass
+    def get_grasp_sequence(
+            self, context: BuildContext
+    ) -> Tuple[Tuple[CartesianPosition, Parallel], Tuple[CartesianPosition, Parallel]]:
+        obj_pose = self.object_geometry.global_pose
+        tool_frame = self.manipulator.tool_frame
+
+        cylinder_shape = next(
+            s for s in self.object_geometry.collision.shapes if isinstance(s, Cylinder)
+        )
+        radius = cylinder_shape.width / 2
+
+        # Cylinder axis in world frame
+        cyl_axis_world = context.world.transform(Vector3.Z(self.object_geometry), context.world.root)
+        cyl_axis_world.reference_frame = context.world.root
+
+        # Project obj_to_robot onto the plane perpendicular to the cylinder axis
+        obj_to_robot = self.manipulator.tool_frame.global_pose.to_position() - obj_pose.to_position()
+        obj_to_robot.scale(1)
+        radial_dir = obj_to_robot - cyl_axis_world * obj_to_robot.dot(cyl_axis_world)
+        radial_dir.scale(1)
+        radial_dir.reference_frame = context.world.root
+
+        cyl_center = obj_pose.to_position()
+
+        pre_grasp_point = cyl_center + radial_dir * (radius + self.pre_grasp_distance)
+        pre_grasp_point.reference_frame = context.world.root
+        logger.debug(f"cylinder pre_grasp_point: {pre_grasp_point.to_np()}")
+        pre_cart = CartesianPosition(
+            root_link=context.world.root, tip_link=tool_frame,
+            goal_point=pre_grasp_point, name="pre_grasp_position",
+        )
+        pre_align = Parallel(self._get_orientation_nodes(
+            context, tool_frame, radial_dir, 1.0, obj_to_robot,
+            weight=DefaultWeights.WEIGHT_BELOW_CA,
+        ))
+
+        grasp_point = cyl_center + radial_dir * (radius - 0.05)
+        grasp_point.reference_frame = context.world.root
+        logger.debug(f"cylinder grasp_point: {grasp_point.to_np()}")
+        grasp_cart = CartesianPosition(
+            root_link=context.world.root, tip_link=tool_frame,
+            goal_point=grasp_point, name="grasp_position",
+        )
+        grasp_align = Parallel(self._get_orientation_nodes(
+            context, tool_frame, radial_dir, 1.0, obj_to_robot,
+        ))
+
+        return (pre_cart, pre_align), (grasp_cart, grasp_align)
 
 
 @dataclass(repr=False, eq=False)
