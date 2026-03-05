@@ -30,6 +30,7 @@ base_frame = world.get_body_by_name("base_link")
 
 MIN_DISTANCE_M: float = 0.5
 WAVING_TIMEOUT_PER_DIRECTION: float = 4.0
+ORIENTATION_SWITCH: bool = True
 
 
 class Direction(Enum):
@@ -45,12 +46,6 @@ def get_robot_pose() -> PoseStamped:
 
 
 def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
-    frame_id = perception_pose.header.frame_id
-    if isinstance(frame_id, str):
-        reference_body = world.get_body_by_name(frame_id)
-    else:
-        reference_body = frame_id
-
     pose_in_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
         pos_x=float(perception_pose.position.x),
         pos_y=float(perception_pose.position.y),
@@ -59,18 +54,20 @@ def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
         quat_y=float(perception_pose.orientation.y),
         quat_z=float(perception_pose.orientation.z),
         quat_w=float(perception_pose.orientation.w),
-        reference_frame=reference_body,
+        reference_frame=robot_view.root,
     )
-
     pose_in_map = world.transform(pose_in_camera, world.root)
     result = PoseStamped.from_spatial_type(pose_in_map)
 
     result.position.z = 0.0
-
-    head_pan = world.get_body_by_name("head_pan_link")
-    head_pan_pose = PoseStamped.from_spatial_type(head_pan.global_pose)
-    result.orientation = head_pan_pose.orientation
-
+    if ORIENTATION_SWITCH:
+        head_pan = world.get_body_by_name("head_pan_link")
+        head_pan_pose = PoseStamped.from_spatial_type(head_pan.global_pose)
+        result.orientation = head_pan_pose.orientation
+    logger.info(
+        f"Transformierte Pose in map: Position=({result.position.x:.3f}, {result.position.y:.3f}, {result.position.z:.3f}), "
+        f"Orientation=({result.orientation.x:.3f}, {result.orientation.y:.3f}, {result.orientation.z:.3f}, {result.orientation.w:.3f})"
+    )
     return result
 
 
@@ -92,7 +89,7 @@ def look_in_direction(direction: HomogeneousTransformationMatrix):
 def drive_to_pose(target_pose: PoseStamped):
 
     nav_target = buffer_in_front_of(
-        target_pose.ros_message(),
+        target_pose,
         min_distance=MIN_DISTANCE_M,
     )
 
@@ -150,8 +147,9 @@ with real_robot:
     human_pose = transform_perception_to_map(human)
 
     # 2. Drive to the human
-    # drive_to_pose(human_pose)
-    # Moving to geometry_msgs.msg.PoseStamped(header=std_msgs.msg.Header(stamp=builtin_interfaces.msg.Time(sec=1772543508, nanosec=74506), frame_id='map'), pose=geometry_msgs.msg.Pose(position=geometry_msgs.msg.Point(x=1.3, y=5.3, z=0.0), orientation=geometry_msgs.msg.Quaternion(x=0.0, y=0.0, z=0.7474093186836598, w=0.6643638388299198)))'
+    goal = human_pose.ros_message()
+    drive_to_pose(goal)
+
     # 3. Drive to sofa
     sofa_pose = PoseStamped.from_list(
         position=[3.60, 1.20, 0.0],
@@ -164,7 +162,7 @@ with real_robot:
     # result = find_free_seat()
 
     # 5. Drive back to the human
-    # drive_to_pose(human_pose)
+    # drive_to_pose(goal)
 
     # 6. Tell the human where to sit
     # text_pub.publish_text(f"Free seat at {result}")
