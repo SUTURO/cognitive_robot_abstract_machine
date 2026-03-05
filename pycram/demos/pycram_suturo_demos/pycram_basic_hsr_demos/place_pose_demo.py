@@ -1,5 +1,7 @@
 import logging
 
+import rclpy
+
 import semantic_digital_twin
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     spawn_semantic_with_body,
@@ -29,9 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def simulation_demo():
-    setup_result = robot_setup(
-        simulation=True, with_objects=False, with_perception=False
-    )
+    rclpy.init()
+    setup_result = robot_setup(simulation=True, with_simulated_objects=False)
     world, robot_view, context = (
         setup_result.world,
         setup_result.robot_view,
@@ -63,15 +64,6 @@ def simulation_demo():
 
 
 def real_demo():
-    setup_result = robot_setup(
-        simulation=False, with_objects=True, with_perception=False
-    )
-    world, robot_view, context = (
-        setup_result.world,
-        setup_result.robot_view,
-        setup_result.context,
-    )
-
     # TODO: Implement
     pass
 
