@@ -49,11 +49,13 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Banana,
     Cola,
     Table,
+    Apple,
+    Orange,
 )
 from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.geometry import Scale, Color
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -82,8 +84,8 @@ def spawn_object_on_table(
     obj_name: str,
     semantic_annotation: type[HasRootBody],
     table: Table,
-):
-    scale = Scale(0.1, 0.1, 0.2)
+    scale: Scale = Scale(0.1, 0.1, 0.2),
+) -> HasRootBody:
     world = table._world
     with world.modify_world():
         obj = semantic_annotation.create_with_new_body_in_world(
@@ -93,20 +95,35 @@ def spawn_object_on_table(
     with world.modify_world():
         object_creation.move_object_to_new_pose(obj, pose.to_homogeneous_matrix())
         table.add_object(obj)
+    return obj
 
 
 def spawn_ref_objects(world: World):
     dining_table: Table = world.get_semantic_annotation_by_name("dining_table")
-    spawn_object_on_table("ref_cucumber", Cucumber, dining_table)
+    cucumber = spawn_object_on_table(
+        "ref_cucumber", Cucumber, dining_table, Scale(0.1, 0.2, 0.1)
+    )
+    for color in cucumber.root.visual.shapes:
+        color.color = Color.GREEN()
     table: Table = world.get_semantic_annotation_by_name("table")
-    spawn_object_on_table("ref_banana", Banana, table)
+    orange = spawn_object_on_table("ref_apple", Orange, table, Scale(0.1, 0.1, 0.1))
+    for color in orange.root.visual.shapes:
+        color.color = Color.ORANGE()
 
 
 def spawn_objects_to_pick(world: World):
     cooking_table: Table = world.get_semantic_annotation_by_name("cooking_table")
-    spawn_object_on_table("cucumber", Cucumber, cooking_table)
-    spawn_object_on_table("cola", Cola, cooking_table)
-    spawn_object_on_table("banana", Banana, cooking_table)
+    cucumber = spawn_object_on_table(
+        "cucumber", Cucumber, cooking_table, Scale(0.1, 0.2, 0.1)
+    )
+    for color in cucumber.root.visual.shapes:
+        color.color = Color.GREEN()
+    cola = spawn_object_on_table("cola", Cola, cooking_table)
+    for color in cola.root.visual.shapes:
+        color.color = Color.BLACK()
+    banana = spawn_object_on_table("banana", Banana, cooking_table)
+    for color in banana.root.visual.shapes:
+        color.color = Color.ORANGE()
 
 
 def pickup_object_from_table(obj: HasRootBody):
