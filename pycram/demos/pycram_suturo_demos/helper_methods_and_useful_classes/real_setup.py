@@ -13,6 +13,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.dataclasses import Context
@@ -98,7 +99,12 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
 def test_spawning(hsrb_world: World):
     object_name = f"milk"
     object_to_spawn = add_box(object_name, (0.1, 0.1, 0.3))
-
+    tes = Milk.create_with_new_body_in_world(
+        name=PrefixedName(object_name),
+        world=hsrb_world,
+        scale=Scale(0.1, 0.1, 0.3),
+        world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=1, z=1),
+    )
     with hsrb_world.modify_world():
         hsrb_world.add_connection(
             FixedConnection(

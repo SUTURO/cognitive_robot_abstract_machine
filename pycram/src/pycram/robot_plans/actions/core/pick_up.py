@@ -7,13 +7,10 @@ from datetime import timedelta
 
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
-    attach_object_to_hsrb,
-)
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.world_description.world_entity import Body
-from ...motions.gripper import MoveGripperMotion, MoveTCPMotion
-from ...motions.pick_up import PickupMotion, PullUpMotion
+
+# from ...motions.gripper import MoveGripperMotion, MoveTCPMotion
 from ....config.action_conf import ActionConfig
 from ....datastructures.enums import (
     Arms,

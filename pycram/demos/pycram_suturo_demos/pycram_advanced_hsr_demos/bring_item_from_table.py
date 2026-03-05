@@ -61,7 +61,6 @@ def try_perceive_and_spawn(world):
 
 
 def main():
-    rclpy.init()
     try:
         simulated = True
         with_simulated_objects = True
@@ -74,27 +73,42 @@ def main():
         # perceived_objects = try_perceive_and_spawn(world)
         # objects.update(perceived_objects)
 
-        object_name: str = input(f"Which object do you want to pick up?")
+        # object_name: str = input(f"Which object do you want to pick up?")
 
-        move_demo(
-            simulated=simulated,
-            world=world,
-            context=context,
-            target_pose="POPCORN_TABLE",
+        #
+        # move_demo(
+        #     simulated=simulated,
+        #     world=world,
+        #     context=context,
+        #     target_pose="POPCORN_TABLE",
+        # )
+        cooking_table_annotation = world.get_semantic_annotation_by_name(
+            "cooking_table"
         )
-
-        pickup_demo(
-            simulation=simulated,
-            hsrb_world=world,
-            context=context,
-            object_name=object_name,
-        )
-        move_demo(
-            simulated=simulated,
-            world=world,
-            context=context,
-            target_pose="ROBOT_START_POSE",
-        )
+        print(cooking_table_annotation)
+        print(robot_view.root)
+        nearest = query_get_next_object_euclidean_x_y(
+            robot_view.root, cooking_table_annotation
+        ).tolist()
+        on_table = query_semantic_annotations_on_surfaces(
+            [cooking_table_annotation], world
+        ).tolist()
+        red_objects_on_table = query_annotations_by_color(Color.RED(), on_table)
+        print(nearest[0])
+        milkme_harder = world.get_body_by_name("milk.stl").visual.shapes[0].color
+        print("color:", red_objects_on_table)
+        # pickup_demo(
+        #     simulation=simulated,
+        #     hsrb_world=world,
+        #     context=context,
+        #     object_name=object_name,
+        # )
+        # move_demo(
+        #     simulated=simulated,
+        #     world=world,
+        #     context=context,
+        #     target_pose="ROBOT_START_POSE",
+        # )
         world.clear()
     finally:
         rclpy.shutdown()

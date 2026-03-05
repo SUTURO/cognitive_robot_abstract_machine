@@ -48,7 +48,7 @@ def try_perceive_and_spawn(world):
             perceive_and_spawn_all_objects,
         )
 
-        perceived_objects = perceive_and_spawn_all_objects(hsrb_world=world)
+        perceived_objects = perceive_and_spawn_all_objects(world=world)
     except ImportError:
         print("Could not import robokudo")
         perceived_objects = {}
@@ -72,7 +72,9 @@ def main():
     place_pose = PoseStamped.from_list(
         [1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world.root
     )
-    move_demo(world=world, context=context, target_pose="POPCORN_TABLE")
+    move_demo(
+        simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
+    )
     pickup_demo(
         simulation=SIMULATED,
         hsrb_world=world,
@@ -80,12 +82,14 @@ def main():
         object_name=object_name,
     )
     place_demo(
+        simulation=SIMULATED,
         place_pose=place_pose,
         hsrb_world=world,
         context=context,
         object_name=object_name,
     )
     move_demo(
+        simulated=SIMULATED,
         world=world,
         context=context,
         target_pose="ROBOT_START_POSE",
