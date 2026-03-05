@@ -43,7 +43,17 @@ def initialization(simulation: bool = True):
     return rclpy_node, world, robot_view, context
 
 
+def try_perceive_and_spawn(world):
+    try:
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+            perceive_and_spawn_all_objects,
+        )
 
+        perceived_objects = perceive_and_spawn_all_objects(world=world)
+    except ImportError:
+        print("Could not import robokudo")
+        perceived_objects = {}
+    return perceived_objects
 
 
 def main():
@@ -63,7 +73,10 @@ def main():
     place_pose = PoseStamped.from_list(
         [1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world.root
     )
-    move_demo(world=world, context=context, target_pose="POPCORN_TABLE", simulated=SIMULATED)
+
+    move_demo(
+        simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
+    )
     pickup_demo(
         simulation=SIMULATED,
         hsrb_world=world,
@@ -71,17 +84,17 @@ def main():
         object_name=object_name,
     )
     place_demo(
+        simulation=SIMULATED,
         place_pose=place_pose,
         hsrb_world=world,
         context=context,
         object_name=object_name,
-        simulation=SIMULATED
     )
     move_demo(
+        simulated=SIMULATED,
         world=world,
         context=context,
         target_pose="ROBOT_START_POSE",
-        simulated=SIMULATED
     )
 
 

@@ -15,15 +15,11 @@ from pycram.datastructures.enums import (
     VerticalAlignment,
 )
 from pycram.datastructures.grasp import GraspDescription
-from pycram.datastructures.pose import PoseStamped
-from pycram.external_interfaces import robokudo
 from pycram.language import SequentialPlan
 from pycram.process_module import real_robot
 from pycram.robot_plans import (
-    LookAtActionDescription,
     ParkArmsActionDescription,
     MoveTorsoActionDescription,
-    PickUpActionDescription,
 )
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
@@ -37,7 +33,6 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from pycram.alternative_motion_mappings import hsrb_motion_mapping
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
