@@ -46,7 +46,7 @@ def simulation_demo():
 
     # Get pose
     pose = get_pose_on_semantic_annotation_for_object_by_semantic_annotation(
-        "desk_annotation", milk, world
+        "desk", milk, world
     )
 
     # "Error handling"

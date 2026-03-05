@@ -34,7 +34,7 @@ def get_poses_on_semantic_annotation_for_object(
     # Get semantic annotation if given as string and check if it has supporting surface
     if isinstance(semantic_annotation, str):
         semantic_annotation: SemanticAnnotation = world.get_semantic_annotation_by_name(
-            for_object
+            semantic_annotation
         )
     if not isinstance(semantic_annotation, HasSupportingSurface):
         logger.warning(
