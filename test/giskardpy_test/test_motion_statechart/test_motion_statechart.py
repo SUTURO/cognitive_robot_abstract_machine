@@ -108,6 +108,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
     Hinge,
+    Table,
 )
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -2169,7 +2170,7 @@ def test_pick_up_box(hsr_world_setup: World, rclpy_node):
             child=box,
             axis=Vector3.Z(reference_frame=hsr_world_setup.root),
             parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=2, y=1, z=0.5, pitch=-0.1, yaw=1.5 * np.pi / 2
+                x=2, y=1, z=0.8, pitch=-0.1, yaw=1.5 * np.pi / 2
             ),
         )
         hsr_world_setup.add_connection(connection)
@@ -2424,6 +2425,113 @@ def test_milestone2(hsr_world_setup: World, rclpy_node):
 
     retract = Retracting(manipulator=hand)
     execute_ms_node(retract, [])
+
+def test_place_by_pose(hsr_world_setup: World, rclpy_node):
+    TFPublisher(hsr_world_setup, rclpy_node)
+    VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
+
+    with hsr_world_setup.modify_world():
+        Table.create_with_new_body_in_world(
+            name=PrefixedName("table"),
+            world=hsr_world_setup,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.75, y=1.25, z=0.25),
+            scale=Scale(1.0, 0.8, 0.5),
+        )
+
+    # Move robot into a known pose
+    msc_tp = MotionStatechart()
+    tp = SetOdometry(
+        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=3, y=1, z=0, roll=-np.pi/2, pitch=np.pi/2, yaw=2 * np.pi / 2, reference_frame=hsr_world_setup.root
+        ),
+    )
+    msc_tp.add_node(tp)
+    msc_tp.add_node(EndMotion.when_true(tp))
+    kstp = Executor(world=hsr_world_setup)
+    kstp.compile(motion_statechart=msc_tp)
+    kstp.tick_until_end()
+
+    hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
+
+    # Spawn a box and attach it to the tool frame (simulating post-pickup state)
+    box = Body(
+        name=PrefixedName("place_box_pose"),
+        collision=ShapeCollection([Box(scale=Scale(0.05, 0.05, 0.1))]),
+        visual=ShapeCollection([Box(scale=Scale(0.05, 0.05, 0.1))]),
+    )
+    with hsr_world_setup.modify_world():
+        hsr_world_setup.add_connection(FixedConnection(
+            parent=hand.tool_frame,
+            child=box,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                reference_frame=hand.tool_frame, roll=np.pi / 2
+            ),
+        ))
+
+    goal_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=2, y=1, z=0.55, reference_frame=hsr_world_setup.root
+    )
+    msc = MotionStatechart()
+    place = Place(manipulator=hand, object_geometry=box, goal_pose=goal_pose)
+    msc.add_node(place)
+    msc.add_node(EndMotion.when_true(place))
+    kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+
+def test_place_by_point(hsr_world_setup: World, rclpy_node):
+    TFPublisher(hsr_world_setup, rclpy_node)
+    VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
+
+    with hsr_world_setup.modify_world():
+        Table.create_with_new_body_in_world(
+            name=PrefixedName("table"),
+            world=hsr_world_setup,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.5, y=1.5, z=0.25),
+            scale=Scale(1.0, 0.8, 0.5),
+        )
+
+    # Move robot into a known pose
+    msc_tp = MotionStatechart()
+    tp = SetOdometry(
+        base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=3, y=1, z=0, yaw=2 * np.pi / 2, reference_frame=hsr_world_setup.root
+        ),
+    )
+    msc_tp.add_node(tp)
+    msc_tp.add_node(EndMotion.when_true(tp))
+    kstp = Executor(world=hsr_world_setup)
+    kstp.compile(motion_statechart=msc_tp)
+    kstp.tick_until_end()
+
+    hand = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0]
+
+    # Spawn a box and attach it to the tool frame (simulating post-pickup state)
+    box = Body(
+        name=PrefixedName("place_box_point"),
+        collision=ShapeCollection([Box(scale=Scale(0.05, 0.05, 0.1))]),
+        visual=ShapeCollection([Box(scale=Scale(0.05, 0.05, 0.1))]),
+    )
+    with hsr_world_setup.modify_world():
+        hsr_world_setup.add_connection(FixedConnection(
+            parent=hand.tool_frame,
+            child=box,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                reference_frame=hand.tool_frame, roll=np.pi / 2
+            ),
+        ))
+
+    # goal_point: position only — Z-up enforced, yaw unconstrained
+    goal_point = Point3(x=2, y=1, z=0.55, reference_frame=hsr_world_setup.root)
+    msc = MotionStatechart()
+    place = Place(manipulator=hand, object_geometry=box, goal_point=goal_point)
+    msc.add_node(place)
+    msc.add_node(EndMotion.when_true(place))
+    kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
 
 def test_transition_triggers():
     msc = MotionStatechart()
