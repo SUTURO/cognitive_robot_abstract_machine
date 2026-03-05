@@ -5,6 +5,7 @@ from typing import Any
 
 import rclpy
 
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import try_perceive_and_spawn
 from demos.pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
 from demos.pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo_marc import (
     pickup_demo,
@@ -47,19 +48,6 @@ def initialization(simulation: bool, with_simulated_objects: bool = False):
     )
 
 
-def try_perceive_and_spawn(world):
-    try:
-        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
-            perceive_and_spawn_all_objects,
-        )
-
-        perceived_objects = perceive_and_spawn_all_objects(world=world)
-    except ImportError:
-        print("Could not import robokudo")
-        perceived_objects = {}
-    return perceived_objects
-
-
 def main():
     rclpy.init()
     try:
@@ -69,10 +57,10 @@ def main():
         rclpy_node, world, robot_view, context, manipulator = initialization(
             simulation=simulated, with_simulated_objects=with_simulated_objects
         )
-        # objects = {1: "milk.stl", 2: "breakfast_cereal.stl"} if WITH_OBJECTS else {}
-        #
-        # perceived_objects = try_perceive_and_spawn(world)
-        # objects.update(perceived_objects)
+        objects = {1: "milk.stl", 2: "breakfast_cereal.stl"} if with_simulated_objects else {}
+
+        perceived_objects = try_perceive_and_spawn(world)
+        objects.update(perceived_objects)
 
         object_name: str = input(f"Which object do you want to pick up?")
 

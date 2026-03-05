@@ -127,9 +127,22 @@ def try_perceiving_and_spawning_and_find_object(world: World, object_name: str):
 
         perceived_objects: dict[Any, Any] = perceive_and_spawn_all_objects(world)
         logger.info(f"perceived following objects: '{perceived_objects}'")
-    except ImportError:
+    except Exception:
         logger.info("Could not import robokudo")
         perceived_objects = {}
     object_to_pickup = try_get_object_to_pickup(world, object_name)
     logger.info(f"object_to_Pickup: '{object_to_pickup}'")
     return object_to_pickup
+
+
+def try_perceive_and_spawn(world):
+    try:
+        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+            perceive_and_spawn_all_objects,
+        )
+
+        perceived_objects = perceive_and_spawn_all_objects(world=world)
+    except Exception:
+        print("Could not import robokudo")
+        perceived_objects = {}
+    return perceived_objects
