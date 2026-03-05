@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 
 from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
-from giskardpy.motion_statechart.graph_node import NodeArtifacts
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import ActionServerTask
 from typing_extensions import Type, TypeVar
 from tmc_control_msgs.action import GripperApplyEffort

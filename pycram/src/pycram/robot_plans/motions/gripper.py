@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from giskardpy.motion_statechart.goals.pick_up import OpenHand
 from giskardpy.motion_statechart.goals.place import Place
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (

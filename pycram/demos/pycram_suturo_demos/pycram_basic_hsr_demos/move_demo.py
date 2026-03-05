@@ -1,13 +1,21 @@
 import os
 
+import semantic_digital_twin
 from pycram.datastructures.dataclasses import Context
-from pycram.external_interfaces import nav2_move
 from pycram.motion_executor import simulated_robot
 from pycram.datastructures.pose import PoseStamped
+from pycram.external_interfaces import nav2_move
+import logging
 
+from pycram.datastructures.enums import Arms
 from pycram.language import SequentialPlan
-from pycram.robot_plans import NavigateActionDescription
+from pycram.motion_executor import real_robot
+from pycram.robot_plans import ParkArmsActionDescription, NavigateActionDescription
+from demos.pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
+
+logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
 
 def move_demo(simulated: bool, target_pose: str, world: World, context: Context):
@@ -34,7 +42,7 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
         frame=world.root,
     )
 
-    def robot_move(target_pose: PoseStamped, frame_id: str = "map"):
+    def robot_move(target_pose_method: PoseStamped, frame_id: str = "map"):
         """
         Sends a navigation goal to Nav2.
         """
@@ -43,10 +51,12 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
                 SequentialPlan(
                     context,
                     NavigateActionDescription(
-                        target_location=target_pose, keep_joint_states=True
+                        target_location=target_pose_method, keep_joint_states=True
                     ),
                 ).perform()
         else:
+            from pycram.external_interfaces import nav2_move
+
             os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
             goal = target_pose.ros_message()
             print(f"Moving to {goal}'")
@@ -54,9 +64,9 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
 
     match target_pose:
         case "ROBOT_START_POSE":
-            robot_move(target_pose=ROBOT_PRE_START_POSE)
-            robot_move(target_pose=ROBOT_START_POSE)
+            robot_move(target_pose_method=ROBOT_PRE_START_POSE)
+            robot_move(target_pose_method=ROBOT_START_POSE)
         case "CABINET":
-            robot_move(target_pose=CABINET)
+            robot_move(target_pose_method=CABINET)
         case "POPCORN_TABLE":
-            robot_move(target_pose=POPCORN_TABLE)
+            robot_move(target_pose_method=POPCORN_TABLE)
