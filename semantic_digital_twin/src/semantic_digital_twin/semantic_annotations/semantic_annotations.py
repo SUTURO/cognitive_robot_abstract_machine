@@ -41,7 +41,7 @@ from ..world_description.connections import (
     FixedConnection,
 )
 from ..world_description.degree_of_freedom import DegreeOfFreedomLimits
-from ..world_description.geometry import Scale, TriangleMesh
+from ..world_description.geometry import Scale, TriangleMesh, Color
 from ..world_description.shape_collection import BoundingBoxCollection, ShapeCollection
 from ..world_description.world_entity import (
     SemanticAnnotation,
@@ -442,14 +442,17 @@ class Floor(HasSupportingSurface):
         world: World,
         floor_polytope: List[Point3],
         world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        color: Optional[Color] = None,
     ) -> Self:
         """
         Create a Floor semantic annotation with a new body defined by the given list of Point3.
 
         :param name: The name of the floor body.
-        :param floor_polytope: A list of 3D points defining the floor poly
+        :param floor_polytope: A list of 3D points defining the floor polytope.
+        :param world_root_T_self: The transformation from world root to this floor.
+        :param color: Optional color for the floor body.
         """
-        room_body = Body.from_3d_points(name=name, points_3d=floor_polytope)
+        room_body = Body.from_3d_points(name=name, points_3d=floor_polytope, color=color)
         return cls._create_with_connection_in_world(
             name, world, room_body, world_root_T_self
         )

@@ -37,7 +37,7 @@ from krrood.adapters.json_serializer import (
 from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from krrood.entity_query_language.predicate import Symbol
 from krrood.symbolic_math.symbolic_math import Matrix
-from .geometry import TriangleMesh
+from .geometry import TriangleMesh, Color
 from .inertial_properties import Inertial
 from .shape_collection import ShapeCollection, BoundingBoxCollection
 from ..mixin import HasSimulatorProperties
@@ -360,6 +360,7 @@ class KinematicStructureEntity(WorldEntityWithID, ABC):
         points_3d: List[Point3],
         minimum_thickness: float = 0.005,
         sv_ratio_tol: float = 1e-7,
+        color: Optional[Color] = None,
     ) -> Self:
         """
         Constructs a Region from a list of 3D points by creating a convex hull around them.
@@ -371,6 +372,7 @@ class KinematicStructureEntity(WorldEntityWithID, ABC):
         :param reference_frame: Optional reference frame.
         :param minimum_thickness: Minimum thickness to add if points are near-planar.
         :param sv_ratio_tol: Tolerance for determining planarity based on singular value ratio.
+        :param color: Optional color for the region.
 
         :return: Region object.
         """
@@ -378,6 +380,7 @@ class KinematicStructureEntity(WorldEntityWithID, ABC):
             points_3d,
             minimum_thickness=minimum_thickness,
             sv_ratio_tol=sv_ratio_tol,
+            color=color,
         )
         return cls.from_shape_collection(name, ShapeCollection([area_mesh]))
 
