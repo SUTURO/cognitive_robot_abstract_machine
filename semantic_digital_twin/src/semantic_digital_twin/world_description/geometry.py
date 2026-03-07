@@ -513,6 +513,7 @@ class TriangleMesh(Mesh):
         reference_frame: Optional[KinematicStructureEntity] = None,
         minimum_thickness: float = 0.005,
         sv_ratio_tol: float = 1e-7,
+        color: Optional[Color] = None,
     ) -> Self:
         """
         Constructs a Region from a list of 3D points by creating a convex hull around them.
@@ -575,10 +576,14 @@ class TriangleMesh(Mesh):
         hull.update_faces(hull.nondegenerate_faces())
         hull.process()
 
-        return cls(
-            mesh=hull,
-            origin=HomogeneousTransformationMatrix(reference_frame=reference_frame),
-        )
+        kwargs = {
+            "mesh": hull,
+            "origin": HomogeneousTransformationMatrix(reference_frame=reference_frame),
+        }
+        if color is not None:
+            kwargs["color"] = color
+
+        return cls(**kwargs)
 
 
 @dataclass(eq=False)
