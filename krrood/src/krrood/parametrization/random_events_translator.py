@@ -3,11 +3,13 @@ from __future__ import annotations
 import operator
 from collections import deque
 from dataclasses import dataclass
+from functools import cached_property
 from typing import assert_never, List, Dict
 
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
+import random_events
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
 from krrood.entity_query_language.core.mapped_variable import MappedVariable
 from krrood.entity_query_language.core.variable import Literal
@@ -18,9 +20,7 @@ from krrood.parametrization.exceptions import (
 )
 from random_events.interval import closed_open, closed, open
 from random_events.product_algebra import Event, SimpleEvent
-
-if TYPE_CHECKING:
-    from krrood.parametrization.parameterizer import ParametrizationVariable
+import random_events.variable
 
 
 @dataclass
@@ -37,41 +37,33 @@ class WhereExpressionToRandomEventTranslator:
     The query in disjunctive normal form to translate.
     """
 
-    parametrization_variables: List[ParametrizationVariable]
-    """
-    Parametrization variables that are used in the query.
-    """
-
     def __post_init__(self):
         if self.conditions_root is not None and not is_disjunctive_normal_form(
             self.conditions_root
         ):
             raise WhereExpressionNotInDisjunctiveNormalForm(self.conditions_root)
 
-    @property
-    def leaf_variables_with_random_events_variable(self):
-        """
-        :return: All variables that are leaves and have a random events variable.
-        """
-        return [
-            v
-            for v in self.parametrization_variables
-            if v.is_leaf and v.random_events_variable is not None
-        ]
+    @cached_property
+    def variables(self) -> Dict[MappedVariable, random_events.variable.Variable]:
+        result = {}
+        for comparator in self.conditions_root._descendants_:
+            if not is_literal_comparator(comparator):
+                continue
+            result[comparator.left] = (
+                random_events.variable.variable_from_name_and_type(
+                    comparator.left._name_, comparator.left._type_
+                )
+            )
+        return result
 
-    def _get_parameterization_variable_from_comparator(
+    def _get_variable_from_comparator(
         self, expression: Comparator
-    ) -> ParametrizationVariable:
+    ) -> random_events.variable.Variable:
         """
         :param expression: The comparator to get the parameterization variable from.
         :return: The parameterization variable that corresponds to the comparator's left side.
         """
-        [parameterization_variable] = [
-            v
-            for v in self.leaf_variables_with_random_events_variable
-            if v.name == expression.left._name_
-        ]
-        return parameterization_variable
+        return self.variables[expression.left]
 
     def translate(self) -> Event:
         """
@@ -94,14 +86,11 @@ class WhereExpressionToRandomEventTranslator:
                 simple_event = self._translate_conjunction(expression)
             elif isinstance(expression, Comparator):
                 simple_event = SimpleEvent(
-                    {
-                        v.random_events_variable: v.random_events_variable.domain
-                        for v in self.leaf_variables_with_random_events_variable
-                    }
+                    {v: v.domain for v in self.variables.values()}
                 )
 
                 self._translate_comparators(
-                    self._get_parameterization_variable_from_comparator(expression),
+                    self._get_variable_from_comparator(expression),
                     [expression],
                     simple_event,
                 )
@@ -139,17 +128,17 @@ class WhereExpressionToRandomEventTranslator:
         """
 
         # Collect all Comparator descendants and group them by their accessed variable
-        grouped: Dict[ParametrizationVariable, List[Comparator]] = {}
+        grouped: Dict[random_events.variable.Variable, List[Comparator]] = {}
         for expr in expression._descendants_:
             if not isinstance(expr, Comparator):
                 continue
-            key = self._get_parameterization_variable_from_comparator(expr)
+            key = self._get_variable_from_comparator(expr)
             grouped.setdefault(key, []).append(expr)
         return grouped
 
     def _translate_comparators(
         self,
-        variable: ParametrizationVariable,
+        variable: random_events.variable.Variable,
         comparators: List[Comparator],
         result: SimpleEvent,
     ) -> None:
@@ -162,7 +151,7 @@ class WhereExpressionToRandomEventTranslator:
         :return: None
         """
 
-        result[variable.random_events_variable] = variable.random_events_variable.domain
+        result[variable] = variable.domain
         for comparator in comparators:
 
             if isinstance(comparator.right._value_, type(Ellipsis)):
@@ -187,44 +176,38 @@ class WhereExpressionToRandomEventTranslator:
     def _translate_eq(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[
-            parametrization_variable.random_events_variable
-        ] &= parametrization_variable.random_events_variable.make_value(
+        result[parametrization_variable] &= parametrization_variable.make_value(
             comparator.right._value_
         )
 
     def _translate_ne(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[
-            parametrization_variable.random_events_variable
-        ] &= parametrization_variable.random_events_variable.make_value(
+        result[parametrization_variable] &= parametrization_variable.make_value(
             comparator.right._value_
         ).complement()
 
     def _translate_gt(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[parametrization_variable.random_events_variable] &= open(
-            comparator.right._value_, np.inf
-        )
+        result[parametrization_variable] &= open(comparator.right._value_, np.inf)
 
     def _translate_lt(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[parametrization_variable.random_events_variable] &= closed_open(
+        result[parametrization_variable] &= closed_open(
             -np.inf,
             comparator.right._value_,
         )
@@ -232,10 +215,10 @@ class WhereExpressionToRandomEventTranslator:
     def _translate_le(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[parametrization_variable.random_events_variable] &= closed(
+        result[parametrization_variable] &= closed(
             -np.inf,
             comparator.right._value_,
         )
@@ -243,10 +226,10 @@ class WhereExpressionToRandomEventTranslator:
     def _translate_ge(
         self,
         comparator: Comparator,
-        parametrization_variable: ParametrizationVariable,
+        parametrization_variable: random_events.variable.Variable,
         result: SimpleEvent,
     ) -> None:
-        result[parametrization_variable.random_events_variable] &= closed(
+        result[parametrization_variable] &= closed(
             comparator.right._value_,
             np.inf,
         )

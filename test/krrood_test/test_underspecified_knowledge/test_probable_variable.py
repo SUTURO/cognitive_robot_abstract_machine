@@ -1,6 +1,5 @@
 import numpy as np
 
-from krrood.entity_query_language.core.variable import Literal
 from krrood.entity_query_language.factories import (
     variable,
     entity,
@@ -8,14 +7,9 @@ from krrood.entity_query_language.factories import (
     or_,
     underspecified,
 )
-from krrood.entity_query_language.query.match import Match
-
-from krrood.entity_query_language.query_graph import QueryGraph
-from krrood.parametrization.parameterizer import UnderspecifiedFactory
 from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
     is_disjunctive_normal_form,
-    is_literal_comparator,
 )
 from random_events.interval import singleton, open, closed, closed_open
 from random_events.product_algebra import SimpleEvent, Event
@@ -39,9 +33,8 @@ def test_underspecification_with_where():
         underspecified_pose.variable.orientation.x != 1.0,
     )
 
-    factory = UnderspecifiedFactory(underspecified_pose)
     t = WhereExpressionToRandomEventTranslator(
-        and_(*q._where_expressions), factory.flat_variables
+        and_(*q._where_expressions),
     )
     r = t.translate()
 
@@ -79,6 +72,7 @@ def test_dnf_checking():
         position=underspecified(Position)(x=..., y=..., z=...),
         orientation=underspecified(Orientation)(x=..., y=..., z=..., w=...),
     )
+    underspecified_pose.expression
     pose_variable = underspecified_pose.variable
     q2 = underspecified_pose.where(
         or_(
@@ -95,9 +89,9 @@ def test_dnf_checking():
     where_expression = and_(*q2._where_expressions)
     assert is_disjunctive_normal_form(where_expression)
 
-    factory = UnderspecifiedFactory(underspecified_pose)
-
-    t = WhereExpressionToRandomEventTranslator(where_expression, factory.flat_variables)
+    t = WhereExpressionToRandomEventTranslator(
+        where_expression,
+    )
     translated = t.translate()
 
     variables = [
@@ -131,12 +125,11 @@ def test_dnf_checking():
 
 
 def test_query_writing_with_match_and_copy():
-    var: UnderspecifiedVariable = underspecified(Pose)(
+    var = underspecified(Pose)(
         position=underspecified(Position)(x=0.1, y=..., z=...), orientation=None
     )
 
-    factory = UnderspecifiedFactory(var)
-    obj = factory.statement.construct_instance()
+    obj = var.construct_instance()
     assert obj.position.x == 0.1
     assert obj.position.y == ...
     assert obj.position.z == ...
