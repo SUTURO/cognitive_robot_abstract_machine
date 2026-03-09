@@ -258,7 +258,7 @@ class Index(MappedVariable):
     def _apply_mapping_(self, value: Any) -> Iterable[Any]:
         try:
             yield value[self._key_]
-        except IndexError:
+        except IndexError:  # break iterator if the key does not exist
             return
 
     @property
