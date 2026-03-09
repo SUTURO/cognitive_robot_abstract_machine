@@ -214,10 +214,79 @@ class PickUpAction(ActionDescription):
         )
 
 
+
+@dataclass
+class GraspingAction(ActionDescription):
+    """
+    Grasps an object described by the given Object Designator description
+    """
+
+    object_designator: Body
+    """
+    Object Designator for the object that should be grasped
+    """
+    arm: Arms
+    """
+    The arm that should be used to grasp
+    """
+    grasp_description: GraspDescription
+    """
+    The distance in meters the gripper should be at before grasping the object
+    """
+
+    def execute(self) -> None:
+        pre_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
+            self.object_designator
+        )
+
+        SequentialPlan(
+            self.context,
+            MoveTCPMotion(pre_pose, self.arm),
+            MoveGripperMotion(GripperState.OPEN, self.arm),
+            MoveTCPMotion(grasp_pose, self.arm, allow_gripper_collision=True),
+            MoveGripperMotion(
+                GripperState.CLOSE, self.arm, allow_gripper_collision=True
+            ),
+        ).perform()
+
+    def validate(
+        self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None
+    ):
+        body = self.object_designator
+        contact_links = body.get_contact_points_with_body(World.robot).get_all_bodies()
+        arm_chain = RobotDescription.current_robot_description.get_arm_chain(self.arm)
+        gripper_links = arm_chain.end_effector.links
+        if not any([link.name in gripper_links for link in contact_links]):
+            raise ObjectNotGraspedError(
+                self.object_designator, World.robot, self.arm, None
+            )
+
+    @classmethod
+    def description(
+        cls,
+        object_designator: Union[Iterable[Body], Body],
+        arm: Union[Iterable[Arms], Arms] = None,
+        grasp_description: Union[
+            Iterable[GraspDescription], GraspDescription
+        ] = ActionConfig.grasping_prepose_distance,
+    ) -> PartialDesignator[GraspingAction]:
+        return PartialDesignator[GraspingAction](
+            GraspingAction,
+            object_designator=object_designator,
+            arm=arm,
+            grasp_description=grasp_description,
+        )
+
+
 @dataclass
 class GiskardPickUpAction(ActionDescription):
     """
     Let the robot pick up an object.
+    """
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
     """
 
     object_designator: Body = field(default=None, kw_only=True)
@@ -234,11 +303,6 @@ class GiskardPickUpAction(ActionDescription):
     """
     If True, the gripper is kept vertically aligned during the grasp
     kw_only=True forces this to be passed as a keyword argument
-    """
-
-    simulated: bool = field(default=True, kw_only=True)
-    """
-    Parsing simulation argument
     """
 
     _pre_perform_callbacks = []
@@ -318,6 +382,11 @@ class GiskardGraspAction(ActionDescription):
     Let the robot pick up an object.
     """
 
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
     object_designator: Body = field(default=None, kw_only=True)
     """
     Object designator_description describing the object that should be picked up
@@ -332,11 +401,6 @@ class GiskardGraspAction(ActionDescription):
     """
     If True, the gripper is kept vertically aligned during the grasp
     kw_only=True forces this to be passed as a keyword argument
-    """
-
-    simulated: bool = field(default=True, kw_only=True)
-    """
-    Parsing simulation argument
     """
 
     _pre_perform_callbacks = []
@@ -358,7 +422,7 @@ class GiskardGraspAction(ActionDescription):
         # Register attach as a post-perform callback BEFORE queuing the motion
 
         manipulator = ViewManager.get_end_effector_view(self.arm, self.robot_view)
-        plan = SequentialPlan(
+        SequentialPlan(
             self.context,
             PickupMotion(
                 simulated=self.simulated,
@@ -381,9 +445,9 @@ class GiskardGraspAction(ActionDescription):
     ) -> PartialDesignator[GiskardGraspAction]:
         return PartialDesignator[GiskardGraspAction](
             GiskardGraspAction,
+            simulated=simulated,
             object_designator=object_designator,
             arm=arm,
-            simulated=simulated,
             gripper_vertical=gripper_vertical,
         )
 @dataclass
@@ -392,21 +456,18 @@ class GiskardPullUpAction(ActionDescription):
     Let the robot pick up an object.
     """
 
-    object_designator: Body = field(default=None, kw_only=True)
-    """
-    Object designator_description describing the object that should be picked up
-    """
-
-    arm: Arms = field(default=Arms.LEFT, kw_only=True)
-    """
-    arms that should be used for pick up
-    """
-
     simulated: bool = field(default=True, kw_only=True)
     """
     Parsing simulation argument
     """
-
+    object_designator: Body = field(default=None, kw_only=True)
+    """
+    Object designator_description describing the object that should be picked up
+    """
+    arm: Arms = field(default=Arms.LEFT, kw_only=True)
+    """
+    arms that should be used for pick up
+    """
     _pre_perform_callbacks = []
     """
     List to save the callbacks which should be called before performing the action.
@@ -453,73 +514,9 @@ class GiskardPullUpAction(ActionDescription):
             simulated=simulated,
         )
 
-@dataclass
-class GraspingAction(ActionDescription):
-    """
-    Grasps an object described by the given Object Designator description
-    """
-
-    object_designator: Body
-    """
-    Object Designator for the object that should be grasped
-    """
-    arm: Arms
-    """
-    The arm that should be used to grasp
-    """
-    grasp_description: GraspDescription
-    """
-    The distance in meters the gripper should be at before grasping the object
-    """
-
-    def execute(self) -> None:
-        pre_pose, grasp_pose, _ = self.grasp_description.grasp_pose_sequence(
-            self.object_designator
-        )
-
-        SequentialPlan(
-            self.context,
-            MoveTCPMotion(pre_pose, self.arm),
-            MoveGripperMotion(GripperState.OPEN, self.arm),
-            MoveTCPMotion(grasp_pose, self.arm, allow_gripper_collision=True),
-            MoveGripperMotion(
-                GripperState.CLOSE, self.arm, allow_gripper_collision=True
-            ),
-        ).perform()
-
-    def validate(
-        self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None
-    ):
-        body = self.object_designator
-        contact_links = body.get_contact_points_with_body(World.robot).get_all_bodies()
-        arm_chain = RobotDescription.current_robot_description.get_arm_chain(self.arm)
-        gripper_links = arm_chain.end_effector.links
-        if not any([link.name in gripper_links for link in contact_links]):
-            raise ObjectNotGraspedError(
-                self.object_designator, World.robot, self.arm, None
-            )
-
-    @classmethod
-    def description(
-        cls,
-        object_designator: Union[Iterable[Body], Body],
-        arm: Union[Iterable[Arms], Arms] = None,
-        grasp_description: Union[
-            Iterable[GraspDescription], GraspDescription
-        ] = ActionConfig.grasping_prepose_distance,
-    ) -> PartialDesignator[GraspingAction]:
-        return PartialDesignator[GraspingAction](
-            GraspingAction,
-            object_designator=object_designator,
-            arm=arm,
-            grasp_description=grasp_description,
-        )
-
-
-
 ReachActionDescription = ReachAction.description
 PickUpActionDescription = PickUpAction.description
-GiskardPickUpActionDescription = GiskardPickUpAction.description
 GraspingActionDescription = GraspingAction.description
+GiskardPickUpActionDescription = GiskardPickUpAction.description
 GiskardGraspActionDescription = GiskardGraspAction.description
 GiskardPullUpActionDescription = GiskardPullUpAction.description
