@@ -1188,7 +1188,7 @@ def test_type_availability_in_mapped_variables(handles_and_containers_world):
 def test_indexing_on_dict_field():
 
     @dataclass
-    class Item(Symbol):
+    class ItemWithDictionary:
         name: str
         attrs: Dict[str, int]
 
@@ -1196,24 +1196,21 @@ def test_indexing_on_dict_field():
             return hash(self.name)
 
     @dataclass(eq=False)
-    class World(Symbol):
-        items: List[Item]
+    class WorldWithItems:
+        items: List[ItemWithDictionary]
 
         def __hash__(self):
             return hash(id(self))
 
-    SymbolGraph().clear()
-    SymbolGraph()
-
-    world = World(
+    world = WorldWithItems(
         [
-            Item("A", {"score": 1}),
-            Item("B", {"score": 2}),
-            Item("C", {"score": 2}),
+            ItemWithDictionary("A", {"score": 1}),
+            ItemWithDictionary("B", {"score": 2}),
+            ItemWithDictionary("C", {"score": 2}),
         ]
     )
 
-    i = variable(type_=Item, domain=world.items)
+    i = variable(ItemWithDictionary, world.items)
     q = an(entity(i).where(i.attrs["score"] == 2))
     res = list(q.evaluate())
     assert {x.name for x in res} == {"B", "C"}
@@ -1221,26 +1218,33 @@ def test_indexing_on_dict_field():
 
 def test_indexing_2():
     @dataclass(unsafe_hash=True)
-    class Shape(Symbol):
+    class ShapeWithColor:
         name: str
         color: str
 
     @dataclass
-    class Body(Symbol):
-        shapes: List[Shape]
+    class BodyWithShapes:
+        shapes: List[ShapeWithColor]
 
         def __hash__(self):
-            return hash(id(self))
-
-    SymbolGraph().clear()
-    SymbolGraph()
+            return id(self)
 
     world_bodies = [
-        Body(shapes=[Shape("shape1", color="red"), Shape("shape2", color="blue")]),
-        Body(shapes=[Shape("shape1", color="green"), Shape("shape2", color="black")]),
+        BodyWithShapes(
+            shapes=[
+                ShapeWithColor("shape1", color="red"),
+                ShapeWithColor("shape2", color="blue"),
+            ]
+        ),
+        BodyWithShapes(
+            shapes=[
+                ShapeWithColor("shape1", color="green"),
+                ShapeWithColor("shape2", color="black"),
+            ]
+        ),
     ]
 
-    body = variable(Body, world_bodies)
+    body = variable(BodyWithShapes, world_bodies)
     body_tha_has_red_shape = an(
         entity(body).where(body.shapes[0].color == "red")
     ).evaluate()

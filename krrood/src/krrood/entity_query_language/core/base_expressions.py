@@ -211,7 +211,10 @@ class SymbolicExpression(ABC):
         """
         Update multiple children expressions of this symbolic expression.
 
-        :param children: The new children expressions.
+        :param children: The new children expressions. Non-``SymbolicExpression``
+            values are wrapped in ``Literal`` instances before being attached.
+        :return: A tuple of the updated child expressions corresponding to the
+            provided ``children`` arguments.
         """
         from krrood.entity_query_language.core.variable import Literal
 
@@ -302,11 +305,11 @@ class SymbolicExpression(ABC):
     ) -> Iterator[OperationResult]:
         """
         Evaluate the symbolic expression and set the operands bindings in the result according to the evaluation logic
-         of this expression.
+        of this expression.
 
         :param sources: The current bindings of variables.
         :return: An Iterator of OperationResult instances containing the bindings resulting from the evaluation of this
-         expression.
+        expression.
         """
         pass
 
