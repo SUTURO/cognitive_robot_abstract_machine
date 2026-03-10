@@ -37,9 +37,9 @@ def robot_move(target_pose: PoseStamped, frame_id: str = "map"):
     Sends a navigation goal to Nav2.
     """
     os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
+    print(target_pose)
     goal = target_pose.ros_message()
     print(f"Moving to {goal}'")
-
     nav2_move.start_nav_to_pose(goal)
 
 

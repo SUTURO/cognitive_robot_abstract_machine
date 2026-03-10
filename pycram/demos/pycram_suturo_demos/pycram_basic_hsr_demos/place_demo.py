@@ -38,7 +38,7 @@ sofa_pose_pycram = PoseStamped.from_matrix(
 )
 print(sofa_pose_pycram)
 
-place_pose = PoseStamped.from_list([1.9, 3.3, 1], [0, 0, 1, 0.1], frame=world_root)
+place_pose = PoseStamped.from_list([1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world_root)
 
 plan = SequentialPlan(
     context,

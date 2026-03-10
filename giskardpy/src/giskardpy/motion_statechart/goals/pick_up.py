@@ -1,8 +1,10 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Tuple
 
+from giskardpy.motion_statechart.ros2_nodes.gripper_command import GripperCommandTask
 from typing_extensions import Optional, List
 
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
@@ -22,10 +24,13 @@ from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
+    CartesianOrientation,
+    CartesianPositionStraight,
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from giskardpy.motion_statechart.test_nodes.test_nodes import ConstTrueNode
+from giskardpy_ros.ros2 import rospy
 from krrood.symbolic_math.symbolic_math import (
     trinary_logic_not,
     trinary_logic_and,
@@ -50,7 +55,9 @@ class HSRGripper(Enum):
     close_gripper = 0
 
 
-PICKUP_PREPOSE_DISTANCE = 0.03
+logger = logging.getLogger(__name__)
+
+PICKUP_PREPOSE_DISTANCE = 0.2
 HSR_GRIPPER_WIDTH = 0.15
 PULLUP_HEIGHT = 0.1
 VERTICAL_DOT_THRESH = 0.85  # dot with world Z considered vertical
@@ -60,16 +67,15 @@ AXIS_ALIGNMENT_THRESHOLD = 0.9  # Threshold for determining primary axis alignme
 
 @dataclass(repr=False, eq=False)
 class PickUp(Goal):
-    # root_link: KinematicStructureEntity = field(kw_only=True)
-    # NOTE: Pickup should be split, meaning grabbing first and then separately retracting
-    # because after grasping the object it should get attached to the tool frame in semdt
-    manipulator: ParallelGripper = field(kw_only=True)  # TODO ParallelGripper instead
+    manipulator: ParallelGripper = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+    simulated_execution: bool = field(default=False, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
+        print(f"Object pose: {self.object_geometry.global_pose.to_np()}")
         grasp_magic = BoxGraspMagic(
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
@@ -78,7 +84,7 @@ class PickUp(Goal):
         )
         self.sequence = Sequence(
             [
-                OpenHand(manipulator=self.manipulator),
+                OpenHand(simulated_execution=self.simulated_execution),
                 PreGraspPose(
                     manipulator=self.manipulator,
                     object_geometry=self.object_geometry,
@@ -91,9 +97,12 @@ class PickUp(Goal):
                     gripper_width=HSR_GRIPPER_WIDTH,
                     grasp_magic=grasp_magic,
                 ),
-                CloseHand(manipulator=self.manipulator, ft=self.ft),
-                PullUp(manipulator=self.manipulator, ft=self.ft),
-                # Retracting(manipulator=self.manipulator)
+                CloseHand(ft=self.ft, simulated_execution=self.simulated_execution),
+                # PullUp(
+                #     manipulator=self.manipulator,
+                #     object_geometry=self.object_geometry,
+                #     ft=self.ft,
+                # ),
             ]
         )
         self.add_node(self.sequence)
@@ -106,22 +115,24 @@ class PickUp(Goal):
 
 @dataclass(repr=False, eq=False)
 class OpenHand(Goal):
-    # NOTE: Only works in simulation, giskard cant move gripper irl
-    manipulator: ParallelGripper = field(kw_only=True)
+    simulated_execution: bool = field(kw_only=True, default=True)
 
     def expand(self, context: BuildContext) -> None:
-        # TODO remove hsr hardcoding
-        position_list = JointPositionList(
-            goal_state=JointState.from_str_dict(
-                {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
+        if self.simulated_execution:
+            self.open_gripper = JointPositionList(
+                goal_state=JointState.from_str_dict(
+                    {"hand_motor_joint": HSRGripper.open_gripper.value}, context.world
+                )
             )
-        )
-        self.joint_goal = position_list
-        self.add_node(self.joint_goal)
+        else:
+            self.open_gripper = GripperCommandTask(
+                action_topic="/gripper_controller/grasp", effort=0.8
+            )
+        self.add_node(self.open_gripper)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        artifacts.observation = self.joint_goal.observation_variable
+        artifacts.observation = self.open_gripper.observation_variable
         return artifacts
 
 
@@ -153,44 +164,108 @@ class GraspMagic(ABC):
         """
         Select the best grasp axis based on gripper width constraints and approach direction.
         Returns the axis most aligned with the robot approach direction that satisfies width constraints.
+        Uses transforms to properly handle arbitrary object orientations.
         """
         world_z = Vector3.Z(context.world.root)
-        is_obj_vertical = (
-            abs(Vector3.Z(self.object_geometry).dot(world_z)) > VERTICAL_DOT_THRESH
-        )
 
-        # Define candidate faces: (approach_axis, (face_width, face_height))
-        # Width is the dimension perpendicular to approach, height is vertical
+        # Define candidate faces: each face is defined by its approach axis
+        # For a box, approaching along X means grasping across Y-Z plane
+        # The dimensions available for grasping depend on gripper orientation
         candidate_faces = [
-            (Vector3.X(self.object_geometry), (obj_bbox.width, obj_bbox.height)),
-            (Vector3.Y(self.object_geometry), (obj_bbox.depth, obj_bbox.height)),
-            (Vector3.Z(self.object_geometry), (obj_bbox.depth, obj_bbox.width)),
+            (Vector3.X(self.object_geometry), "x"),  # Approach along X
+            (Vector3.Y(self.object_geometry), "y"),  # Approach along Y
+            (Vector3.Z(self.object_geometry), "z"),  # Approach along Z
         ]
 
-        # Filter faces where the graspable dimension fits within gripper width
         valid_faces = []
-        for axis, (face_width, face_height) in candidate_faces:
-            # Determine which dimension the gripper must fit:
-            # - Vertical gripper grasps horizontal dimension (width)
-            # - Horizontal gripper grasps vertical dimension (height)
-            if self.gripper_vertical:
-                graspable_dim = face_width if is_obj_vertical else face_height
+
+        for local_axis, axis_name in candidate_faces:
+            # Transform the approach axis to world frame to check its orientation
+            axis_in_world = context.world.transform(
+                spatial_object=local_axis, target_frame=context.world.root
+            )
+            axis_in_world.reference_frame = context.world.root
+
+            # Determine if this approach axis is vertical or horizontal in world frame
+            dot_with_world_z = abs(axis_in_world.dot(world_z))
+
+            # Get the perpendicular dimensions in object frame
+            # When approaching along one axis, we grasp across the other two dimensions
+            if axis_name == "x":
+                # Approaching along X: grasp across Y-Z plane
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.width,
+                    obj_bbox.height,
+                )  # Y and Z dimensions
+                perp_axis1 = Vector3.Y(self.object_geometry)
+                perp_axis2 = Vector3.Z(self.object_geometry)
+            elif axis_name == "y":
+                # Approaching along Y: grasp across X-Z plane
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.depth,
+                    obj_bbox.height,
+                )  # X and Z dimensions
+                perp_axis1 = Vector3.X(self.object_geometry)
+                perp_axis2 = Vector3.Z(self.object_geometry)
+            else:  # axis_name == 'z'
+                # Approaching along Z: grasp across X-Y plane
+                perp_dim1, perp_dim2 = (
+                    obj_bbox.depth,
+                    obj_bbox.width,
+                )  # X and Y dimensions
+                perp_axis1 = Vector3.X(self.object_geometry)
+                perp_axis2 = Vector3.Y(self.object_geometry)
+
+            # Transform perpendicular axes to world frame
+            perp1_world = context.world.transform(
+                spatial_object=perp_axis1, target_frame=context.world.root
+            )
+            perp2_world = context.world.transform(
+                spatial_object=perp_axis2, target_frame=context.world.root
+            )
+
+            # Determine which perpendicular dimension aligns with the gripper opening
+            perp1_dot_z = abs(perp1_world.dot(world_z))
+            perp2_dot_z = abs(perp2_world.dot(world_z))
+
+            # Identify which dimension is more vertical and which is more horizontal
+            if perp1_dot_z > perp2_dot_z:
+                vertical_dim = perp_dim1
+                horizontal_dim = perp_dim2
             else:
-                graspable_dim = face_height if is_obj_vertical else face_width
+                vertical_dim = perp_dim2
+                horizontal_dim = perp_dim1
+
+            # Check if the object fits based on gripper orientation
+            if self.gripper_vertical:
+                # Vertical gripper opens horizontally, so horizontal dimension must fit
+                graspable_dim = horizontal_dim
+            else:
+                # Horizontal gripper opens vertically, so vertical dimension must fit
+                graspable_dim = vertical_dim
 
             if graspable_dim <= self.gripper_width:
-                valid_faces.append((axis, (face_width, face_height)))
+                valid_faces.append((local_axis, graspable_dim))
+                print(
+                    f"Valid face found: axis={axis_name}, "
+                    f"approach_dot_z={dot_with_world_z.to_np()[0]:.3f}, "
+                    f"graspable_dim={graspable_dim:.3f}"
+                )
 
         if not valid_faces:
             raise Exception(
-                "No valid grasp face found (no face has appropriate dimension "
-                "<= gripper width for current gripper orientation)."
+                f"No valid grasp face found. Gripper width: {self.gripper_width}, "
+                f"gripper_vertical: {self.gripper_vertical}, "
+                f"object dimensions: width={obj_bbox.width:.3f}, depth={obj_bbox.depth:.3f}, height={obj_bbox.height:.3f}"
             )
 
-        # Select face most aligned with robot approach direction
+        # Select the axis most aligned with the approach direction (from robot to object)
         grasp_axis = max(valid_faces, key=lambda x: abs(x[0].dot(obj_to_robot)))[0]
         grasp_axis.reference_frame = self.object_geometry
-        grasp_axis.scale(1)  # Normalize
+        grasp_axis.scale(1)
+
+        print(f"Selected grasp axis: {grasp_axis.to_np()}")
+
         return grasp_axis
 
     def _compute_grasp_geometry(
@@ -210,10 +285,11 @@ class GraspMagic(ABC):
 
         robot_pos = self.manipulator.tool_frame.global_pose
         obj_to_robot = robot_pos.to_position() - obj_pose.to_position()
-        obj_to_robot.scale(1)  # Normalize
+        obj_to_robot.scale(1)
 
-        # Select optimal grasp axis based on gripper constraints
         grasp_axis = self._select_optimal_grasp_axis(context, obj_bbox, obj_to_robot)
+
+        print(f"grasp_axis: {grasp_axis.to_np()}")
 
         return obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis
 
@@ -245,17 +321,14 @@ class GraspMagic(ABC):
         Compute position by offsetting from object center along grasp axis.
         Offset distance accounts for object extent and additional clearance.
         """
-        # Transform grasp axis to world frame
         grasp_axis_world = context.world.transform(
             spatial_object=grasp_axis, target_frame=context.world.root
         )
         grasp_axis_world.reference_frame = context.world.root
 
-        # Determine approach direction: towards or away from robot
         dot_along: Scalar = grasp_axis_world.dot(obj_to_robot)
         approach_sign = 1.0 if dot_along >= 0.0 else -1.0
 
-        # Calculate offset distance
         offset_distance = self._compute_offset_along_axis(
             obj_bbox, grasp_axis, additional_offset
         )
@@ -270,6 +343,7 @@ class GraspMagic(ABC):
         context: BuildContext,
         tool_frame: KinematicStructureEntity,
         obj_pose: HomogeneousTransformationMatrix,
+        threshold: float = 0.01,
     ) -> List[MotionStatechartNode]:
         """
         Create orientation constraint nodes based on gripper_vertical parameter.
@@ -280,11 +354,11 @@ class GraspMagic(ABC):
                 goal_point=obj_pose.to_position(),
                 root_link=context.world.root,
                 pointing_axis=Vector3.Z(tool_frame),
+                threshold=threshold,
                 name="point_at_object",
             )
         ]
 
-        # Add gripper orientation constraint based on gripper_vertical parameter
         if self.gripper_vertical:
             # Vertical gripper: align gripper X axis to world Z
             align_nodes.append(
@@ -293,6 +367,7 @@ class GraspMagic(ABC):
                     tip_normal=Vector3.X(tool_frame),
                     root_link=context.world.root,
                     goal_normal=Vector3.Z(context.world.root),
+                    threshold=threshold,
                     name="enforce_gripper_vertical",
                 )
             )
@@ -304,6 +379,7 @@ class GraspMagic(ABC):
                     tip_normal=Vector3.Y(tool_frame),
                     root_link=context.world.root,
                     goal_normal=Vector3.Z(context.world.root),
+                    threshold=threshold,
                     name="enforce_gripper_horizontal",
                 )
             )
@@ -317,12 +393,12 @@ class GraspMagic(ABC):
 @dataclass(repr=False, eq=False)
 class BoxGraspMagic(GraspMagic):
     def get_pre_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        # Compute common grasp geometry
         obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = (
             self._compute_grasp_geometry(context)
         )
 
-        # Compute pre-grasp position with offset from object
+        print(f"Object in GraspMagic: {obj_pose.to_np()}")
+        logger.error(obj_pose.to_np())
         pre_grasp_point = self._compute_position_along_axis(
             context,
             obj_pose,
@@ -332,27 +408,35 @@ class BoxGraspMagic(GraspMagic):
             PICKUP_PREPOSE_DISTANCE,
         )
 
-        # Setup cartesian position goal
-        cart_pose = CartesianPosition(
+        print(f"-------------------")
+        print(f"Pre grasp point: {pre_grasp_point.to_np()}")
+        print(f"-------------------")
+
+        num = 4
+        rospy.node.get_logger().error(
+            f"My log message {pre_grasp_point.to_np()}", once=True
+        )
+        cart_pos = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=pre_grasp_point,
             name="pre_grasp_position",
         )
 
-        # Get orientation nodes
-        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose)
+        # Get orientation nodes with a looser threshold: pre-grasp only needs to be
+        # approximately correct; the grasping phase re-applies tighter constraints.
+        align_nodes = self._get_orientation_nodes(
+            context, tool_frame, obj_pose, threshold=0.05
+        )
         parallel = Parallel(align_nodes)
 
-        return [cart_pose, parallel]
+        return [cart_pos, parallel]
 
     def get_grasp_nodes(self, context: BuildContext) -> List[MotionStatechartNode]:
-        # Compute common grasp geometry
         obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis = (
             self._compute_grasp_geometry(context)
         )
 
-        # Compute grasp position with rim offset
         grasp_point = self._compute_position_along_axis(
             context,
             obj_pose,
@@ -362,15 +446,19 @@ class BoxGraspMagic(GraspMagic):
             additional_offset=-0.05,
         )
 
-        # Setup cartesian position goal
-        cart = CartesianPosition(
+        print(f"Grasp Point: {grasp_point.to_np()}")
+
+        cart_pos = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=grasp_point,
             name="Grasping",
         )
 
-        return [cart]
+        align_nodes = self._get_orientation_nodes(context, tool_frame, obj_pose)
+        parallel = Parallel(align_nodes)
+
+        return [cart_pos, parallel]
 
 
 class CylinderGraspMagic(GraspMagic):
@@ -392,7 +480,6 @@ class PreGraspPose(Goal):
     grasp_magic: Optional[GraspMagic] = field(default=None, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
-        # Use grasp magic if provided, otherwise use default box grasp
         if self.grasp_magic is None:
             self.grasp_magic = BoxGraspMagic(
                 manipulator=self.manipulator,
@@ -401,7 +488,6 @@ class PreGraspPose(Goal):
                 gripper_vertical=self.gripper_vertical,
             )
 
-        # Get pre-grasp nodes from magic class
         nodes = self.grasp_magic.get_pre_grasp_nodes(context)
 
         for node in nodes:
@@ -413,8 +499,9 @@ class PreGraspPose(Goal):
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
+        # artifacts.observation = self._cart_pose.observation_variable
         artifacts.observation = trinary_logic_and(
-            self.parallel.observation_variable, self._cart_pose.observation_variable
+            self._cart_pose.observation_variable, self.parallel.observation_variable
         )
         return artifacts
 
@@ -428,7 +515,6 @@ class Grasping(Goal):
     grasp_magic: Optional[GraspMagic] = field(default=None, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
-        # Use grasp magic if provided, otherwise use default box grasp
         if self.grasp_magic is None:
             self.grasp_magic = BoxGraspMagic(
                 manipulator=self.manipulator,
@@ -437,13 +523,14 @@ class Grasping(Goal):
                 gripper_vertical=self.gripper_vertical,
             )
 
-        # Get grasp nodes from magic class
         nodes = self.grasp_magic.get_grasp_nodes(context)
 
         for node in nodes:
             self.add_node(node)
             if isinstance(node, CartesianPosition):
                 self.cart = node
+            elif isinstance(node, Parallel):
+                self.parallel = node
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
@@ -453,28 +540,33 @@ class Grasping(Goal):
 
 @dataclass(repr=False, eq=False)
 class CloseHand(Goal):
-    # NOTE: Only works in simulation, giskard cant move gripper irl
-    manipulator: ParallelGripper = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
+    simulated_execution: bool = field(kw_only=True, default=True)
 
     def expand(self, context: BuildContext) -> None:
-        # TODO remove hsr hardcoding
-        self.joint_goal = JointPositionList(
-            goal_state=JointState.from_str_dict(
-                {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
+        if self.simulated_execution:
+            self.close_gripper = JointPositionList(
+                goal_state=JointState.from_str_dict(
+                    {"hand_motor_joint": HSRGripper.close_gripper.value}, context.world
+                )
             )
-        )
-        self.add_node(self.joint_goal)
+        else:
+            self.close_gripper = GripperCommandTask(
+                action_topic="/gripper_controller/grasp",
+                effort=-0.8,
+            )
+        self.add_node(self.close_gripper)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        artifacts.observation = self.joint_goal.observation_variable
+        artifacts.observation = self.close_gripper.observation_variable
         return artifacts
 
 
 @dataclass(repr=False, eq=False)
 class PullUp(Goal):
     manipulator: ParallelGripper = field(kw_only=True)
+    object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
 
     def expand(self, context: BuildContext) -> None:
@@ -486,16 +578,21 @@ class PullUp(Goal):
             self.add_node(self._ft)
             self.add_node(self._cm)
 
-        # Note: Assumes x axis of tool frame is pointing up
-        # Transforming point from map to tool frame is problematic, as we then need to evaluate the position at runtime
-        point = Point3(0.15, 0.0, 0.0, reference_frame=self.manipulator.tool_frame)
+        point = self.object_geometry.global_pose.to_position() + Vector3(
+            0, 0, 0.2, reference_frame=context.world.root
+        )
         self._cart_position = CartesianPosition(
             root_link=context.world.root,
             tip_link=self.manipulator.tool_frame,
             goal_point=point,
-            # binding_policy=GoalBindingPolicy.Bind_on_start,
+        )
+        self._keep_orientation = CartesianOrientation(
+            root_link=context.world.root,
+            tip_link=self.object_geometry,  # self.manipulator.tool_frame,
+            goal_orientation=self.object_geometry.global_pose.to_rotation_matrix(),  # self.manipulator.tool_frame.global_pose.to_rotation_matrix()
         )
         self.add_node(self._cart_position)
+        self.add_node(self._keep_orientation)
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)

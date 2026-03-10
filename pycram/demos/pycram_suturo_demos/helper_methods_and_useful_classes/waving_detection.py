@@ -2,11 +2,13 @@ import time
 import logging
 from typing import Optional
 
+import semantic_digital_twin
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces.robokudo import query_waving_human
 
 
 logger = logging.getLogger(__name__)
+logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
 
 class ContinuousWavingDetector:
@@ -51,40 +53,3 @@ class ContinuousWavingDetector:
                 self.retry_interval,
             )
             time.sleep(self.retry_interval)
-
-
-def main() -> None:
-    from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
-        robot_setup,
-    )
-
-    setup_result = robot_setup()
-    detector = ContinuousWavingDetector(retry_interval=1.0)
-
-    logger.info("Waiting for a waving human …")
-    raw_pose = detector.wait_for_waving_human()
-
-    if raw_pose is None:
-        logger.error("No waving human detected – aborting")
-        return
-
-    human_pose = raw_pose
-
-    print("=== Waving human detected ===")
-    print(f"  frame_id   : {str(human_pose.header.frame_id)}")
-    print(
-        f"  position   : x={human_pose.position.x:.4f}  "
-        f"y={human_pose.position.y:.4f}  "
-        f"z={human_pose.position.z:.4f}"
-    )
-    print(
-        f"  orientation: x={human_pose.orientation.x:.4f}  "
-        f"y={human_pose.orientation.y:.4f}  "
-        f"z={human_pose.orientation.z:.4f}  "
-        f"w={human_pose.orientation.w:.4f}"
-    )
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    main()

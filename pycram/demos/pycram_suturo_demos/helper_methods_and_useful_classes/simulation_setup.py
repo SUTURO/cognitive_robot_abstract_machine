@@ -1,13 +1,17 @@
 import os
-import logging
+
+import rclpy
+from rclpy.logging import get_logger
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Optional, Sequence, Tuple, Any
 
 from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
+
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -15,7 +19,7 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.world_description.world_entity import Body
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _here(*parts: str) -> str:
@@ -37,10 +41,12 @@ class SpawnSpec:
 
 @dataclass(frozen=True)
 class SetupResult:
-    world: object
+    world: World
     robot_view: HSRB
     context: Context
-    viz: Optional[object]
+    manipulator: Manipulator
+    node: Any
+    viz: Optional[object] = None
 
 
 def default_paths() -> WorldSetupPaths:
@@ -95,15 +101,20 @@ def merge_robot_into_environment(
         0.0,
         0.0,
     ),
-):
-    merged = deepcopy(environment_world)
+) -> Tuple[World, HSRB, Context, Manipulator]:
     x, y, z, r, p, yaw = robot_xyz_rpy
-    merged.merge_world_at_pose(
+    environment_world.merge_world_at_pose(
         deepcopy(hsrb_world),
         HomogeneousTransformationMatrix.from_xyz_rpy(x, y, z, r, p, yaw),
     )
-    robot_view = HSRB.from_world(merged)
-    return merged, robot_view, Context(merged, robot_view)
+    robot_view = HSRB.from_world(environment_world)
+    manipulator = environment_world.get_semantic_annotations_by_type(ParallelGripper)[0]
+    return (
+        environment_world,
+        robot_view,
+        Context(environment_world, robot_view),
+        manipulator,
+    )
 
 
 def try_make_viz(world):
@@ -123,12 +134,12 @@ def try_make_viz(world):
 
 
 def setup_hsrb_in_environment(
-    load_environment: Callable[[], object],
+    load_environment: Callable[[], World],
     paths: Optional[WorldSetupPaths] = None,
     milk_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-        2.37,
-        2.0,
-        1.05,
+        1.16,
+        6.3,
+        0.713,
         0.0,
         0.0,
         0.0,
@@ -150,14 +161,17 @@ def setup_hsrb_in_environment(
         0.0,
     ),
     with_viz: bool = True,
-    with_obj: bool = field(kw_only=True, default=True),
+    with_objects: bool = field(kw_only=True, default=True),
 ) -> SetupResult:
+    rclpy.init()
     p = paths or default_paths()
 
-    hsrb_world: World = build_hsrb_world(p.hsrb_urdf)
-    env_world = load_environment()
+    node: Any = rclpy.create_node("simulation_setup")
 
-    if with_obj:
+    hsrb_world = build_hsrb_world(p.hsrb_urdf)
+    env_world: World = load_environment()
+
+    if with_objects:
         env_world = add_objects_and_semantics(
             env_world,
             objects=(
@@ -166,12 +180,22 @@ def setup_hsrb_in_environment(
             ),
         )
 
-    world, robot_view, context = merge_robot_into_environment(
+    world, robot_view, context, manipulator = merge_robot_into_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
 
-    viz = try_make_viz(world) if with_viz else None
+    if with_viz:
+        try:
+            viz = try_make_viz(world)
+            viz.with_tf_publisher()
+        except Exception as e:
+            logger.warn("Failed to setup viz" + str(e))
 
-    if viz is not None:
-        viz.with_tf_publisher()
-    return SetupResult(world=world, robot_view=robot_view, context=context, viz=viz)
+    return SetupResult(
+        world=world,
+        robot_view=robot_view,
+        context=context,
+        node=node,
+        manipulator=manipulator,
+        viz=viz,
+    )

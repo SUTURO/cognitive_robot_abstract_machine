@@ -3,19 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
-from .pick_up import ReachActionDescription, PickUpAction
-from ...motions.gripper import (
-    MoveTCPMotion,
-    MoveGripperMotion,
-    ReachMotion,
-    PlaceMotion,
-)
-from ....config.action_conf import ActionConfig
+from .pick_up import PickUpAction
+from pycram.robot_plans.motions.gripper import PlaceMotion
+from ...motions.gripper import MoveTCPMotion
 from ....datastructures.enums import (
     Arms,
     ApproachDirection,
@@ -28,9 +22,7 @@ from ....failures import ObjectNotPlacedAtTargetLocation, ObjectStillInContact
 from ....language import SequentialPlan
 from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
-from ....utils import translate_pose_along_local_axis
 from ....validation.error_checkers import PoseErrorChecker
-from ....visualization import plot_rustworkx_interactive
 
 
 @dataclass

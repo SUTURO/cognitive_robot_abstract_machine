@@ -1,76 +1,71 @@
-import os
-
-import rclpy
-
-import semantic_digital_twin
-from pycram.datastructures.pose import PoseStamped
-from pycram.external_interfaces import nav2_move, robokudo
 import logging
 
-from pycram.datastructures.enums import Arms
-from pycram.language import SequentialPlan
-from pycram.motion_executor import real_robot
-from pycram.robot_plans import ParkArmsActionDescription
+import semantic_digital_twin
 from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
-    add_milk,
+    spawn_semantic_with_body,
+    perceive_and_spawn_all_objects,
 )
-from pycram_suturo_demos.pycram_basic_hsr_demos.start_up import setup_hsrb_context
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+    robot_setup,
+)
+from pycram.motion_executor import simulated_robot, real_robot
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import FixedConnection
-from semantic_digital_twin.world_description.geometry import Box, Scale
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.geometry import Scale
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
-rclpy_node, world, robot_view, context = setup_hsrb_context()
+
+SIMULATED = True
+"""
+Set this flag to True to run the demo in a simulated environment, 
+or False to run it on the real robot.
+"""
 
 
-def add_box(name: str, scale_xyz: tuple[float, float, float]):
-    body = Body(
-        name=PrefixedName(name),
-        collision=ShapeCollection([Box(scale=Scale(*scale_xyz))]),
+def simulation_demo():
+    """
+    Demonstrates object creation via the method used for spawning perceived objects in a simulated environment.
+    """
+
+    setup_result = robot_setup(simulation=True, with_objects=True)
+    world, robot_view, context = (
+        setup_result.world,
+        setup_result.robot_view,
+        setup_result.context,
     )
-    new_world = World()
-    with new_world.modify_world():
-        new_world.add_body(body)
-    return new_world
+
+    # Spawning an object with example data from perception.
+    spawn_semantic_with_body(
+        "Spoon",
+        "spoon_dinner_redgrip",
+        Scale(0.206, 0.052, 0.0287),
+        Pose.from_xyz_quaternion(1.427, 4.993, 0.723, 0.0, 0.0, 0.998, 0.054),
+        world,
+    )
 
 
-def perceive_and_spawn_all_objects():
-    perceived_objects = {}
-    perceived_objects_result = robokudo.query_all_objects().res
-    for perceived_object in perceived_objects_result:
-        object_size = perceived_object.shape_size[0].dimensions
-        object_pose = perceived_object.pose[0].pose
-        object_time = perceived_object.pose[0].header.stamp
-        object_name = f"{perceived_object.type}"
-        object_to_spawn = add_box(
-            object_name,
-            (object_size.x, object_size.y, object_size.z),
-        )
-        # object_to_spawn = add_milk(
-        #     object_name,
-        #     (object_size.x, object_size.y, object_size.z),
-        # )
-        perceived_objects[object_name] = object_to_spawn
-        with world.modify_world():
-            world.merge_world_at_pose(
-                object_to_spawn,
-                pose=HomogeneousTransformationMatrix.from_xyz_quaternion(
-                    pos_x=object_pose.position.x,
-                    pos_y=object_pose.position.y,
-                    pos_z=object_pose.position.z,
-                    quat_x=object_pose.orientation.x,
-                    quat_y=object_pose.orientation.y,
-                    quat_z=object_pose.orientation.z,
-                    quat_w=object_pose.orientation.w,
-                ),
-            )
-    return perceived_objects
+def real_demo():
+    """
+    Runs perception on the real robot and spawns all perceived objects in the world.
+    """
+
+    setup_result = robot_setup(
+        simulation=False, with_objects=True, with_perception=False
+    )
+    world, robot_view, context = (
+        setup_result.world,
+        setup_result.robot_view,
+        setup_result.context,
+    )
+    perceive_and_spawn_all_objects(world=world)
 
 
-perceive_and_spawn_all_objects()
+if __name__ == "__main__":
+    if SIMULATED:
+        with simulated_robot:
+            simulation_demo()
+    else:
+        with real_robot:
+            real_demo()

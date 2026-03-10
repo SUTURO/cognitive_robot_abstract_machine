@@ -136,6 +136,8 @@ class ParkArmsAction(ActionDescription):
     def execute(self) -> None:
         joint_names, joint_poses = self.get_joint_poses()
 
+        print("ALARM")
+
         SequentialPlan(
             self.context, MoveJointsMotion(names=joint_names, positions=joint_poses)
         ).perform()
@@ -346,7 +348,6 @@ class FollowTCPPathAction(ActionDescription):
         target_locations: Union[Iterable[PoseTrajectory], PoseTrajectory],
     ) -> PartialDesignator[FollowTCPPathAction]:
         return PartialDesignator(cls, target_location=target_locations, arm=arm)
-
 
 
 MoveTorsoActionDescription = MoveTorsoAction.description

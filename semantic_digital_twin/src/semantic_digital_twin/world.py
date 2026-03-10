@@ -1331,9 +1331,7 @@ class World(HasSimulatorProperties):
             self._merge_semantic_annotations_of_world(other)
 
             if not root_connection and self_root:
-                root_connection = Connection6DoF.create_with_dofs(
-                    parent=self_root, child=other_root, world=self
-                )
+                root_connection = FixedConnection(parent=self_root, child=other_root)
 
             if root_connection:
                 self.add_connection(root_connection)
