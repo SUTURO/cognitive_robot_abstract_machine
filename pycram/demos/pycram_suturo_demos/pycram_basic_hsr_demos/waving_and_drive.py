@@ -77,6 +77,19 @@ def park_arms():
 
 
 def drive_to_pose(target_pose: PoseStamped):
+
+    robot_pose = get_robot_pose()
+    dx = robot_pose.pose.position.x - target_pose.pose.position.x
+    dy = robot_pose.pose.position.y - target_pose.pose.position.y
+    import math
+    from transforms3d.euler import euler2quat
+
+    yaw = math.atan2(dy, dx)
+    q = euler2quat(0, 0, yaw)
+    target_pose.pose.orientation.x = q[1]
+    target_pose.pose.orientation.y = q[2]
+    target_pose.pose.orientation.z = q[3]
+    target_pose.pose.orientation.w = q[0]
     nav_target = buffer_in_front_of(
         target_pose,
         min_distance=MIN_DISTANCE_M,
