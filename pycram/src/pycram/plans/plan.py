@@ -281,23 +281,6 @@ class Plan:
         Plan.current_plan = previous_plan
         return result
 
-    # def get_nodes_by_designator_type(
-    #     self, designator_type: Type[DesignatorDescription]
-    # ) -> List[DesignatorNode]:
-    #     """
-    #     Filters the nodes for nodes linked to designators of a given type.
-    #
-    #     :param designator_type: The type of the designators to filter for
-    #     :return: A list of DesignatorNodes of the given type
-    #     """
-    #     return list(
-    #         filter(
-    #             lambda node: isinstance(node, DesignatorNode)
-    #             and node.designator_type == designator_type,
-    #             self.nodes,
-    #         )
-    #     )
-
     def re_perform(self):
         for child in self.root.recursive_children:
             if child.is_leaf:
@@ -376,61 +359,6 @@ class Plan:
 
         return [node for node in search_space if type(node) == node_type]
 
-    # def get_previous_node_by_designator_type(
-    #     self,
-    #     node: PlanNode,
-    #     action_type: Type[ActionType] | Type[MotionType],
-    #     on_layer: bool = False,
-    # ) -> (
-    #     ActionNode[ActionType]
-    #     | ActionDescriptionNode[ActionType]
-    #     | MotionNode[MotionType]
-    # ):
-    #     """
-    #     Returns the Action Node that precedes the given node on the same level and contains the designator of the given
-    #     type.
-    #
-    #     :param node: The node to be preceded, also determines the layer of the plan
-    #     :param action_type: The type of the plan node
-    #     :param on_layer: Whether the returned node should be on the same layer as the given one
-    #     :return: The Plan Node that precedes the given node
-    #     """
-    #     search_space = self.get_previous_nodes(node, on_layer)
-    #     search_space.reverse()
-    #     return [
-    #         node
-    #         for node in search_space
-    #         if issubclass(type(node), DesignatorNode)
-    #         and node.designator_type == action_type
-    #     ][0]
-    #
-    # def get_nodes_by_designator_type(
-    #     self, designator_type: Type[T]
-    # ) -> List[DesignatorNode[T]]:
-    #     """
-    #     Returns all Action nodes that have the same designator type as the given one.
-    #
-    #     :param designator_type: The designator type of the node that should be returned
-    #     :return: A list of Action nodes that have the same designator type as the given one
-    #     """
-    #     return [
-    #         node
-    #         for node in self.nodes
-    #         if isinstance(node, DesignatorNode)
-    #         and node.designator_type == designator_type
-    #     ]
-    #
-    # def get_node_by_designator_type(
-    #     self, designator_type: Type[T]
-    # ) -> DesignatorNode[T]:
-    #     """
-    #     Returns the first Action node that has the same designator type as the given one.
-    #
-    #     :param designator_type: The designator type of the node that should be returned
-    #     :return: The first Action node that has the same designator type as the given one
-    #     """
-    #     return self.get_nodes_by_designator_type(designator_type)[0]
-
     def get_nodes_by_type(self, node_type: Type[T]) -> List[T]:
         """
         Returns a list of nodes that match the given type.
@@ -439,6 +367,23 @@ class Plan:
         :return: A list of nodes that match the given type
         """
         return [node for node in self.nodes if type(node) is node_type]
+
+    def _migrate_nodes_from_plan(self, other: Plan) -> PlanNode:
+        """
+        Steal all nodes from another plan and add them to this plan.
+        After this the other plan will be empty.
+        :param other: The plan to steal nodes from
+        """
+        other_plans_edge = other.edges
+        root_ref = other.root
+        other.plan_graph.clear()
+
+        for edge in other_plans_edge:
+            self.add_edge(edge[0], edge[1])
+
+        return root_ref
+
+    # %% Plotting functions
 
     def bfs_layout(
         self, scale: float = 1.0, align: PlotAlignment = PlotAlignment.VERTICAL

@@ -15,6 +15,7 @@ from pycram.datastructures.grasp import GraspDescription
 from pycram.datastructures.pose import PoseStamped
 from pycram.failures import ObjectNotGraspedError
 from pycram.failures import ObjectNotInGraspingArea
+from pycram.plans.factories import sequential, execute_single
 
 from pycram.robot_plans.actions.base import ActionDescription
 from pycram.robot_plans.motions.gripper import MoveGripperMotion, MoveTCPMotion
@@ -119,18 +120,21 @@ class PickUpAction(ActionDescription):
     """
 
     def execute(self) -> None:
-        SequentialPlan(
-            self.context,
-            MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
-            ReachActionDescription(
-                target_pose=PoseStamped.from_spatial_type(
-                    self.object_designator.global_pose
-                ),
-                object_designator=self.object_designator,
-                arm=self.arm,
-                grasp_description=self.grasp_description,
-            ),
-            MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
+        self.add_subplan(
+            sequential(
+                children=[
+                    MoveGripperMotion(motion=GripperState.OPEN, gripper=self.arm),
+                    ReachAction(
+                        target_pose=PoseStamped.from_spatial_type(
+                            self.object_designator.global_pose
+                        ),
+                        object_designator=self.object_designator,
+                        arm=self.arm,
+                        grasp_description=self.grasp_description,
+                    ),
+                    MoveGripperMotion(motion=GripperState.CLOSE, gripper=self.arm),
+                ]
+            )
         ).perform()
         end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
@@ -143,14 +147,15 @@ class PickUpAction(ActionDescription):
         _, _, lift_to_pose = self.grasp_description.grasp_pose_sequence(
             self.object_designator
         )
-        SequentialPlan(
-            self.context,
-            MoveTCPMotion(
-                lift_to_pose,
-                self.arm,
-                allow_gripper_collision=True,
-                movement_type=MovementType.TRANSLATION,
-            ),
+        self.add_subplan(
+            execute_single(
+                MoveTCPMotion(
+                    lift_to_pose,
+                    self.arm,
+                    allow_gripper_collision=True,
+                    movement_type=MovementType.TRANSLATION,
+                )
+            )
         ).perform()
 
     def validate(

@@ -76,6 +76,7 @@ import uuid
 
 from krrood.ormatic.dao import DataAccessObject, AssociationDataAccessObject
 from krrood.ormatic.custom_types import TypeType
+from pycram.datastructures import execution_data
 
 
 class Base(DeclarativeBase):
@@ -2101,9 +2102,7 @@ class EfficientTransportActionDAO(
     )
 
 
-class ExecutionDataDAO(
-    Base, DataAccessObject[pycram.datastructures.dataclasses.ExecutionData]
-):
+class ExecutionDataDAO(Base, DataAccessObject[execution_data.ExecutionData]):
 
     __tablename__ = "ExecutionDataDAO"
 

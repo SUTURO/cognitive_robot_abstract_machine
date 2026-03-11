@@ -3,26 +3,47 @@ from __future__ import annotations
 import abc
 import logging
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from typing_extensions import Any, Optional, Callable
+from typing_extensions import Any, Optional, TYPE_CHECKING
 
 from pycram.failures import PlanFailure
+from semantic_digital_twin.world import World
+
+if TYPE_CHECKING:
+    from pycram.plans.plan_node import ActionNode, PlanNode
+    from pycram.plans.plan import Plan
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ActionDescription:
+class ActionDescription(ABC):
+    """
+    Abstract base class for all actions.
+    Actions are like builders for plans.
+    An action has a set of parameters (its fields) from which it builds a symbolic plan and hence can be viewed as
+    an easy abstraction of concrete low-level behavior that makes sense in certain contexts.
+    """
+
+    action_node: Optional[ActionNode] = field(default=None, kw_only=True)
+    """
+    The action node in the plan that executes this action.
+    """
+
+    @property
+    def plan(self) -> Optional[Plan]:
+        return self.action_node.plan if self.action_node else None
+
+    @property
+    def world(self) -> Optional[World]:
+        return self.plan.world if self.plan else None
 
     def perform(self) -> Any:
         """
-        Full execution: pre-check, plan, post-check
+        Perform the entire action including precondition and postcondition validation.
         """
         logger.info(f"Performing action {self.__class__.__name__}")
-
-        for pre_cb in self._pre_perform_callbacks:
-            pre_cb(self)
 
         self.validate_precondition()
 
@@ -32,9 +53,6 @@ class ActionDescription:
         except PlanFailure as e:
             raise e
         finally:
-            for post_cb in self._post_perform_callbacks:
-                post_cb(self)
-
             self.validate_postcondition(result)
 
         return result
@@ -42,30 +60,24 @@ class ActionDescription:
     @abc.abstractmethod
     def execute(self) -> Any:
         """
-        Symbolic plan. Should only call motions or sub-actions.
+        Create the symbolic plan for this action.
+        This method should only use Motions or Actions and mount them under itself, such that the plan can manage the
+        entire execution.
         """
         pass
 
-    @abc.abstractmethod
     def validate_precondition(self):
         """
         Symbolic/world state precondition validation.
         """
         pass
 
-    @abc.abstractmethod
     def validate_postcondition(self, result: Optional[Any] = None):
         """
         Symbolic/world state postcondition validation.
         """
         pass
 
-    @classmethod
-    def pre_perform(cls, func) -> Callable:
-        cls._pre_perform_callbacks.append(func)
-        return func
-
-    @classmethod
-    def post_perform(cls, func) -> Callable:
-        cls._post_perform_callbacks.append(func)
-        return func
+    def add_subplan(self, plan: PlanNode) -> PlanNode:
+        subplan_root = self.plan._migrate_nodes_from_plan(plan)
+        self.plan.add_edge(self.action_node, subplan_root)

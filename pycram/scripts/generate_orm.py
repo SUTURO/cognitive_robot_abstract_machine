@@ -14,7 +14,7 @@ from krrood.ormatic.type_dict import TypeDict
 from krrood.ormatic.utils import classes_of_module
 from krrood.utils import recursive_subclasses
 from pycram.datastructures import grasp
-from pycram.datastructures.dataclasses import ExecutionData
+from pycram.datastructures.execution_data import ExecutionData
 from pycram.language import SequentialNode, RepeatNode, LanguageNode
 from pycram.orm.model import *
 from pycram.plans.plan_node import PlanNode

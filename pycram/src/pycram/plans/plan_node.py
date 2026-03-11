@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from abc import abstractmethod, ABC
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,10 +22,12 @@ from semantic_digital_twin.world_description.world_modification import (
     WorldModelModificationBlock,
 )
 from pycram.plans.plan import PlanEntity
+from pycram.datastructures.execution_data import ExecutionData
 
 if TYPE_CHECKING:
     from pycram.plans.plan import Plan
-    from pycram.datastructures.dataclasses import ExecutionData
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(eq=False)
@@ -190,13 +193,19 @@ class PlanNode(PlanEntity):
         self.status = TaskStatus.SLEEPING
 
     @abstractmethod
-    def _perform(self, *args, **kwargs):
-        pass
-
     def perform(self):
+        """
+        Perform the node.
+        """
 
-        result = self._perform()
-        return result
+    def mount_at_index(self, child: PlanNode, index: int = -1):
+        """
+        Mount a plan node and all its children at a specific index.
+
+        :param child:
+        :param index:
+        :return:
+        """
 
 
 @dataclass(eq=False)
@@ -237,13 +246,11 @@ class ActionNode(PlanNode):
     Instance of the MotionExecutor used to execute the motion chart of the sub-motions of this action.
     """
 
-    _last_mod: WorldModelModificationBlock = None
+    _world_modification_block_length_pre_perform: Optional[int] = None
     """
-    The last model modification block before the execution of this node. Used to check if the model has changed during execution.
+    The last model modification block before the execution of this node. 
+    Used to check if the model has changed during execution.
     """
-
-    def __hash__(self):
-        return id(self)
 
     def collect_motions(self) -> List[Task]:
         """
@@ -258,88 +265,57 @@ class ActionNode(PlanNode):
         )
         return [m.designator_ref.motion_chart for m in motion_desigs]
 
-    def construct_msc(self):
+    def construct_motion_state_chart(self):
         """
-        Builds a giskard Motion State Chart (MSC) from the collected motions of this action node.
+        Builds a giskard Motion State Chart from the collected motions of this action node.
         """
         self.motion_executor = MotionExecutor(
             self.collect_motions(), self.plan.world, ros_node=self.plan.context.ros_node
         )
         self.motion_executor.construct_msc()
 
-    def execute_msc(self):
+    def execute_motion_state_chart(self):
         """
-        Executes the constructed MSC.
+        Executes the constructed Motion State Chart of this action node.
         """
-        self.construct_msc()
+        self.construct_motion_state_chart()
         self.motion_executor.execute()
 
-    def log_execution_data_pre_perform(self):
+    def create_execution_data_pre_perform(self):
         """
-        Creates a ExecutionData object and logs additional information about the execution of this node.
+        Create the ExecutionData and logs additional information about the execution of this node.
         """
         robot_pose = PoseStamped.from_spatial_type(self.plan.robot.root.global_pose)
         exec_data = ExecutionData(robot_pose, self.plan.world.state.data)
         self.execution_data = exec_data
-        self._last_mod = self.plan.world._model_manager.model_modification_blocks[-1]
-
-        manipulated_bodies = list(
-            filter(lambda x: isinstance(x, Body), self.kwargs.values())
+        self._last_world_modification_block_pre_perform_index = len(
+            self.plan.world._model_manager.model_modification_blocks
         )
-        manipulated_body = manipulated_bodies[0] if manipulated_bodies else None
 
-        if manipulated_body:
-            self.execution_data.manipulated_body = manipulated_body
-            self.execution_data.manipulated_body_pose_start = (
-                PoseStamped.from_spatial_type(manipulated_body.global_pose)
-            )
-            self.execution_data.manipulated_body_name = str(manipulated_body.name)
-
-    def log_execution_data_post_perform(self):
+    def update_execution_data_post_perform(self):
         """
-        Writes additional information to the ExecutionData object after performing this node.
+        Update the ExecutionData with additional information to the ExecutionData object after performing this node.
         """
         self.execution_data.execution_end_pose = PoseStamped.from_spatial_type(
             self.plan.robot.root.global_pose
         )
         self.execution_data.execution_end_world_state = self.plan.world.state.data
-        new_modifications = []
-        for i in range(len(self.plan.world._model_manager.model_modification_blocks)):
-            if (
-                self.plan.world._model_manager.model_modification_blocks[-i]
-                is self._last_mod
-            ):
-                break
-            new_modifications.append(
-                self.plan.world._model_manager.model_modification_blocks[-i]
-            )
-        self.execution_data.modifications = new_modifications[::-1]
-
-        if self.execution_data.manipulated_body:
-            self.execution_data.manipulated_body_pose_end = (
-                PoseStamped.from_spatial_type(
-                    self.execution_data.manipulated_body.global_pose
-                )
-            )
+        self.execution_data.added_world_modifications = (
+            self.plan.world._model_manager.model_modification_blocks[
+                self._last_world_modification_block_pre_perform_index :
+            ]
+        )
 
     def perform(self):
-        """
-        Performs this node by performing the resolved action designator in zit
+        self.create_execution_data_pre_perform()
 
-        :return: The return value of the resolved ActionDesignator
-        """
-        self.log_execution_data_pre_perform()
+        result = self.action.perform()
 
-        result = self.designator_ref.perform()
+        self.execute_motion_state_chart()
 
-        self.execute_msc()
-
-        self.log_execution_data_post_perform()
+        self.update_execution_data_post_perform()
 
         return result
-
-    def __repr__(self, *args, **kwargs):
-        return f"<Resolved {self.designator_ref.__class__.__name__}>"
 
 
 @dataclass(eq=False)
