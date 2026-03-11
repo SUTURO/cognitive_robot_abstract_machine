@@ -4,11 +4,13 @@ from functools import cached_property
 from typing import Optional, ClassVar
 
 import numpy as np
+from line_profiler.explicit_profiler import profile
 from typing_extensions import List
 
 import krrood.symbolic_math.symbolic_math as sm
 from giskardpy.motion_statechart.exceptions import NodeInitializationError
 from krrood.symbolic_math.float_variable_data import FloatVariableData
+from krrood.symbolic_math.symbolic_math import VariableParameters, CompiledFunction
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -178,6 +180,11 @@ class CartesianPositionTrajectory(CartesianTask):
     current_index: int = field(default=0, kw_only=True)
     """Current index in the goal points array."""
 
+    _compiled_goal_reference_frame_P_tip: CompiledFunction = field(
+        init=False, repr=False
+    )
+    """Compiled function representing the goal reference frame position in the tip frame."""
+
     @cached_property
     def goal_reference_frame(self) -> KinematicStructureEntity:
         reference_frame = self.goal_points[0].reference_frame
@@ -197,7 +204,7 @@ class CartesianPositionTrajectory(CartesianTask):
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         self.goal_points_to_np()
         artifacts = super().build(context)
-        self.init_goal_reference_frame_P_current_target_point(
+        self._init_goal_reference_frame_P_current_target_point(
             context.float_variable_data
         )
 
@@ -223,19 +230,40 @@ class CartesianPositionTrajectory(CartesianTask):
 
         distance_to_goal = final_point.euclidean_distance(root_P_current)
         artifacts.observation = distance_to_goal < self.threshold
+        self.compile_current_point_for_on_tick(context)
         return artifacts
 
-    def on_tick(
-        self, context: MotionStatechartContext
-    ) -> Optional[ObservationStateValues]:
-        root_T_tip = context.world.compute_forward_kinematics(
+    def compile_current_point_for_on_tick(self, context: MotionStatechartContext):
+        """
+        Computing the current point relative to the goal reference frame is expensive, this method turns it into
+        a compiled expression.
+        """
+        root_T_tip = context.world.compose_forward_kinematics_expression(
             self.root_link, self.tip_link
         )
         goal_reference_frame_T_tip = (
             self.root_T_goal_reference_frame.inverse() @ root_T_tip
         )
+        goal_reference_frame_P_tip = goal_reference_frame_T_tip.to_position()[:-1]
+        self._compiled_goal_reference_frame_P_tip = goal_reference_frame_P_tip.compile(
+            parameters=VariableParameters.from_lists(
+                context.world.state.position_float_variables,
+                context.float_variable_data.variables,
+            ),
+            sparse=False,
+        )
+        self._compiled_goal_reference_frame_P_tip.bind_args_to_memory_view(
+            0, context.world.state.positions
+        )
+        self._compiled_goal_reference_frame_P_tip.bind_args_to_memory_view(
+            1, context.float_variable_data.data
+        )
+
+    def on_tick(
+        self, context: MotionStatechartContext
+    ) -> Optional[ObservationStateValues]:
         goal_reference_frame_P_tip_np = (
-            goal_reference_frame_T_tip.to_position().evaluate()[:-1]
+            self._compiled_goal_reference_frame_P_tip.evaluate()
         )
 
         # 2. Find the closest point on the remaining trajectory to update progress
@@ -279,9 +307,12 @@ class CartesianPositionTrajectory(CartesianTask):
             self.goal_reference_frame_P_current_target_point, target_point
         )
 
-    def init_goal_reference_frame_P_current_target_point(
+    def _init_goal_reference_frame_P_current_target_point(
         self, float_variable_data: FloatVariableData
     ):
+        """
+        Initialize the symbolic expression representing the current target point in the goal reference frame.
+        """
         self.goal_reference_frame_P_current_target_point = Point3.create_with_variables(
             "goal_reference_frame_P_current_target_point"
         )

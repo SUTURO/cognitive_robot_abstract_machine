@@ -148,7 +148,11 @@ from semantic_digital_twin.world_description.geometry import (
     Sphere,
 )
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+    KinematicStructureEntity,
+)
+from semantic_digital_twin.world_description.world_state import WorldStateTrajectory
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
     WorldStateTrajectoryPlotter,
 )
@@ -1227,6 +1231,118 @@ def test_long_goal(pr2_world_state_reset: World):
     print(diff / kin_sim.control_cycles)
 
 
+class TestCartesianPositionTrajectory:
+
+    def _points_to_np(self, positions: list[Point3] | np.ndarray) -> np.ndarray:
+        """
+        Convert a sequence of `Point3` or an `ndarray` of shape (N, 3) into an `ndarray` of shape (N, 3).
+        """
+        if isinstance(positions, np.ndarray):
+            if positions.ndim != 2 or positions.shape[1] != 3:
+                raise ValueError("positions ndarray must have shape (N, 3)")
+            return positions.astype(float)
+        pts = [
+            p.to_np()[:-1] if isinstance(p, Point3) else np.asarray(p, dtype=float)
+            for p in positions
+        ]
+        arr = np.vstack(pts).astype(float)
+        if arr.ndim != 2 or arr.shape[1] != 3:
+            raise ValueError("positions must convert to shape (N, 3)")
+        return arr
+
+    def compare_trajectories(
+        self,
+        positions: list[Point3] | np.ndarray,
+        world_state_trajectory: WorldStateTrajectory,
+        root_link: KinematicStructureEntity,
+        tip_link: KinematicStructureEntity,
+        tolerance: float = 0.01,
+    ):
+        """
+        Compare an executed Cartesian path against a reference list of positions.
+
+        The executed path is reconstructed from the `world_state_trajectory` by computing
+        forward kinematics for `tip_link` in the `root_link` frame at each recorded state.
+        For each executed point, the minimum Euclidean distance to the reference path is
+        computed. Aggregate statistics and pass/fail against `tolerance` are returned.
+
+        :param positions: Reference path as `Point3` iterable or an array of shape (N, 3).
+        :param world_state_trajectory: Recorded joint-space trajectory with access to the world.
+        :param root_link: Root kinematic frame for forward kinematics.
+        :param tip_link: Tip kinematic frame for forward kinematics.
+        :param tolerance: Maximum allowed distance to the reference path for all samples.
+        :return: Dictionary containing distances per sample and summary metrics.
+        """
+        ref_np = self._points_to_np(positions)
+
+        world = world_state_trajectory.world
+        executed_points = []
+
+        # Reconstruct executed Cartesian path by FK at each recorded state
+        for state_view in world_state_trajectory.values():
+            # Temporarily set the world's state to the recorded one
+            world.state.data[:] = state_view.data
+            world.notify_state_change()
+            p = (
+                world.compute_forward_kinematics(root_link, tip_link)
+                .to_position()
+                .evaluate()[:-1]
+                .astype(float)
+            )
+            executed_points.append(p.copy())
+
+        executed_np = np.vstack(executed_points)
+
+        # Distance of each executed point to the nearest reference point
+        def _min_dist_to_ref(p: np.ndarray) -> float:
+            return float(np.min(np.linalg.norm(executed_np - p, axis=1)))
+
+        distances = np.apply_along_axis(_min_dist_to_ref, 1, ref_np)
+
+        assert np.max(distances) <= tolerance
+
+    def test_cartesian_position_trajectory_spiral(self, cylinder_bot_world: World):
+        points = []
+        a = 0.05  # spiral growth factor (tunes how fast radius grows)
+
+        for i in range(10000):
+            t = (
+                i * np.pi / 5000.0
+            )  # angle parameter; adjust divisor for tighter/looser turns
+            r = a * t  # radius grows linearly with t
+            points.append(
+                Point3(
+                    r * np.cos(t),
+                    r * np.sin(t),
+                    0,
+                    reference_frame=cylinder_bot_world.root,
+                )
+            )
+        msc = MotionStatechart()
+        cart_traj = CartesianPositionTrajectory(
+            root_link=cylinder_bot_world.root,
+            tip_link=cylinder_bot_world.get_kinematic_structure_entity_by_name("bot"),
+            goal_points=points,
+        )
+        msc.add_node(cart_traj)
+        msc.add_node(EndMotion.when_true(cart_traj))
+
+        kin_sim = Executor(
+            context=MotionStatechartContext(
+                world=cylinder_bot_world,
+            ),
+            trajectory_plotter=WorldStateTrajectoryPlotter(),
+        )
+        kin_sim.compile(motion_statechart=msc)
+        kin_sim.tick_until_end()
+        self.compare_trajectories(
+            points,
+            kin_sim.trajectory_plotter.world_state_trajectory,
+            cart_traj.root_link,
+            cart_traj.tip_link,
+        )
+
+
 class TestCartesianTasks:
     """Test suite for all Cartesian motion tasks."""
 
@@ -1799,126 +1915,6 @@ class TestCartesianTasks:
         assert np.allclose(
             cart_straight.goal_pose.to_np(), goal_pose.to_np(), atol=0.015
         )
-
-    def test_cartesian_position_trajectory(self, cylinder_bot_world: World, rclpy_node):
-        VizMarkerPublisher(
-            _world=cylinder_bot_world, node=rclpy_node
-        ).with_tf_publisher()
-        points = []
-        a = 0.05  # spiral growth factor (tunes how fast radius grows)
-
-        for i in range(10000):
-            t = (
-                i * np.pi / 5000.0
-            )  # angle parameter; adjust divisor for tighter/looser turns
-            r = a * t  # radius grows linearly with t
-            points.append(
-                Point3(
-                    r * np.cos(t),
-                    r * np.sin(t),
-                    0,
-                    reference_frame=cylinder_bot_world.root,
-                )
-            )
-        msc = MotionStatechart()
-        cart_traj = CartesianPositionTrajectory(
-            root_link=cylinder_bot_world.root,
-            tip_link=cylinder_bot_world.get_kinematic_structure_entity_by_name("bot"),
-            goal_points=points,
-        )
-        msc.add_node(cart_traj)
-        msc.add_node(EndMotion.when_true(cart_traj))
-
-        kin_sim = Executor(
-            context=MotionStatechartContext(
-                world=cylinder_bot_world,
-            ),
-        )
-        kin_sim.compile(motion_statechart=msc)
-        kin_sim.tick_until_end()
-
-    def test_cartesian_position_trajectory_straight_line(
-        self, cylinder_bot_world: World, rclpy_node
-    ):
-        VizMarkerPublisher(
-            _world=cylinder_bot_world, node=rclpy_node
-        ).with_tf_publisher()
-        points = []
-        step_size = 0.001
-
-        for i in range(1000):
-            points.append(
-                Point3(
-                    step_size * i,
-                    0.5,
-                    0,
-                    reference_frame=cylinder_bot_world.root,
-                )
-            )
-        msc = MotionStatechart()
-        cart_traj = CartesianPositionTrajectory(
-            root_link=cylinder_bot_world.root,
-            tip_link=cylinder_bot_world.get_kinematic_structure_entity_by_name("bot"),
-            goal_points=points,
-        )
-        msc.add_node(cart_traj)
-        msc.add_node(EndMotion.when_true(cart_traj))
-
-        kin_sim = Executor(
-            context=MotionStatechartContext(
-                world=cylinder_bot_world,
-            ),
-            # pacer=SimulationPacer(real_time_factor=1),
-            trajectory_plotter=WorldStateTrajectoryPlotter(),
-        )
-        kin_sim.compile(motion_statechart=msc)
-        kin_sim.tick_until_end()
-        kin_sim.plot_trajectory("traj.pdf")
-
-    def test_cartesian_position_trajectory_straight_line_old(
-        self, cylinder_bot_world: World, rclpy_node
-    ):
-        VizMarkerPublisher(
-            _world=cylinder_bot_world, node=rclpy_node
-        ).with_tf_publisher()
-        points = []
-        step_size = 0.001
-
-        msc = MotionStatechart()
-        for i in range(1000):
-            points.append(
-                Point3(
-                    step_size * i,
-                    0.5,
-                    0,
-                    reference_frame=cylinder_bot_world.root,
-                )
-            )
-        cart_traj = Sequence(
-            [
-                CartesianPosition(
-                    root_link=cylinder_bot_world.root,
-                    tip_link=cylinder_bot_world.get_kinematic_structure_entity_by_name(
-                        "bot"
-                    ),
-                    goal_point=point,
-                )
-                for point in points
-            ]
-        )
-        msc.add_node(cart_traj)
-        msc.add_node(EndMotion.when_true(cart_traj))
-
-        kin_sim = Executor(
-            context=MotionStatechartContext(
-                world=cylinder_bot_world,
-            ),
-            # pacer=SimulationPacer(real_time_factor=1),
-            trajectory_plotter=WorldStateTrajectoryPlotter(),
-        )
-        kin_sim.compile(motion_statechart=msc)
-        kin_sim.tick_until_end(10_000)
-        kin_sim.plot_trajectory("traj.pdf")
 
 
 class TestDiffDriveBaseGoal:
