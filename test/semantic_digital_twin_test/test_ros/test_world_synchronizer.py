@@ -11,7 +11,8 @@ from uuid import uuid4
 import numpy as np
 import pytest
 import sqlalchemy
-from pkg_resources import resource_filename
+from importlib.resources import files
+from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -306,7 +307,7 @@ def test_model_synchronization_merge_full_world(rclpy_node):
 
     pr2_world = URDFParser.from_file(
         os.path.join(
-            resource_filename("semantic_digital_twin", "../../"),
+            Path(files("semantic_digital_twin")).parent.parent,
             "resources",
             "urdf",
             "pr2_kinematic_tree.urdf",

@@ -149,7 +149,11 @@ def test_script_launch_and_kill():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         preexec_fn=os.setsid,
-        env={**os.environ, "QT_QPA_PLATFORM": "offscreen"},  # Add this
+        env={
+            **os.environ,
+            "QT_QPA_PLATFORM": "offscreen",
+            "PYTHONPATH": os.pathsep.join(sys.path),
+        },  # Add this
     )
 
     try:
