@@ -458,7 +458,7 @@ class QPController:
     def xdot_to_control_commands(self, xdot: np.ndarray) -> np.ndarray:
         offset = len(self.active_dofs) * (self.config.prediction_horizon - 2)
         offset_end = offset + len(self.active_dofs)
-        control_cmds = xdot[offset:offset_end]
+        control_cmds = xdot[offset:offset_end] / self.config.mpc_dt**2
         # divide by 4 because the world state has pos/vel/acc/jerk variables
         full_control_cmds = np.zeros(len(self.world_state_symbols) // 4)
         full_control_cmds[self.dof_filter] = control_cmds

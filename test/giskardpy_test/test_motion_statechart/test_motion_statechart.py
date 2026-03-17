@@ -89,6 +89,7 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
 from giskardpy.qp.constraint import EqualityConstraint
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.qp.solvers.qp_solver_gurobi import QPSolverGurobi
 from giskardpy.qp.solvers.qp_solver_piqp import QPSolverPIQP
 from giskardpy.utils.math import angle_between_vector
 from krrood.symbolic_math.symbolic_math import (
@@ -3800,7 +3801,7 @@ class TestCollisionAvoidance:
                     qp_controller_config=QPControllerConfig(
                         target_frequency=100,
                         prediction_horizon=30,
-                        qp_solver_class=QPSolverPIQP,
+                        qp_solver_class=QPSolverGurobi,
                     ),
                 )
             )
