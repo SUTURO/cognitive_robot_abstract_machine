@@ -52,25 +52,25 @@ class GraspDescription:
     """
 
     def _pose_sequence(
-        self, original_pose_T_pose: Pose, body: Body = None, reverse: bool = False
+        self, target_T_grasp_pose: Pose, body: Body = None, reverse: bool = False
     ) -> List[Pose]:
         """
         Calculates the pose sequence to grasp something at the pose if the body is given its geometry is also taken into
         account. The pose sequence consists of 3 poses: one in front of the body (taking body geometry into account),
         one at the center of the body, and the last one above the body to lift it.
 
-        :param original_pose_T_pose: The pose around which the pose sequence should be centered.
+        :param target_T_grasp_pose: The pose of the grasp in the target frame.
         :param body: The body of the grasp.
         :param reverse: If the sequence should be reversed.
         :return: The pose sequence.
         """
-        pose_frame = original_pose_T_pose.reference_frame
+        pose_frame = target_T_grasp_pose.reference_frame
 
         world = pose_frame._world
 
-        pose_R_gripper = self.grasp_orientation()
-        rotated_pose_R_gripper = original_pose_T_pose.to_rotation_matrix() @ pose_R_gripper.to_rotation_matrix()
-        rotated_pose_T_gripper: Pose = Pose(position=original_pose_T_pose.to_position(), orientation=rotated_pose_R_gripper.to_quaternion(), reference_frame=pose_frame)
+        grasp_pose_R_gripper = self.grasp_orientation()
+        target_R_gripper = target_T_grasp_pose.to_rotation_matrix() @ grasp_pose_R_gripper.to_rotation_matrix()
+        target_T_gripper: Pose = Pose(position=target_T_grasp_pose.to_position(), orientation=target_R_gripper.to_quaternion(), reference_frame=pose_frame)
 
         if body:
             bb_in_frame = body.collision.as_bounding_box_collection_in_frame(
@@ -87,22 +87,22 @@ class GraspDescription:
         else:
             offset = 0
 
-        rotated_pose_T_gripper_copy = deepcopy(rotated_pose_T_gripper)
+        target_T_gripper_copy = deepcopy(target_T_gripper)
         pre_pose = translate_pose_along_local_axis(
-            rotated_pose_T_gripper_copy, self.manipulation_axis(), -offset
+            target_T_gripper_copy, self.manipulation_axis(), -offset
         )
 
-        grasp_pose = deepcopy(rotated_pose_T_gripper)
+        target_T_gripper_copy = deepcopy(target_T_gripper)
 
         # Lift pose calculation
-        map_T_grasp = world.transform(original_pose_T_pose.to_homogeneous_matrix(), world.root)
+        map_T_grasp = world.transform(target_T_grasp_pose.to_homogeneous_matrix(), world.root)
         grasp_T_lift = HomogeneousTransformationMatrix.from_xyz_rpy(z=self.manipulation_offset)
         map_T_lift = (map_T_grasp @ grasp_T_lift).to_position()
         pose_frame_P_lift = world.transform(map_T_lift, pose_frame)
 
-        lift_pose = Pose(pose_frame_P_lift, rotated_pose_T_gripper.to_quaternion(), reference_frame=pose_frame)
+        lift_pose = Pose(pose_frame_P_lift, target_T_gripper.to_quaternion(), reference_frame=pose_frame)
 
-        sequence = [pre_pose, grasp_pose, lift_pose]
+        sequence = [pre_pose, target_T_gripper_copy, lift_pose]
 
         if reverse:
             sequence.reverse()

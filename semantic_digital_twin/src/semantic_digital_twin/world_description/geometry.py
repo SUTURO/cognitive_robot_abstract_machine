@@ -104,7 +104,7 @@ class Color:
 
         :param rgb: The list of RGB values
         """
-        return cls(rgb[0], rgb[1], rgb[2], 1)
+        return cls(*rgb, 1)
 
     @classmethod
     def from_rgba(cls, rgba: List[float]):
@@ -113,36 +113,47 @@ class Color:
 
         :param rgba: The list of RGBA values
         """
-        return cls(rgba[0], rgba[1], rgba[2], rgba[3])
-
-
-class Colors(Color, Enum):
-    """
-    Enum for easy access to some common colors.
-    """
-
-    PINK = (1, 0, 1, 1)
-    BLACK = (0, 0, 0, 1)
-    WHITE = (1, 1, 1, 1)
-    RED = (1, 0, 0, 1)
-    GREEN = (0, 1, 0, 1)
-    BLUE = (0, 0, 1, 1)
-    YELLOW = (1, 1, 0, 1)
-    CYAN = (0, 1, 1, 1)
-    MAGENTA = (1, 0, 1, 1)
-    GREY = (0.5, 0.5, 0.5, 1)
+        return cls(*rgba)
 
     @classmethod
-    def from_string(cls, color: str) -> Color:
-        """
-        Set the rgba_color from a string. If the string is not a valid color, it will return the color WHITE.
+    def PINK(cls) -> Self:
+        return cls(1, 0, 1, 1)
 
-        :param color: The string of the color
-        """
-        try:
-            return cls[color.upper()]
-        except KeyError:
-            return cls.WHITE
+    @classmethod
+    def BLACK(cls) -> Self:
+        return cls(0, 0, 0, 1)
+
+    @classmethod
+    def WHITE(cls) -> Self:
+        return cls(1, 1, 1, 1)
+
+    @classmethod
+    def RED(cls) -> Self:
+        return cls(1, 0, 0, 1)
+
+    @classmethod
+    def GREEN(cls) -> Self:
+        return cls(0, 1, 0, 1)
+
+    @classmethod
+    def BLUE(cls) -> Self:
+        return cls(0, 0, 1, 1)
+
+    @classmethod
+    def YELLOW(cls) -> Self:
+        return cls(1, 1, 0, 1)
+
+    @classmethod
+    def CYAN(cls) -> Self:
+        return cls(0, 1, 1, 1)
+
+    @classmethod
+    def MAGENTA(cls) -> Self:
+        return cls(1, 0, 1, 1)
+
+    @classmethod
+    def GREY(cls) -> Self:
+        return cls(0.5, 0.5, 0.5, 1)
 
 
 @dataclass

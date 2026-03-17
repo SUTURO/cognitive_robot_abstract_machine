@@ -12,10 +12,10 @@ from abc import ABC, abstractmethod
 from collections import deque
 from dataclasses import dataclass, field
 from functools import cached_property
+from inspect import ismethod, isfunction, isclass
 from typing import assert_never, Any
 
 import rustworkx as rx
-from inspect import ismethod, isclass, isfunction
 from typing_extensions import (
     Optional,
     Type,
@@ -24,14 +24,10 @@ from typing_extensions import (
     Generic,
     TYPE_CHECKING,
     Self,
-    Dict,
-    Generator,
     Iterator,
     get_type_hints,
 )
 
-from krrood.adapters.json_serializer import list_like_classes
-from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.entity_query_language.core.base_expressions import (
     Selectable,
     SymbolicExpression,
@@ -49,7 +45,6 @@ from krrood.entity_query_language.exceptions import (
     CalledMatchMultipleTimes,
 )
 from krrood.entity_query_language.predicate import HasType
-from krrood.entity_query_language.query.quantifiers import An
 from krrood.entity_query_language.utils import T
 from krrood.patterns.factory_and_kwargs import HasFactoryAndKwargs
 from krrood.rustworkx_utils import RWXNode
@@ -59,11 +54,7 @@ if TYPE_CHECKING:
     from krrood.entity_query_language.factories import ConditionType
     from krrood.entity_query_language.query.query import Entity, Query
 
-
-import builtins
-import importlib
-from typing import get_type_hints, get_origin, get_args
-from inspect import isclass
+from typing import get_type_hints
 
 
 @dataclass

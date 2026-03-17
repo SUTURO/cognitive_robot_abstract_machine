@@ -43,8 +43,8 @@ class FaceAtAction(ActionDescription):
         # calculate orientation for robot to face the object
         angle = (
             np.arctan2(
-                robot_position.to_position().y - self.pose.to_position().y,
-                robot_position.to_position().x - self.pose.to_position().x,
+                robot_position.y - self.pose.y,
+                robot_position.x - self.pose.x,
             )
             + np.pi
         )

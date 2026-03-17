@@ -556,7 +556,10 @@ class AccessingLocation(LocationDesignatorDescription):
                     pose_candidate.to_quaternion(),
                     reference_frame=params_box.handle,
                 )
-                test_robot.root.parent_connection.origin = pose_candidate
+
+                test_robot.root.parent_connection.origin = test_world.transform(
+                    pose_candidate, test_robot.root.parent_kinematic_structure_entity
+                )
                 try:
                     collision_check(test_robot, test_world)
                 except RobotInCollision:

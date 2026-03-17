@@ -119,15 +119,3 @@ class VizMarkerPublisher(ModelChangeCallback):
                 marker.ns = marker_ns
                 self.markers.markers.append(marker)
         self.pub.publish(self.markers)
-
-
-def publish_world(world: World):
-
-    try:
-        rclpy.init()
-    except RuntimeError:
-        pass
-    rclpy_node = rclpy.create_node("viz_marker_node")
-    tf_wrapper = TFWrapper(node=rclpy_node)
-    tf_publisher = TFPublisher(node=rclpy_node, world=world)
-    viz = VizMarkerPublisher(world=world, node=rclpy_node, use_visuals=False)

@@ -960,12 +960,6 @@ class Knife(Cuttlery):
     A butter knife.
     """
 
-    @property
-    def grasp_frame(self) -> HomogeneousTransformationMatrix: ...
-
-    @property
-    def tool_frame(self) -> HomogeneousTransformationMatrix: ...
-
 
 @dataclass(eq=False)
 class Spoon(Cuttlery, IsPerceivable): ...
