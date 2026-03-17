@@ -12,6 +12,7 @@ from krrood.symbolic_math.symbolic_math import FloatVariable, Scalar, Vector
 from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 
 
+@sm.substitution_cache
 def shifted_velocity_profile(
     vel_profile: Vector, acc_profile: Vector, distance: Scalar, dt: float
 ) -> Tuple[Vector, Vector]:
@@ -45,6 +46,7 @@ def r_gauss(integral: Scalar) -> Scalar:
 
 
 @sm.substitution_cache
+@profile
 def acc_cap(current_vel: Scalar, jerk_limit: Scalar, dt: Scalar) -> Scalar:
     acc_integral = sm.abs(current_vel) / dt
     jerk_step = jerk_limit * dt
@@ -53,6 +55,7 @@ def acc_cap(current_vel: Scalar, jerk_limit: Scalar, dt: Scalar) -> Scalar:
     return sm.abs(n * jerk_limit * dt + x)
 
 
+@sm.substitution_cache
 @profile
 def compute_next_vel_and_acc(
     current_vel: Scalar,
@@ -93,6 +96,7 @@ def compute_next_vel_and_acc(
     return next_vel, next_acc
 
 
+@sm.substitution_cache
 @profile
 def compute_slowdown_asap_vel_profile(
     current_vel: Scalar,
