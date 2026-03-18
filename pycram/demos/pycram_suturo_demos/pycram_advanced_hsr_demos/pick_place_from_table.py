@@ -56,7 +56,6 @@ def try_perceive_and_spawn(world):
 
 
 def main():
-    rclpy.init()
     SIMULATED = True
 
     rclpy_node, world, robot_view, context = initialization(simulation=SIMULATED)
@@ -71,10 +70,10 @@ def main():
     )
 
     object_to_pickup = world.get_body_by_name(object_name)
-
+    object_height = object_to_pickup.collision.scale.z / 2
     # change the coords accordingly
     place_pose = PoseStamped.from_list(
-        [1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world.root
+        [1.09, 6.16, 0.72+object_height], [0, 0, 1, 1], frame=world.root
     )
     move_demo(
         simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
