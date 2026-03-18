@@ -12,7 +12,6 @@ from pycram.robot_plans import NavigateActionDescription
 from semantic_digital_twin.world import World
 
 
-
 def move_demo(simulated: bool, target_pose: str, world: World, context: Context):
     logger = logging.getLogger(__name__)
     CABINET = PoseStamped.from_list(
@@ -57,7 +56,7 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
             from pycram.external_interfaces import nav2_move
 
             os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
-            goal = target_pose.ros_message()
+            goal = target_pose_method.ros_message()
             print(f"Moving to {goal}'")
             nav2_move.start_nav_to_pose(goal)
 
@@ -71,5 +70,5 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
             robot_move(target_pose_method=CABINET)
         case "POPCORN_TABLE":
             logger.info("Moving to popcorn table")
-            robot_move(target_pose_method=ROBOT_PRE_START_POSE_TO_TABLE)
+            # robot_move(target_pose_method=ROBOT_PRE_START_POSE_TO_TABLE)
             robot_move(target_pose_method=POPCORN_TABLE)

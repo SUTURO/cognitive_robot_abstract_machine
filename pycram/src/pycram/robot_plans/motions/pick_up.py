@@ -4,7 +4,7 @@ from typing import Optional
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.world_entity import Body
 from .base import BaseMotion
-from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp
+from giskardpy.motion_statechart.goals.pick_up import PickUp, PullUp, BoxGraspMagic
 
 
 @dataclass
@@ -43,11 +43,14 @@ class PickupMotion(BaseMotion):
         into the MotionStatechart.
         """
         print(f"Creating PickUp motion with {self.object_geometry}")
-        pickup = PickUp(
-            simulated_execution=self.simulated,
+        grasp_magic = BoxGraspMagic(
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
             gripper_vertical=self.gripper_vertical,
+        )
+        pickup = PickUp(
+            simulated_execution=self.simulated,
+            grasp_magic=grasp_magic,
         )
         return pickup
 

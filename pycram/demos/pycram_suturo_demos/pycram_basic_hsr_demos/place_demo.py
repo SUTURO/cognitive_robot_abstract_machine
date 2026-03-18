@@ -1,5 +1,5 @@
 from pycram.motion_executor import simulated_robot
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
     detach_object_from_hsrb,
 )
 from pycram.datastructures.dataclasses import Context
@@ -17,10 +17,10 @@ from semantic_digital_twin.world import World
 
 def place_demo(
     simulation: bool,
-    hsrb_world: World, # parameter can be replaced
+    hsrb_world: World,  # parameter can be replaced
     context: Context,
-    object_name: str, # parameter can be replaced by retrieving from TCP
-    place_pose: PoseStamped, # TODO PoseStamped will be deprecated soon Point3 / smth else cant remember will be up to date then
+    object_name: str,  # parameter can be replaced by retrieving from TCP
+    place_pose: PoseStamped,  # TODO PoseStamped will be deprecated soon Point3 / smth else cant remember will be up to date then
 ):
     robot_type = simulated_robot if simulation else real_robot
     # TODO retrieve the object from tool_frame of robot, nobody actually cares about naming the object lul

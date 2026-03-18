@@ -5,12 +5,16 @@ from pycram.datastructures.enums import Arms, PickUpType
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot, simulated_robot, ExecutionEnvironment
 from pycram.robot_plans import (
-    ParkArmsActionDescription, GiskardRetractActionDescription,
-    GiskardGraspActionDescription, GiskardPullUpActionDescription, MoveTorsoActionDescription,
+    ParkArmsActionDescription,
+    GiskardRetractActionDescription,
+    GiskardGraspActionDescription,
+    GiskardPullUpActionDescription,
+    MoveTorsoActionDescription,
 )
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
+
 
 # ------------------------ BASE-DEFINITIONS
 def pickup_demo(
@@ -30,8 +34,14 @@ def pickup_demo(
 
     # -------------------------------- PLANNING
 
-    plan_pullup = SequentialPlan(context, GiskardPullUpActionDescription(arm=Arms.LEFT, object_designator=object_to_pickup,simulated=simulation))
-    plan_park = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH), MoveTorsoActionDescription(TorsoState.LOW))
+    plan_pullup = SequentialPlan(
+        context,
+        GiskardPullUpActionDescription(
+            arm=Arms.LEFT, object_designator=object_to_pickup, simulated=simulation
+        ),
+        ParkArmsActionDescription(Arms.BOTH),
+        MoveTorsoActionDescription(TorsoState.LOW),
+    )
 
     # ------------------------ EXECUTION
     with robot_type:
@@ -59,7 +69,5 @@ def pickup_demo(
                 ),
             ).perform()
         plan_pullup.perform()
-        logger.info("parking arms")
-        plan_park.perform()
         logger.info("parking arms finished")
         logger.info("PickUp has been executed")

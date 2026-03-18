@@ -3,12 +3,20 @@ from __future__ import annotations
 import logging
 import rclpy
 
-from demos.pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
-from demos.pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo_marc import (
+from pycram.datastructures.enums import Arms
+from pycram.language import SequentialPlan
+from pycram.motion_executor import real_robot
+from pycram.robot_plans import ParkArmsActionDescription, MoveTorsoActionDescription
+from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
+    attach_object_to_hsrb,
+)
+from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
+from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo_marc import (
     pickup_demo,
 )
-from demos.pycram_suturo_demos.pycram_basic_hsr_demos.place_demo import place_demo
+from pycram_suturo_demos.pycram_basic_hsr_demos.place_demo import place_demo
 from pycram.datastructures.pose import PoseStamped
+from semantic_digital_twin.datastructures.definitions import TorsoState
 
 """
 was brauche ich:
@@ -24,7 +32,7 @@ was brauche ich:
 
 from dataclasses import field
 
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
     robot_setup,
 )
 
@@ -44,7 +52,7 @@ def initialization(simulation: bool = True):
 
 def try_perceive_and_spawn(world):
     try:
-        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+        from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
             perceive_and_spawn_all_objects,
         )
 
@@ -56,32 +64,44 @@ def try_perceive_and_spawn(world):
 
 
 def main():
-    SIMULATED = True
+    rclpy.init()
+    SIMULATED = False
 
     rclpy_node, world, robot_view, context = initialization(simulation=SIMULATED)
-    objects = {1: "milk.stl", 2: "breakfast_cereal.stl"}
+    object_name = "muesli_vitalis_box_nutmix"
 
-    perceived_objects = try_perceive_and_spawn(world)
-    objects.update(perceived_objects)
+    # objects = {1: "milk.stl", 2: "breakfast_cereal.stl"}
 
-    # put NLP-pipeline here
-    object_name: str = input(
-        f"Which object do you want to pick up? Currently known objects: {objects}"
+    plan = SequentialPlan(
+        context,
+        # MoveTorsoActionDescription(TorsoState.LOW),
+        ParkArmsActionDescription(Arms.BOTH),
     )
+
+    with real_robot:
+        plan.perform()
+    # move_demo(
+    #     simulated=SIMULATED,
+    #     world=world,
+    #     context=context,
+    #     target_pose="POPCORN_TABLE",
+    # )
+    perceived_objects = try_perceive_and_spawn(world)
 
     object_to_pickup = world.get_body_by_name(object_name)
     object_height = object_to_pickup.collision.scale.z / 2
-    # change the coords accordingly
-    place_pose = PoseStamped.from_list(
-        [1.09, 6.16, 0.72+object_height], [0, 0, 1, 1], frame=world.root
-    )
-    move_demo(
-        simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
-    )
     pickup_demo(
         simulation=SIMULATED,
         context=context,
         object_to_pickup=object_to_pickup,
+    )
+    # move_demo(
+    #     simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
+    # )
+    # attach_object_to_hsrb(world=world, object_designator=object_to_pickup)
+    # change the coords accordingly
+    place_pose = PoseStamped.from_list(
+        [1.09, 5.7, 0.72 + object_height], [0, 0, 1, 1], frame=world.root
     )
     place_demo(
         simulation=SIMULATED,
@@ -90,12 +110,12 @@ def main():
         context=context,
         object_name=object_name,
     )
-    move_demo(
-        simulated=SIMULATED,
-        world=world,
-        context=context,
-        target_pose="ROBOT_START_POSE",
-    )
+    # move_demo(
+    #     simulated=SIMULATED,
+    #     world=world,
+    #     context=context,
+    #     target_pose="ROBOT_START_POSE",
+    # )
 
 
 if __name__ == "__main__":
