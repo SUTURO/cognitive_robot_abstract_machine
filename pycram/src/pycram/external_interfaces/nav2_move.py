@@ -243,8 +243,8 @@ def buffer_in_front_of(target_pose: PoseStamped, min_distance: float) -> PoseSta
     forward_vector = rot_matrix[:3, 0]  # first column = x-axis
 
     # Step *back* along the forward vector by min_distance
-    stand_x = target_pose.pose.position.x - min_distance * forward_vector[0]
-    stand_y = target_pose.pose.position.y - min_distance * forward_vector[1]
+    stand_x = target_pose.pose.position.x + min_distance * forward_vector[0]
+    stand_y = target_pose.pose.position.y + min_distance * forward_vector[1]
 
     # Build standoff pose - keep the same orientation (already faces the target)
     standoff = PoseStamped()

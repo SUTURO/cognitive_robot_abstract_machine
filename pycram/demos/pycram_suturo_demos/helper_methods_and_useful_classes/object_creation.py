@@ -1,7 +1,7 @@
 import json
 import os
 
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
     get_object_class_from_string,
 )
 from semantic_digital_twin.adapters.mesh import STLParser

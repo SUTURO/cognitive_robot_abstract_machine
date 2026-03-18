@@ -1,11 +1,11 @@
 import logging
 
 import semantic_digital_twin
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     spawn_semantic_with_body,
     perceive_and_spawn_all_objects,
 )
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
     robot_setup,
 )
 from pycram.motion_executor import simulated_robot, real_robot

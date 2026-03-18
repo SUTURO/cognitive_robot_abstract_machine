@@ -17,7 +17,7 @@ def robot_setup(
         Setup result object from the respective setup routine.
     """
     if simulation:
-        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
+        from pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
             setup_hsrb_in_environment,
         )
 
