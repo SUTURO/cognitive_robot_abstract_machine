@@ -69,6 +69,10 @@ def main():
     object_name: str = input(
         f"Which object do you want to pick up? Currently known objects: {objects}"
     )
+
+    object_to_pickup = world.get_body_by_name(object_name)
+
+    # change the coords accordingly
     place_pose = PoseStamped.from_list(
         [1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world.root
     )
@@ -77,9 +81,8 @@ def main():
     )
     pickup_demo(
         simulation=SIMULATED,
-        world=world,
         context=context,
-        object_name=object_name,
+        object_to_pickup=object_to_pickup,
     )
     place_demo(
         simulation=SIMULATED,
