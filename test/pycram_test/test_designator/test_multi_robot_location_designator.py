@@ -384,10 +384,8 @@ def test_accessing_location(immutable_model_world):
     assert len(access_pose.to_quaternion().to_list()) == 4
 
 
-def test_giskard_location_pose(pr2_world_setup):
-    world = deepcopy(pr2_world_setup)
-    pr2 = PR2.from_world(world)
-    context = Context(world, pr2)
+def test_giskard_location_pose(immutable_model_world):
+    world, pr2, context = immutable_model_world
     location_desig = GiskardLocation(
         Pose(Point3.from_iterable([1.9, 2, 1]), reference_frame=world.root), Arms.RIGHT
     )
