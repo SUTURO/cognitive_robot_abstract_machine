@@ -138,8 +138,7 @@ def world_setup_with_test_objects(
 ) -> SetupResult:
     hsrb_world, robot_view, context, manipulator, node = setup_ros_node()
 
-    # if with_viz:
-    #     viz = try_make_viz(hsrb_world, node)
+    # viz = try_make_viz(hsrb_world, node)
 
     return SetupResult(
         world=hsrb_world,

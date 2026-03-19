@@ -40,7 +40,6 @@ def pickup_demo(
             arm=Arms.LEFT, object_designator=object_to_pickup, simulated=simulation
         ),
         ParkArmsActionDescription(Arms.BOTH),
-        MoveTorsoActionDescription(TorsoState.LOW),
     )
 
     # ------------------------ EXECUTION

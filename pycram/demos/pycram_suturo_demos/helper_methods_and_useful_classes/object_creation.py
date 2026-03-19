@@ -216,7 +216,7 @@ def perceive_and_spawn_all_objects(world: World):
         )
 
         # TODO: Needs testing if this is correct and more error handling
-        object_name = "muesli_vitalis_box_nutmix"
+        object_name = "muesli_vitalis_box_nutmix8"
         object_type = "cereal"
 
         spawn_semantic_with_body(
