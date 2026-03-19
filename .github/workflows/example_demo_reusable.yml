@@ -65,4 +65,6 @@ jobs:
       - name: Run Script
         run: |
           cd cognitive_robot_abstract_machine
+          source /opt/ros/overlay_ws/install/setup.bash
+          source /opt/ros/cram-env/bin/activate
           bash ./${{inputs.script}}
