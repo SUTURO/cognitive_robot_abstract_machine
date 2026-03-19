@@ -19,16 +19,22 @@ from typing_extensions import Optional, List, Dict, Any, Self, Tuple, TYPE_CHECK
 
 from krrood.adapters.exceptions import JSON_TYPE_NAME
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
-from ..datastructures.variables import SpatialVariables
-from ..mixin import HasSimulatorProperties
-from ..spatial_types import HomogeneousTransformationMatrix, Point3, Vector3
-from ..utils import IDGenerator
+from semantic_digital_twin.datastructures.variables import SpatialVariables
+from semantic_digital_twin.mixin import HasSimulatorProperties
+from semantic_digital_twin.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point3,
+    Vector3,
+)
+from semantic_digital_twin.utils import IDGenerator
 
 if TYPE_CHECKING:
-    from .world_entity import KinematicStructureEntity
+    from semantic_digital_twin.world_description.world_entity import (
+        KinematicStructureEntity,
+    )
 
 if TYPE_CHECKING:
-    from ..world import World
+    from semantic_digital_twin.world import World
 
 id_generator = IDGenerator()
 
@@ -440,14 +446,16 @@ class TriangleMesh(Mesh):
         self.mesh.apply_scale(self.scale.to_np())
 
     @property
-    def file_name(self) -> str:
+    def filename(self) -> str:
         return self.file.name
 
     @cached_property
     def file(
         self, dirname: str = "/tmp", file_type: str = "obj"
     ) -> tempfile._TemporaryFileWrapper:
-        f = tempfile.NamedTemporaryFile(dir=dirname, delete=False)
+        f = tempfile.NamedTemporaryFile(
+            dir=dirname, suffix=f".{file_type}", delete=False
+        )
         if file_type == "obj":
             self.mesh.export(f.name, file_type="obj")
             old_mtl_file = "material.mtl"
@@ -1000,31 +1008,30 @@ class BoundingBox:
         """
         Transform the bounding box to a different reference frame.
         """
-        origin_T_self = self.origin
-        origin_frame = origin_T_self.reference_frame
+        origin_T_self_np = self.origin.to_np()
+        origin_frame = self.origin.reference_frame
         world = origin_frame._world
 
-        reference_T_origin = world.compute_forward_kinematics(
+        reference_T_origin_np = world.compute_forward_kinematics_np(
             reference_T_new_origin.reference_frame, origin_frame
         )
 
-        reference_T_self: HomogeneousTransformationMatrix = (
-            reference_T_origin @ origin_T_self
-        )
+        reference_T_self_np: np.ndarray = reference_T_origin_np @ origin_T_self_np
 
         # Get all 8 corners of the BB in link-local space
         list_self_T_corner = [
-            HomogeneousTransformationMatrix.from_point_rotation_matrix(self_T_corner)
+            HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                self_T_corner
+            ).to_np()
             for self_T_corner in self.get_points()
         ]  # shape (8, 3)
 
         list_reference_T_corner = [
-            reference_T_self @ self_T_corner for self_T_corner in list_self_T_corner
+            reference_T_self_np @ self_T_corner for self_T_corner in list_self_T_corner
         ]
 
         list_reference_P_corner = [
-            reference_T_corner.to_position().to_np()[:3]
-            for reference_T_corner in list_reference_T_corner
+            reference_T_corner[:3, 3:] for reference_T_corner in list_reference_T_corner
         ]
 
         # Compute world-space bounding box from transformed corners
