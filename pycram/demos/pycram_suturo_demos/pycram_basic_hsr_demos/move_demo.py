@@ -12,7 +12,6 @@ from pycram.robot_plans import NavigateActionDescription
 from semantic_digital_twin.world import World
 
 
-
 def move_demo(simulated: bool, target_pose: str, world: World, context: Context):
     logger = logging.getLogger(__name__)
     CABINET = PoseStamped.from_list(

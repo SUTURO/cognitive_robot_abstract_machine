@@ -73,7 +73,7 @@ class SimulationPacer(Pacer):
         """
 
         # only add this and change this number for slower speeds
-        self.real_time_factor = 2
+        self.real_time_factor = 4
         if self.real_time_factor is None:
             return
         if self.real_time_factor <= 0:

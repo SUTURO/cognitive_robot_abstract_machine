@@ -123,11 +123,13 @@ class Handle(HasRootBody):
             }
         )
 
+
 @dataclass(eq=False)
 class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
     """
     A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and cookware. It typically has a front door that opens to reveal racks for loading dirty items and a control panel for selecting wash cycles.
     """
+
 
 @dataclass(eq=False)
 class Aperture(HasRootRegion):
@@ -370,6 +372,7 @@ class Table(Furniture, HasSupportingSurface):
     A semantic annotation that represents a table.
     """
 
+
 @dataclass(eq=False)
 class Counter_Top(Furniture, HasSupportingSurface):
     """
@@ -399,11 +402,13 @@ class Cupboard(Cabinet, HasDoors, HasShelfLayers): ...
 @dataclass(eq=False)
 class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
 
+
 @dataclass(eq=False)
 class Sink(HasRootBody):
     """
     A bowl-shaped plumbing fixture used for washing hands, dishware, and other small objects.
     """
+
 
 @dataclass(eq=False)
 class Floor(HasSupportingSurface):
@@ -728,8 +733,6 @@ class Milk(Food, IsPerceivable):
     """
 
 
-
-
 @dataclass(eq=False)
 class SaltContainer(HasRootBody, IsPerceivable):
     """
@@ -877,6 +880,7 @@ class Sofa(Furniture, HasSupportingSurface):
     A sofa.
     """
 
+
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
 
@@ -919,6 +923,7 @@ class GarbageBin(HasRootBody):
     """
     A garbage bin.
     """
+
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...
@@ -1020,12 +1025,12 @@ class LiquidCap(HasRootBody):
 
 
 @dataclass(eq=False)
-class Drink(SemanticAnnotation):
+class Drink(HasRootBody):
     """
     A Semantic annotation representing a drink item.
     """
 
-    body: Body = field(kw_only=True)
+    # body: Body = field(kw_only=True)
 
 
 @dataclass(eq=False)
