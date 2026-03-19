@@ -29,7 +29,7 @@ def simulation_demo():
     Demonstrates object creation via the method used for spawning perceived objects in a simulated environment.
     """
 
-    setup_result = robot_setup(simulation=True, with_objects=True)
+    setup_result = robot_setup(simulation=True, with_simulated_objects=True)
     world, robot_view, context = (
         setup_result.world,
         setup_result.robot_view,
@@ -52,7 +52,7 @@ def real_demo():
     """
 
     setup_result = robot_setup(
-        simulation=False, with_objects=True, with_perception=False
+        simulation=False, with_simulated_objects=True, with_perception=False
     )
     world, robot_view, context = (
         setup_result.world,

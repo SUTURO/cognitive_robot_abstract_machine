@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from giskardpy.motion_statechart.goals.place import Place
+from giskardpy.motion_statechart.goals.pick_up import OpenHand, CloseHand
+from giskardpy.motion_statechart.goals.place import Place, Retracting
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -229,25 +230,30 @@ class MoveTCPWaypointsMotion(BaseMotion):
 @dataclass
 class PlaceMotion(BaseMotion):
     """
-    Opens or closes the gripper
+    Motion for placing an object, i.e., moving the gripper to a certain pose
+    It creates a _motion_chart that is used by the motion framework
+    It directly calls the implemented PickUp of Giskard.
     """
 
     gripper: Manipulator = field(kw_only=True)
     """
     Name of the gripper that should be moved
     """
+
     object_designator: Body = field(kw_only=True)
     """
-    Name of the gripper that should be moved
+    Object designator_description describing the object that should be placed
     """
     goal_pose: PoseStamped = field(kw_only=True)
     """
-    Name of the gripper that should be moved
+    The goal_pose at which the object should be placed
     """
-    simulated: bool = field(default=False, kw_only=True)
+
+    simulated: bool = field(default=True, kw_only=True)
     """
-    Name of the gripper that should be moved
+    Parsing simulation argument
     """
+
     allow_gripper_collision: Optional[bool] = None
     """
     If the gripper is allowed to collide with something
@@ -266,3 +272,60 @@ class PlaceMotion(BaseMotion):
             goal_pose=goal_pose,
             simulated=self.simulated,
         )
+
+@dataclass
+class RetractMotion(BaseMotion):
+    """
+    Motion for placing an object, i.e., moving the gripper to a certain pose
+    It creates a _motion_chart that is used by the motion framework
+    It directly calls the implemented PickUp of Giskard.
+    """
+
+    gripper: Manipulator = field(kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self):
+        return Retracting(
+            manipulator=self.gripper,
+        )
+
+# TODO currently still missing the class that just sits within the Pickup of Giskard
+@dataclass
+class GiskardMoveGripperMotion(BaseMotion):
+    """
+    Opens or closes the gripper
+    """
+
+    motion: GripperState
+    """
+    Motion that should be performed, either 'open' or 'close'
+    """
+    simulated: bool = True
+    """
+    Parsing simulation argument
+    """
+
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self):
+        if self.motion == GripperState.OPEN:
+            return OpenHand(simulated_execution=self.simulated)
+        if self.motion == GripperState.CLOSE:
+            return CloseHand(simulated_execution=self.simulated)
+        else:
+            raise ValueError(f"Unknown motion {self.motion}")
+

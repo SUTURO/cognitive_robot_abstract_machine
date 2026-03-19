@@ -22,6 +22,11 @@ class PickupMotion(BaseMotion):
     # The world object that should be picked up
     object_geometry: Body = field(default=None, kw_only=True)
 
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
     # If True, the gripper is kept vertically aligned during the grasp
     # kw_only=True forces this to be passed as a keyword argument
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
@@ -39,6 +44,7 @@ class PickupMotion(BaseMotion):
         """
         print(f"Creating PickUp motion with {self.object_geometry}")
         pickup = PickUp(
+            simulated_execution=self.simulated,
             manipulator=self.manipulator,
             object_geometry=self.object_geometry,
             gripper_vertical=self.gripper_vertical,
@@ -49,17 +55,22 @@ class PickupMotion(BaseMotion):
 @dataclass
 class PullUpMotion(BaseMotion):
     """
-    High-level motion for picking up an object with a parallel gripper.
+    High-level motion for pulling up an object with a parallel gripper.
 
-    This motion wraps the Giskard PickUp goal and exposes it to the
+    This motion wraps the Giskard PullUp goal and exposes it to the
     motion framework via the `_motion_chart` property.
     """
 
-    # The gripper that will execute the pickup (must be a ParallelGripper)
+    # The gripper that will execute the pullUp (must be a ParallelGripper)
     manipulator: ParallelGripper = field(default=None, kw_only=True)
 
-    # The world object that should be picked up
+    # The world object that should be pulledUp
     object_geometry: Body = field(default=None, kw_only=True)
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
 
     # If True, the gripper is kept vertically aligned during the grasp
     # kw_only=True forces this to be passed as a keyword argument

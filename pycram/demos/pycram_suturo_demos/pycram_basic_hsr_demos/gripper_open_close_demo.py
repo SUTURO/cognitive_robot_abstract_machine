@@ -54,10 +54,10 @@ def main(args=None):
     action_client = GripperActionClient()
 
     # Beispiel: Gripper öffnen
-    # action_client.send_goal(effort=0.8)
+    action_client.send_goal(effort=0.8)
 
     # Beispiel: Gripper schließen
-    action_client.send_goal(effort=-0.8)
+    # action_client.send_goal(effort=-0.8)
 
     rclpy.spin(action_client)
 

@@ -12,13 +12,16 @@ from semantic_digital_twin.spatial_types import (
     Point3,
     Quaternion,
     Vector3,
+    HomogeneousTransformationMatrix,
 )
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     Body,
+    SemanticAnnotation,
 )
 
 
@@ -68,8 +71,65 @@ def try_remove_semantic_annotation_and_body(name: str, world: World):
         pass
 
 
+def _resolve_reference_frame(frame, world: World):
+    """
+    Resolve a pose reference frame into a KinematicStructureEntity.
+
+    The semantic digital twin APIs expect reference_frame to be a world entity,
+    but perception messages often provide ROS frame ids as strings.
+    """
+    if frame is None:
+        return None
+
+    if hasattr(frame, "id"):
+        return frame
+
+    if isinstance(frame, str):
+        normalized = frame.strip()
+
+        root_names = {
+            "map",
+            "world",
+            str(world.root.name),
+        }
+        if normalized in root_names:
+            return world.root
+
+        try:
+            return world.get_body_by_name(normalized)
+        except WorldEntityNotFoundError as exc:
+            raise ValueError(
+                f"Unknown reference frame '{normalized}'. "
+                "Expected a world frame/body known to the semantic digital twin."
+            ) from exc
+
+    raise TypeError(
+        f"Unsupported reference_frame type: {type(frame).__name__}. "
+        "Expected None, a frame object, or a frame name string."
+    )
+
+
+def move_object_to_new_pose(
+    semantic_annotation: HasRootBody, new_transform: HomogeneousTransformationMatrix
+):
+    world = semantic_annotation._world
+    new_transform_world = world.transform(new_transform, world.root)
+    parent_connection = semantic_annotation.root.parent_connection
+    parent_connection_parent = parent_connection.parent
+    parent_connection_child = parent_connection.child
+    new_transform_world.reference_frame = parent_connection_parent
+    new_transform_world.child_frame = parent_connection_child
+    new_parent_connection = FixedConnection(
+        parent=parent_connection_parent,
+        child=parent_connection_child,
+        parent_T_connection_expression=new_transform_world,
+    )
+    world.remove_connection(parent_connection)
+    world.add_connection(new_parent_connection)
+
+
 def spawn_semantic_with_body(
-    semantic_type: str,
+    semantic_type: HasRootBody | str,
     name: str,
     scale: Scale,
     pose: Pose,
@@ -87,24 +147,33 @@ def spawn_semantic_with_body(
     :return: The spawned semantic annotation
     """
 
-    semantic_class: HasRootBody = get_object_class_from_string(semantic_type)
+    if isinstance(semantic_type, str):
+        semantic_type: HasRootBody = get_object_class_from_string(semantic_type)
+
+    pose.z -= 0.015  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
+
+    resolved_reference_frame = _resolve_reference_frame(pose.reference_frame, world)
+    pose.reference_frame = resolved_reference_frame
 
     # If the pose has a frame_id, we need to transform it to the world root frame.
     # Otherwise, we can assume it is already in the world root frame.
     if pose.reference_frame is not None and pose.reference_frame != world.root:
         world_root_T_self = world.transform(pose, world.root).to_homogeneous_matrix()
+        print(world_root_T_self)
     else:
         world_root_T_self = pose.to_homogeneous_matrix()
+        world_root_T_self.reference_frame = world.root
 
     try_remove_semantic_annotation_and_body(name, world)
 
     with world.modify_world():
-        object_to_spawn = semantic_class.create_with_new_body_in_world(
+        object_to_spawn = semantic_type.create_with_new_body_in_world(
             name=PrefixedName(name),
             world=world,
             scale=scale,
             world_root_T_self=world_root_T_self,
         )
+    print(object_to_spawn)
     return object_to_spawn
 
 
@@ -122,6 +191,7 @@ def perceive_and_spawn_all_objects(world: World):
         raise ImportError()
 
     perceived_objects_result = robokudo.query_all_objects().res
+    print(perceived_objects_result)
     for perceived_object in perceived_objects_result:
 
         object_dimensions = perceived_object.shape_size[0].dimensions
@@ -146,8 +216,8 @@ def perceive_and_spawn_all_objects(world: World):
         )
 
         # TODO: Needs testing if this is correct and more error handling
-        object_name = extract_name_from_json_string(perceived_object.attribute)
-        object_type = perceived_object.type
+        object_name = "muesli_vitalis_box_nutmix"
+        object_type = "cereal"
 
         spawn_semantic_with_body(
             semantic_type=object_type,

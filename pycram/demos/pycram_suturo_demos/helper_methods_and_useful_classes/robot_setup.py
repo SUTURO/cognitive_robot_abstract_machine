@@ -2,32 +2,36 @@ from suturo_resources.suturo_map import load_environment
 
 
 def robot_setup(
+    *,
     simulation: bool = True,
-    with_objects: bool = True,
-    with_perception: bool = False,
+    with_simulated_objects: bool = True,
+    with_viz: bool = True,
 ):
     """
-    Method that calls either simulation or real, based on the bool
+    Set up the robot either in simulation or on the real system.
 
-    :param bool simulation: True or False, based on if SIMULATED or REAL
-    :param bool with_objects: True or False, based on if you want to spawn basic objects or not
-    :param bool with_perception: True or False, if you want to percieve in REAL
+    Args:
+        simulation: If True, run in simulation; otherwise use the real robot.
+        with_simulated_objects: If True, spawn basic objects in the world.
+
+    Returns:
+        Setup result object from the respective setup routine.
     """
     if simulation:
         from pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
             setup_hsrb_in_environment,
         )
 
-        setup_result = setup_hsrb_in_environment(
+        return setup_hsrb_in_environment(
             load_environment=load_environment,
-            with_viz=True,
-            with_objects=with_objects,
-        )
-    else:
-        from pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
-            world_setup_with_test_objects,
+            with_objects=with_simulated_objects,
+            with_viz=with_viz,
         )
 
-        setup_result = world_setup_with_test_objects(with_object=with_objects)
+    from pycram_suturo_demos.helper_methods_and_useful_classes.real_setup import (
+        world_setup_with_test_objects,
+    )
 
-    return setup_result
+    return world_setup_with_test_objects(
+        with_object=with_simulated_objects, with_viz=with_viz
+    )

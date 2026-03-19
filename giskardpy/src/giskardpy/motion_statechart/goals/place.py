@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
-from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
 from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.goals.pick_up import CloseHand
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from giskardpy.motion_statechart.goals.pick_up import OpenHand
+from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts, CancelMotion
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
@@ -47,11 +46,11 @@ class Place(Sequence):
             goal_pose=self.goal_pose,
             ft=self.ft,
         )
-        close_gripper = CloseHand(ft=self.ft, simulated_execution=self.simulated)
+        open_gripper = OpenHand(simulated_execution=self.simulated)
         # retracting = Retracting(manipulator=self.manipulator)
 
         self.nodes.append(approach)
-        self.nodes.append(close_gripper)
+        self.nodes.append(open_gripper)
         # self.nodes.append(retracting)
 
 

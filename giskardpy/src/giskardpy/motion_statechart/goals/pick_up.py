@@ -71,7 +71,7 @@ class PickUp(Goal):
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
     gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
-    simulated_execution: bool = field(default=False, kw_only=True)
+    simulated_execution: bool = field(default=True, kw_only=True)
 
     def expand(self, context: BuildContext) -> None:
         super().expand(context)
@@ -408,14 +408,6 @@ class BoxGraspMagic(GraspMagic):
             PICKUP_PREPOSE_DISTANCE,
         )
 
-        print(f"-------------------")
-        print(f"Pre grasp point: {pre_grasp_point.to_np()}")
-        print(f"-------------------")
-
-        num = 4
-        rospy.node.get_logger().error(
-            f"My log message {pre_grasp_point.to_np()}", once=True
-        )
         cart_pos = CartesianPosition(
             root_link=context.world.root,
             tip_link=tool_frame,

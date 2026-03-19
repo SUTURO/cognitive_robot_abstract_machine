@@ -1,91 +1,65 @@
-from typing import Any
+from rclpy import logging
 
-import rclpy
-from rclpy.logging import get_logger
-
-import semantic_digital_twin.exceptions
-
-from pycram.datastructures.enums import Arms
+from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.enums import Arms, PickUpType
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot, simulated_robot, ExecutionEnvironment
 from pycram.robot_plans import (
-    ParkArmsActionDescription,
-    GiskardPickUpActionDescription,
+    ParkArmsActionDescription, GiskardRetractActionDescription,
+    GiskardGraspActionDescription, GiskardPullUpActionDescription, MoveTorsoActionDescription,
 )
-from pycram_suturo_demos.helper_methods_and_useful_classes.robot_setup import (
-    robot_setup,
-)
-from semantic_digital_twin.robots.abstract_robot import ParallelGripper
-
-from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
-    perceive_and_spawn_all_objects,
-    attach_object,
-    try_get_object_to_pickup,
-)
+from semantic_digital_twin.datastructures.definitions import TorsoState
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.world_entity import Body
 
 # ------------------------ BASE-DEFINITIONS
-logger = get_logger(__name__)
+def pickup_demo(
+    simulation: bool = True,
+    context: Context = None,
+    object_to_pickup: Body = None,
+):
+    # logger creaton
+    logger = logging.get_logger(__name__)
 
-SIMULATED: bool = True
-with_perception: bool = False
-object_name: str = ""
+    # if the determined object is None, the pickup is skipped, because the object was not parsed properly
+    if object_to_pickup == None:
+        logger.warning("object_to_pickup is None, therefor pickup is skipped")
+        return
 
-robot_type: ExecutionEnvironment = simulated_robot if SIMULATED else real_robot
+    robot_type: ExecutionEnvironment = simulated_robot if simulation else real_robot
 
+    # -------------------------------- PLANNING
 
-result = robot_setup(SIMULATED)
+    plan_pullup = SequentialPlan(context, GiskardPullUpActionDescription(arm=Arms.LEFT, object_designator=object_to_pickup,simulated=simulation))
+    plan_park = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH), MoveTorsoActionDescription(TorsoState.LOW))
 
-hsrb_world, robot_view, context, node = (
-    result.world,
-    result.robot_view,
-    result.context,
-    result.node,
-)
-
-# IMPORTANT: giskardpy's ROS2 ActionClient needs a valid rclpy.node.Node.
-# PyCRAM passes context.ros_node down into the MotionExecutor.
-if getattr(context, "ros_node", None) is None:
-    context.ros_node = node
-# Some setups name it differently; set it too if present.
-if hasattr(context, "node") and getattr(context, "node", None) is None:
-    context.node = node
-
-manipulator = hsrb_world.get_semantic_annotations_by_type(ParallelGripper)[0]
-# -------------------------------- DETERMIN OBJECT_TO_PICKUP
-if SIMULATED:
-    object_name = "milk.stl"
-    object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
-else:
-    if with_perception:
-        from demos.pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
-            perceive_and_spawn_all_objects,
-        )
-
-        perceived_objects: dict[Any, Any] = perceive_and_spawn_all_objects(hsrb_world)
-        logger.info(f"perceived following objects: '{perceived_objects}'")
-    object_to_pickup = try_get_object_to_pickup(hsrb_world, object_name)
-    logger.info(f"object_to_Pickup: '{object_to_pickup}'")
-
-# -------------------------------- PLANNING
-plan = SequentialPlan(
-    context,
-    GiskardPickUpActionDescription(
-        object_designator=object_to_pickup, arm=Arms.LEFT, gripper_vertical=True
-    ),
-)
-
-plan2 = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
-# ------------------------ EXECUTION
-try:
-    with simulated_robot:
-        plan.perform()
-        attach_object(
-            world=hsrb_world,
-            object_designator=object_to_pickup,
-            manipulator=manipulator,
-        )
-        plan2.perform()
-finally:
-    # Always shut down cleanly even if planning/execution raises.
-    if rclpy.ok():
-        rclpy.shutdown()
+    # ------------------------ EXECUTION
+    with robot_type:
+        logger.info("Starting pickup demo")
+        SequentialPlan(
+            context,
+            GiskardGraspActionDescription(
+                simulated=simulation,
+                object_designator=object_to_pickup,
+                arm=Arms.LEFT,
+                gripper_vertical=True,
+            ),
+        ).perform()
+        while input("Was the object grasped? ").strip().lower() != "yes":
+            # retract and regrasp
+            SequentialPlan(
+                context,
+                GiskardRetractActionDescription(simulated=simulation, arm=Arms.LEFT),
+                ParkArmsActionDescription(Arms.BOTH),
+                GiskardGraspActionDescription(
+                    simulated=simulation,
+                    object_designator=object_to_pickup,
+                    arm=Arms.LEFT,
+                    gripper_vertical=True,
+                ),
+            ).perform()
+        plan_pullup.perform()
+        logger.info("parking arms")
+        plan_park.perform()
+        logger.info("parking arms finished")
+        logger.info("PickUp has been executed")

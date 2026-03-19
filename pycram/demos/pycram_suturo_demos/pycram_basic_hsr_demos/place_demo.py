@@ -1,55 +1,50 @@
-from pycram.datastructures.enums import Arms, VerticalAlignment, ApproachDirection
-from pycram.datastructures.grasp import GraspDescription
+from pycram.motion_executor import simulated_robot
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
+    detach_object_from_hsrb,
+)
+from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
+    GiskardPlaceActionDescription,
     ParkArmsActionDescription,
-    PickUpActionDescription,
-    NavigateActionDescription,
-    PlaceActionDescription,
-)
-from pycram_suturo_demos.setup_real_robot import world_setup_with_test_objects
-
-result = world_setup_with_test_objects()
-world, robot_view, context = (
-    result.world,
-    result.robot_view,
-    result.context,
 )
 
-milk = world.get_body_by_name("milk")
-grasp = GraspDescription(
-    manipulator=next(iter(robot_view.manipulators)),
-    approach_direction=ApproachDirection.FRONT,
-    vertical_alignment=VerticalAlignment.NoAlignment,
-)
+from semantic_digital_twin.world import World
 
-# print(world.get_body_by_name("sofa_body").inertial)
-print(world.bodies)
 
-world_root = getattr(world, "root")
-new_robot_pose = PoseStamped.from_list(
-    [1.6, 2.0, 0], [0, 0, 0.7071068, 0.7071068], frame=world_root
-)
-sofa_body = getattr(world, "get_body_by_name")("sofa_body")
-sofa_pose_pycram = PoseStamped.from_matrix(
-    sofa_body.global_pose.to_np(), frame=world_root
-)
-print(sofa_pose_pycram)
+def place_demo(
+    simulation: bool,
+    hsrb_world: World,
+    context: Context,
+    object_name: str,
+    place_pose: PoseStamped,
+):
+    robot_type = simulated_robot if simulation else real_robot
+    # TODO retrieve the object from tool_frame of robot, nobody actually cares about naming the object lul
+    # retrieving body of parsed object_name
+    object_to_place = hsrb_world.get_body_by_name(object_name)
 
-place_pose = PoseStamped.from_list([1.9, 3.3, 0.7], [0, 0, 1, 0.1], frame=world_root)
+    # -----------------------------------------Plans
+    plan = SequentialPlan(
+        context,
+        GiskardPlaceActionDescription(
+            object_designator=object_to_place,
+            arm=Arms.LEFT,
+            target_location=place_pose,
+            simulated=simulation,
+        ),
+    )
 
-plan = SequentialPlan(
-    context,
-    PlaceActionDescription(
-        object_designator=milk,
-        target_location=place_pose,
-        arm=Arms.LEFT,
-        simulated=False,
-    ),
-    # nav.start_nav_to_pose(new_robot_pose),
-)
+    park_plan = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
 
-with real_robot:
-    plan.perform()
+    # -----------------------------------------Execution
+    with robot_type:
+        plan.perform()
+        detach_object_from_hsrb(
+            world=hsrb_world,
+            object_designator=object_to_place,
+        )
+        park_plan.perform()
