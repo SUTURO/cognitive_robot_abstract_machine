@@ -111,7 +111,7 @@ def attach_object(manipulator: ParallelGripper, world: World, object_designator:
 logger = get_logger(__name__)
 
 SIMULATED: bool = True
-USE_TEST_CYLINDER: bool = True  # set True to spawn a test cylinder instead of milk.stl
+USE_TEST_CYLINDER: bool = False  # set True to spawn a test cylinder instead of milk.stl
 with_perception: bool = False
 object_name: str = ""
 

@@ -1720,9 +1720,9 @@ class TestDiffDriveBaseGoal:
         ],
     )
     def test_drive(
-        self,
-        cylinder_bot_diff_world,
-        goal_pose: HomogeneousTransformationMatrix,
+            self,
+            cylinder_bot_diff_world,
+            goal_pose: HomogeneousTransformationMatrix,
     ):
         bot = cylinder_bot_diff_world.get_body_by_name("bot")
         msc = MotionStatechart()
@@ -2226,6 +2226,7 @@ def test_pick_up_box(hsr_world_setup: World, rclpy_node):
     kin_sim_pickup.compile(motion_statechart=msc_pickup)
     kin_sim_pickup.tick_until_end()
 
+
 def test_pick_up_cylinder(hsr_world_setup: World, rclpy_node):
     with hsr_world_setup.modify_world():
         cylinder = Body(
@@ -2366,21 +2367,25 @@ def test_milestone2(hsr_world_setup: World, rclpy_node):
     )
 
     charizard_default_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=1.35, y=-1.5675, z=0.8, roll=-np.pi / 2,
-                                                                          pitch=0, yaw=1 * np.pi / 2, reference_frame=hsr_world_setup.root)
+                                                                          pitch=0, yaw=1 * np.pi / 2,
+                                                                          reference_frame=hsr_world_setup.root)
 
-    charizard_goal_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=1.4025, y=-1.5641, z=0.855, roll=0, pitch=0, yaw=0, reference_frame=hsr_world_setup.root)
+    charizard_goal_pose = HomogeneousTransformationMatrix.from_xyz_rpy(x=1.4025, y=-1.5641, z=0.855, roll=0, pitch=0,
+                                                                       yaw=0, reference_frame=hsr_world_setup.root)
     spawn_object(
         stl_path="/home/marvin/suturo/cognitive_robot_abstract_machine/giskardpy/scripts/props/charizard.stl",
         scale_factor=0.09,
         pose=charizard_default_pose,
     )
 
-    execute_ms_node(SetOdometry(base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=-3, yaw=np.pi/2, reference_frame=hsr_world_setup.root)), [])
+    execute_ms_node(SetOdometry(base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=-3, yaw=np.pi / 2,
+                                                                                       reference_frame=hsr_world_setup.root)),
+                    [])
 
     charizard = hsr_world_setup.get_body_by_name("charizard")
     charizard_bbox = charizard.collision.as_bounding_box_collection_in_frame(
-            charizard
-        ).bounding_box()
+        charizard
+    ).bounding_box()
     print(f"charizard dimensions: x: {charizard_bbox.width}, y: {charizard_bbox.height}, z: {charizard_bbox.depth}")
     print(f"charizard visual scale: {charizard.visual.scale.to_bounding_box()}")
     pickup_charizard = PickUp(manipulator=hand, object_geometry=charizard, gripper_vertical=False)
@@ -2390,8 +2395,10 @@ def test_milestone2(hsr_world_setup: World, rclpy_node):
         root_charizard_connection = hsr_world_setup.get_connection(parent=hsr_world_setup.root, child=charizard)
         hsr_world_setup.remove_connection(root_charizard_connection)
 
-        gripper_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose, target_frame=hand.tool_frame)
-        gripper_charizard_connection = FixedConnection(parent_T_connection_expression=gripper_T_charizard, parent=hand.tool_frame, child=charizard)
+        gripper_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose,
+                                                        target_frame=hand.tool_frame)
+        gripper_charizard_connection = FixedConnection(parent_T_connection_expression=gripper_T_charizard,
+                                                       parent=hand.tool_frame, child=charizard)
         hsr_world_setup.add_connection(gripper_charizard_connection)
 
     pullup = PullUp(manipulator=hand, object_geometry=charizard)
@@ -2401,7 +2408,8 @@ def test_milestone2(hsr_world_setup: World, rclpy_node):
     print("requested goal_pose (charizard in root):\n", charizard_default_pose.to_np())
 
     base_footprint = hsr_world_setup.get_kinematic_structure_entity_by_name("base_footprint")
-    execute_ms_node(CartesianPosition(root_link=hsr_world_setup.root, tip_link=base_footprint, goal_point=Point3(x=-1, reference_frame=base_footprint)), [])
+    execute_ms_node(CartesianPosition(root_link=hsr_world_setup.root, tip_link=base_footprint,
+                                      goal_point=Point3(x=-1, reference_frame=base_footprint)), [])
 
     msc_place = MotionStatechart()
     place = Place(manipulator=hand, object_geometry=charizard, goal_pose=charizard_goal_pose)
@@ -2414,17 +2422,19 @@ def test_milestone2(hsr_world_setup: World, rclpy_node):
     kin_sim.compile(msc_place)
     kin_sim.tick_until_end()
 
-
     with hsr_world_setup.modify_world():
         root_charizard_connection = hsr_world_setup.get_connection(parent=hand.tool_frame, child=charizard)
         hsr_world_setup.remove_connection(root_charizard_connection)
 
-        root_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose, target_frame=hsr_world_setup.root)
-        root_charizard_connection = FixedConnection(parent_T_connection_expression=root_T_charizard, parent=hsr_world_setup.root, child=charizard)
+        root_T_charizard = hsr_world_setup.transform(spatial_object=charizard.global_pose,
+                                                     target_frame=hsr_world_setup.root)
+        root_charizard_connection = FixedConnection(parent_T_connection_expression=root_T_charizard,
+                                                    parent=hsr_world_setup.root, child=charizard)
         hsr_world_setup.add_connection(root_charizard_connection)
 
     retract = Retracting(manipulator=hand)
     execute_ms_node(retract, [])
+
 
 def test_place_by_pose(hsr_world_setup: World, rclpy_node):
     TFPublisher(hsr_world_setup, rclpy_node)
@@ -2442,7 +2452,7 @@ def test_place_by_pose(hsr_world_setup: World, rclpy_node):
     msc_tp = MotionStatechart()
     tp = SetOdometry(
         base_pose=HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=3, y=1, z=0, roll=-np.pi/2, pitch=np.pi/2, yaw=2 * np.pi / 2, reference_frame=hsr_world_setup.root
+            x=3, y=1, z=0, roll=-np.pi / 2, pitch=np.pi / 2, yaw=2 * np.pi / 2, reference_frame=hsr_world_setup.root
         ),
     )
     msc_tp.add_node(tp)
@@ -2528,6 +2538,36 @@ def test_place_by_point(hsr_world_setup: World, rclpy_node):
     place = Place(manipulator=hand, object_geometry=box, goal_point=goal_point)
     msc.add_node(place)
     msc.add_node(EndMotion.when_true(place))
+    kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+
+def test_prehandover_pose(hsr_world_setup: World, rclpy_node):
+    TFPublisher(hsr_world_setup, rclpy_node)
+    VizMarkerPublisher(world=hsr_world_setup, node=rclpy_node)
+
+    tool_frame = hsr_world_setup.get_semantic_annotations_by_type(Manipulator)[0].tool_frame
+    base_frame = hsr_world_setup.get_kinematic_structure_entity_by_name("base_footprint")
+
+    msc = MotionStatechart()
+    prehandover_goal = JointPositionList(
+        goal_state=JointState.from_str_dict({
+            "arm_lift_joint": 0.30,  # arm raised a bit
+            "arm_flex_joint": -1.0,  # flex arm forward to roughly horizontal
+            "arm_roll_joint": 0.0,  # neutral roll, arm faces forward
+            "wrist_flex_joint": -0.5,  # tilt gripper opening slightly upward
+            "wrist_roll_joint": 0.0,  # neutral wrist roll
+            # Bonus:
+            "head_pan_joint": 0.0,  # head facing forward
+            "head_tilt_joint": -0.3,  # head looking slightly downward at hands
+            "torso_lift_joint": 0.25,  # raise torso to ~mid-high
+        },
+            world=hsr_world_setup,
+        ),
+    )
+    msc.add_node(prehandover_goal)
+    msc.add_node(EndMotion.when_true(prehandover_goal))
     kin_sim = Executor(world=hsr_world_setup, pacer=SimulationPacer(1))
     kin_sim.compile(motion_statechart=msc)
     kin_sim.tick_until_end()

@@ -4,7 +4,7 @@ from typing import Optional
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.world_description.world_entity import Body
 from .base import BaseMotion
-from giskardpy.motion_statechart.goals.pick_up import PickUp, CylinderGraspMagic
+from giskardpy.motion_statechart.goals.pick_up import PickUp, CylinderGraspMagic, BoxGraspMagic
 
 
 @dataclass
@@ -43,7 +43,7 @@ class PickupMotion(BaseMotion):
         #     gripper_vertical=self.gripper_vertical,
         # )
         pickup = PickUp(
-            grasp_magic=CylinderGraspMagic(
+            grasp_magic=BoxGraspMagic(
                 object_geometry=self.object_geometry,
                 manipulator=self.manipulator,
             )
