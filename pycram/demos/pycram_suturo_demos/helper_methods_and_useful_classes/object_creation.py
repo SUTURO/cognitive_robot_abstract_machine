@@ -1,7 +1,7 @@
 import json
 import os
 
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
+from pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
     get_object_class_from_string,
 )
 from semantic_digital_twin.adapters.mesh import STLParser
@@ -71,6 +71,44 @@ def try_remove_semantic_annotation_and_body(name: str, world: World):
         pass
 
 
+def _resolve_reference_frame(frame, world: World):
+    """
+    Resolve a pose reference frame into a KinematicStructureEntity.
+
+    The semantic digital twin APIs expect reference_frame to be a world entity,
+    but perception messages often provide ROS frame ids as strings.
+    """
+    if frame is None:
+        return None
+
+    if hasattr(frame, "id"):
+        return frame
+
+    if isinstance(frame, str):
+        normalized = frame.strip()
+
+        root_names = {
+            "map",
+            "world",
+            str(world.root.name),
+        }
+        if normalized in root_names:
+            return world.root
+
+        try:
+            return world.get_body_by_name(normalized)
+        except WorldEntityNotFoundError as exc:
+            raise ValueError(
+                f"Unknown reference frame '{normalized}'. "
+                "Expected a world frame/body known to the semantic digital twin."
+            ) from exc
+
+    raise TypeError(
+        f"Unsupported reference_frame type: {type(frame).__name__}. "
+        "Expected None, a frame object, or a frame name string."
+    )
+
+
 def move_object_to_new_pose(
     semantic_annotation: HasRootBody, new_transform: HomogeneousTransformationMatrix
 ):
@@ -113,12 +151,18 @@ def spawn_semantic_with_body(
         semantic_type: HasRootBody = get_object_class_from_string(semantic_type)
 
     pose.z -= 0.015  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
+
+    resolved_reference_frame = _resolve_reference_frame(pose.reference_frame, world)
+    pose.reference_frame = resolved_reference_frame
+
+    pose.z -= 0.015  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
     # If the pose has a frame_id, we need to transform it to the world root frame.
     # Otherwise, we can assume it is already in the world root frame.
     if pose.reference_frame is not None and pose.reference_frame != world.root:
         world_root_T_self = world.transform(pose, world.root).to_homogeneous_matrix()
     else:
         world_root_T_self = pose.to_homogeneous_matrix()
+        world_root_T_self.reference_frame = world.root
 
     try_remove_semantic_annotation_and_body(name, world)
 
@@ -172,6 +216,8 @@ def perceive_and_spawn_all_objects(world: World):
         # TODO: Needs testing if this is correct and more error handling
         object_name = extract_name_from_json_string(perceived_object.attribute)
         object_type = perceived_object.type
+        # object_name = "muesli_vitalis_box_nutmix"
+        # object_type = "cereal"
 
         spawn_semantic_with_body(
             semantic_type=object_type,

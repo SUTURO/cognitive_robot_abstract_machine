@@ -97,12 +97,12 @@ def main():
     match nlp.filter_response(resp, FilterOptions.INTENT):
         case 'seating':
             if "waving" in resp[2][0][4]:
-                print("start seating here")
+                print("start 'Tell the waving person where he/she can sit'")
                 talk.pub("I will go and show them where to sit.")
         case 'lookup':
             where = resp[2][0][1]
             print(f"Start Challenge 'Is there something on the {where}.'")
-            talk.pub(f"I will look if there is there something on the {where}.")
+            talk.pub(f"I will look if there is something on the {where}.")
         case 'deliver':
             re = nlp.filter_response(resp, FilterOptions.FURNITURE)
             item = nlp.filter_response(resp, FilterOptions.ITEM)

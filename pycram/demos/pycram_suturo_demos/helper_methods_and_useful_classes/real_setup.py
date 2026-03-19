@@ -8,15 +8,15 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import logging
 
-
+from semantic_digital_twin.adapters.ros.messages import LoadModel
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
 from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
 from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.dataclasses import Context
-from semantic_digital_twin.adapters.ros.messages import LoadModel
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelSynchronizer,
@@ -33,7 +33,6 @@ import numpy as np
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
-from test.krrood_test.dataset.example_classes import Node
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +57,6 @@ def setup_ros_node(node_name: str = "pycram_node"):
     # Start executor in a separate thread
     thread = threading.Thread(target=executor.spin, daemon=True, name="rclpy-executor")
     thread.start()
-
-    # This loads toya from the database - it is needed if u do not want to restart giskard constantly
-    # mrs = ModelReloadSynchronizer(node=node, world=None, session=None)
-    # message = LoadModel(primary_key=1, meta_data=mrs.meta_data)
-    # mrs.publish(message)
 
     hsrb_world: World = fetch_world_from_service(node)
     model_sync = ModelSynchronizer(world=hsrb_world, node=node)
@@ -98,7 +92,12 @@ def add_box(name: str, scale_xyz: tuple[float, float, float]):
 def test_spawning(hsrb_world: World):
     object_name = f"milk"
     object_to_spawn = add_box(object_name, (0.1, 0.1, 0.3))
-
+    tes = Milk.create_with_new_body_in_world(
+        name=PrefixedName(object_name),
+        world=hsrb_world,
+        scale=Scale(0.1, 0.1, 0.3),
+        world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=1, z=1),
+    )
     with hsrb_world.modify_world():
         hsrb_world.add_connection(
             FixedConnection(
@@ -117,13 +116,13 @@ def test_spawning(hsrb_world: World):
         )
 
 
-def try_make_viz(world, node) -> Optional[VizMarkerPublisher]:
+def try_make_viz(world: World, node: Any) -> Optional[VizMarkerPublisher]:
     try:
         from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
             VizMarkerPublisher,
         )
 
-        viz = VizMarkerPublisher(world, node)
+        viz = VizMarkerPublisher(world=world, node=node)
         viz.with_tf_publisher()
 
         return viz
@@ -139,14 +138,8 @@ def world_setup_with_test_objects(
 ) -> SetupResult:
     hsrb_world, robot_view, context, manipulator, node = setup_ros_node()
 
-    if with_object:
-        try:
-            hsrb_world.get_body_by_name("milk")
-        except Exception:
-            test_spawning(hsrb_world)
-
-    if with_viz:
-        viz = try_make_viz(hsrb_world, node)
+    # if with_viz:
+    #     viz = try_make_viz(hsrb_world, node)
 
     return SetupResult(
         world=hsrb_world,
@@ -154,5 +147,4 @@ def world_setup_with_test_objects(
         context=context,
         manipulator=manipulator,
         node=node,
-        viz=viz,
     )

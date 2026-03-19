@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, List
 
-from giskardpy.motion_statechart.goals.pick_up import OpenHand
-from giskardpy.motion_statechart.goals.place import Place
+from giskardpy.motion_statechart.goals.pick_up import OpenHand, CloseHand
+from giskardpy.motion_statechart.goals.place import Place, Retracting
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -273,6 +273,32 @@ class PlaceMotion(BaseMotion):
             simulated=self.simulated,
         )
 
+@dataclass
+class RetractMotion(BaseMotion):
+    """
+    Motion for placing an object, i.e., moving the gripper to a certain pose
+    It creates a _motion_chart that is used by the motion framework
+    It directly calls the implemented PickUp of Giskard.
+    """
+
+    gripper: Manipulator = field(kw_only=True)
+    """
+    Name of the gripper that should be moved
+    """
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self):
+        return Retracting(
+            manipulator=self.gripper,
+        )
 
 # TODO currently still missing the class that just sits within the Pickup of Giskard
 @dataclass
@@ -285,30 +311,21 @@ class GiskardMoveGripperMotion(BaseMotion):
     """
     Motion that should be performed, either 'open' or 'close'
     """
-    gripper: Arms
-    """
-    Name of the gripper that should be moved
-    """
     simulated: bool = True
     """
     Parsing simulation argument
     """
-    allow_gripper_collision: Optional[bool] = None
-    """
-    If the gripper is allowed to collide with something
-    """
+
 
     def perform(self):
         return
 
     @property
     def _motion_chart(self):
-        arm = ViewManager().get_end_effector_view(self.gripper, self.robot_view)
         if self.motion == GripperState.OPEN:
-            OpenHand()
-        return JointPositionList(
-            goal_state=arm.get_joint_state_by_type(self.motion),
-            name=(
-                "OpenGripper" if self.motion == GripperState.OPEN else "CloseGripper"
-            ),
-        )
+            return OpenHand(simulated_execution=self.simulated)
+        if self.motion == GripperState.CLOSE:
+            return CloseHand(simulated_execution=self.simulated)
+        else:
+            raise ValueError(f"Unknown motion {self.motion}")
+

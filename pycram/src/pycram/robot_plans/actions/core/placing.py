@@ -254,6 +254,100 @@ class GiskardPlaceAction(ActionDescription):
             simulated=simulated,
         )
 
+@dataclass
+class GiskardRetractAction(ActionDescription):
+    """
+    Places an Object at a position using an arm. By directly called GiskardMotion
+    """
+
+    object_designator: Body
+    """
+    Object designator_description describing the object that should be place
+    """
+
+    arm: Arms
+    """
+    Arm that is currently holding the object
+    """
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+    _pre_perform_callbacks = []
+    """
+    List to save the callbacks which should be called before performing the action.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def execute(self) -> None:
+        from ... import RetractMotion, GiskardMoveGripperMotion
+        arm = ViewManager.get_arm_view(self.arm, self.robot_view)
+        manipulator = arm.manipulator
+        SequentialPlan(
+            self.context,
+            GiskardMoveGripperMotion(GripperState.OPEN,self.simulated),
+            RetractMotion(
+                simulated=self.simulated,
+                gripper=manipulator,
+            ),
+        ).perform()
+
+    def validate(
+        self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None
+    ):
+        """
+        Check if the object is placed at the target location.
+        """
+        self.validate_loss_of_contact()
+        self.validate_placement_location()
+
+    def validate_loss_of_contact(self):
+        """
+        Check if the object is still in contact with the robot after placing it.
+        """
+        manipulator = ViewManager.get_arm_view(
+            self.arm, self.robot_view
+        ).manipulator.tool_frame
+        contact_links = self.object_designator.get_contact_points_with_body(
+            self.robot_view
+        ).get_all_bodies()
+        if contact_links:
+            raise ObjectStillInContact(
+                self.object_designator,
+                contact_links,
+                self.target_location,
+                World.robot,
+                self.arm,
+            )
+
+    def validate_placement_location(self):
+        """
+        Check if the object is placed at the target location.
+        """
+        pose_error_checker = PoseErrorChecker(World.conf.get_pose_tolerance())
+        if not pose_error_checker.is_error_acceptable(
+            self.object_designator.pose, self.target_location
+        ):
+            raise ObjectNotPlacedAtTargetLocation(
+                self.object_designator, self.target_location, World.robot, self.arm
+            )
+
+    @classmethod
+    def description(
+        cls,
+        arm: Union[Iterable[Arms], Arms],
+        simulated: bool,
+    ) -> PartialDesignator[GiskardRetractAction]:
+        return PartialDesignator[GiskardRetractAction](
+            GiskardRetractAction,
+            arm=arm,
+            simulated=simulated,
+        )
 
 PlaceActionDescription = PlaceAction.description
 GiskardPlaceActionDescription = GiskardPlaceAction.description
+GiskardRetractActionDescription = GiskardRetractAction.description

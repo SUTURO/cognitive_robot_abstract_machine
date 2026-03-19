@@ -1,63 +1,65 @@
-from typing import Any
-
-import rclpy
 from rclpy import logging
-from rclpy.logging import get_logger
 
 from pycram.datastructures.dataclasses import Context
-from pycram.datastructures.enums import Arms
-from pycram.datastructures.pose import PoseStamped
+from pycram.datastructures.enums import Arms, PickUpType
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot, simulated_robot, ExecutionEnvironment
 from pycram.robot_plans import (
-    ParkArmsActionDescription,
-    GiskardPickUpActionDescription,
+    ParkArmsActionDescription, GiskardRetractActionDescription,
+    GiskardGraspActionDescription, GiskardPullUpActionDescription, MoveTorsoActionDescription,
 )
-
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
-    attach_object_to_hsrb,
-    try_perceiving_and_spawning_and_find_object,
-)
+from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.world import World
-
+from semantic_digital_twin.world_description.world_entity import Body
 
 # ------------------------ BASE-DEFINITIONS
 def pickup_demo(
     simulation: bool = True,
-    hsrb_world: World = None,
     context: Context = None,
-    object_name: str = "",
+    object_to_pickup: Body = None,
 ):
+    # logger creaton
     logger = logging.get_logger(__name__)
 
-    SIMULATED: bool = simulation
-    object_name: str = object_name
+    # if the determined object is None, the pickup is skipped, because the object was not parsed properly
+    if object_to_pickup == None:
+        logger.warning("object_to_pickup is None, therefor pickup is skipped")
+        return
 
-    robot_type: ExecutionEnvironment = simulated_robot if SIMULATED else real_robot
+    robot_type: ExecutionEnvironment = simulated_robot if simulation else real_robot
 
-    # -------------------------------- DETERMIN OBJECT_TO_PICKUP
-    object_to_pickup = try_perceiving_and_spawning_and_find_object(
-        world=hsrb_world, object_name=object_name
-    )
-    logger.info(f"object_to_pickup: {object_to_pickup}")
     # -------------------------------- PLANNING
-    plan = SequentialPlan(
-        context,
-        GiskardPickUpActionDescription(
-            simulated=simulation,
-            object_designator=object_to_pickup,
-            arm=Arms.LEFT,
-            gripper_vertical=True,
-        ),
-    )
-    plan_park = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
+
+    plan_pullup = SequentialPlan(context, GiskardPullUpActionDescription(arm=Arms.LEFT, object_designator=object_to_pickup,simulated=simulation))
+    plan_park = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH), MoveTorsoActionDescription(TorsoState.LOW))
 
     # ------------------------ EXECUTION
     with robot_type:
         logger.info("Starting pickup demo")
-        plan.perform()
-        logger.info("pickup finished")
-        attach_object_to_hsrb(world=hsrb_world, object_designator=object_to_pickup)
+        SequentialPlan(
+            context,
+            GiskardGraspActionDescription(
+                simulated=simulation,
+                object_designator=object_to_pickup,
+                arm=Arms.LEFT,
+                gripper_vertical=True,
+            ),
+        ).perform()
+        while input("Was the object grasped? ").strip().lower() != "yes":
+            # retract and regrasp
+            SequentialPlan(
+                context,
+                GiskardRetractActionDescription(simulated=simulation, arm=Arms.LEFT),
+                ParkArmsActionDescription(Arms.BOTH),
+                GiskardGraspActionDescription(
+                    simulated=simulation,
+                    object_designator=object_to_pickup,
+                    arm=Arms.LEFT,
+                    gripper_vertical=True,
+                ),
+            ).perform()
+        plan_pullup.perform()
         logger.info("parking arms")
         plan_park.perform()
         logger.info("parking arms finished")
+        logger.info("PickUp has been executed")

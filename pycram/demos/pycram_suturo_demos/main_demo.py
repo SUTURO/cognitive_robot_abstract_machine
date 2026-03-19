@@ -81,7 +81,6 @@ try:
         attach_object_to_hsrb(
             world=hsrb_world,
             object_designator=object_to_pickup,
-            manipulator=manipulator,
         )
         plan2.perform()
 finally:
