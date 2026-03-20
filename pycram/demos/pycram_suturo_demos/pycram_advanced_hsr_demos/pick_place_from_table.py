@@ -68,7 +68,7 @@ def main():
     SIMULATED = False
 
     rclpy_node, world, robot_view, context = initialization(simulation=SIMULATED)
-    object_name = "muesli_vitalis_box_nutmix8"
+    object_name = "muesli_vitalis_box_nutmix2"
 
     # objects = {1: "milk.stl", 2: "breakfast_cereal.stl"}
 
@@ -80,45 +80,48 @@ def main():
 
     with real_robot:
         plan.perform()
-    # move_demo(
-    #     simulated=SIMULATED,
-    #     world=world,
+    # # move_demo(
+    # #     simulated=SIMULATED,
+    # #     world=world,
+    # #     context=context,
+    # #     target_pose="POPCORN_TABLE",
+    # # )
+    # perceived_objects = try_perceive_and_spawn(world)
+    # object_to_pickup = world.get_body_by_name(object_name)
+    #
+    # object_to_pickup_point = world.get_body_by_name(
+    #     object_name
+    # ).global_pose.to_position()
+    # # print(object_to_pickup_pose)
+    # object_height = object_to_pickup.collision.scale.z / 2
+    # # print(object_to_pickup)
+    # pickup_demo(
+    #     simulation=SIMULATED,
     #     context=context,
-    #     target_pose="POPCORN_TABLE",
+    #     object_to_pickup=object_to_pickup,
     # )
-    perceived_objects = try_perceive_and_spawn(world)
-    object_to_pickup = world.get_body_by_name(object_name)
-
-    object_to_pickup_pose = world.get_body_by_name(object_name).global_pose.to_np()
-    print(object_to_pickup_pose)
-    object_height = object_to_pickup.collision.scale.z / 2
-    # print(object_to_pickup)
-    pickup_demo(
-        simulation=SIMULATED,
-        context=context,
-        object_to_pickup=object_to_pickup,
-    )
     # move_demo(
     #     simulated=SIMULATED, world=world, context=context, target_pose="POPCORN_TABLE"
     # )
-    # attach_object_to_hsrb(world=world, object_designator=object_to_pickup)
-    # change the coords accordingly
-    place_pose = PoseStamped.from_list(
-        [1.09, 5.4, 0.52 + object_height], [0, 0, 1, 1], frame=world.root
-    )
-    place_demo(
-        simulation=SIMULATED,
-        place_pose=place_pose,
-        hsrb_world=world,
-        context=context,
-        object_name=object_name,
-    )
-    # move_demo(
-    #     simulated=SIMULATED,
-    #     world=world,
-    #     context=context,
-    #     target_pose="ROBOT_START_POSE",
+    # # attach_object_to_hsrb(world=world, object_designator=object_to_pickup)
+    # # change the coords accordingly
+    # place_pose = PoseStamped.from_list(
+    #     [1.4, 6.2, 0.52 + object_height], [0, 0, 0, 1], frame=world.root
     # )
+    # place_demo(
+    #     simulation=SIMULATED,
+    #     place_pose=place_pose,
+    #     hsrb_world=world,
+    #     context=context,
+    #     object_name=object_name,
+    #     ignore_orientation=True,
+    # )
+    # # move_demo(
+    # #     simulated=SIMULATED,
+    # #     world=world,
+    # #     context=context,
+    # #     target_pose="ROBOT_START_POSE",
+    # # )
 
 
 if __name__ == "__main__":

@@ -178,6 +178,11 @@ class GiskardPlaceAction(ActionDescription):
     Parsing simulation argument
     """
 
+    ignore_orientation: bool = field(default=False, kw_only=True)
+    """
+    If True, the orientation of the object will be ignored.
+    """
+
     _pre_perform_callbacks = []
     """
     List to save the callbacks which should be called before performing the action.
@@ -189,12 +194,17 @@ class GiskardPlaceAction(ActionDescription):
     def execute(self) -> None:
         arm = ViewManager.get_arm_view(self.arm, self.robot_view)
         manipulator = arm.manipulator
+        if self.ignore_orientation:
+            goal = self.target_location.pose.to_spatial_type().to_position()
+            goal.reference_frame = self.target_location.frame_id
+        else:
+            goal = self.target_location.pose.to_spatial_type()
         SequentialPlan(
             self.context,
             PlaceMotion(
                 object_designator=self.object_designator,
                 simulated=self.simulated,
-                goal_pose=self.target_location,
+                goal_pose=goal,
                 gripper=manipulator,
                 allow_gripper_collision=False,
             ),
@@ -246,7 +256,8 @@ class GiskardPlaceAction(ActionDescription):
         object_designator: Union[Iterable[Body], Body],
         target_location: Union[Iterable[PoseStamped], PoseStamped],
         arm: Union[Iterable[Arms], Arms],
-        simulated: bool,
+        simulated: bool = True,
+        ignore_orientation: bool = False,
     ) -> PartialDesignator[GiskardPlaceAction]:
         return PartialDesignator[GiskardPlaceAction](
             GiskardPlaceAction,
@@ -254,6 +265,7 @@ class GiskardPlaceAction(ActionDescription):
             target_location=target_location,
             arm=arm,
             simulated=simulated,
+            ignore_orientation=ignore_orientation,
         )
 
 

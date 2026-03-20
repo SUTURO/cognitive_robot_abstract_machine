@@ -11,6 +11,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix
 from semantic_digital_twin.world_description.world_entity import Body
 from .base import BaseMotion
 from ...datastructures.enums import (
@@ -244,7 +245,7 @@ class PlaceMotion(BaseMotion):
     """
     Object designator_description describing the object that should be placed
     """
-    goal_pose: PoseStamped = field(kw_only=True)
+    goal_pose: HomogeneousTransformationMatrix | Point3 = field(kw_only=True)
     """
     The goal_pose at which the object should be placed
     """
@@ -264,14 +265,15 @@ class PlaceMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        goal_pose = self.goal_pose.to_spatial_type()
+        goal_pose = self.goal_pose
 
         return Place(
             manipulator=self.gripper,
             object_geometry=self.object_designator,
-            goal_pose=goal_pose,
+            goal=goal_pose,
             simulated=self.simulated,
         )
+
 
 @dataclass
 class RetractMotion(BaseMotion):
@@ -290,7 +292,6 @@ class RetractMotion(BaseMotion):
     Parsing simulation argument
     """
 
-
     def perform(self):
         return
 
@@ -299,6 +300,7 @@ class RetractMotion(BaseMotion):
         return Retracting(
             manipulator=self.gripper,
         )
+
 
 # TODO currently still missing the class that just sits within the Pickup of Giskard
 @dataclass
@@ -316,7 +318,6 @@ class GiskardMoveGripperMotion(BaseMotion):
     Parsing simulation argument
     """
 
-
     def perform(self):
         return
 
@@ -328,4 +329,3 @@ class GiskardMoveGripperMotion(BaseMotion):
             return CloseHand(simulated_execution=self.simulated)
         else:
             raise ValueError(f"Unknown motion {self.motion}")
-
