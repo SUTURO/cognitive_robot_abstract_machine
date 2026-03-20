@@ -155,11 +155,11 @@ def spawn_semantic_with_body(
     resolved_reference_frame = _resolve_reference_frame(pose.reference_frame, world)
     pose.reference_frame = resolved_reference_frame
 
+    pose.z -= 0.015  # To avoid spawning objects in the air due to small inaccuracies in the pose estimation.
     # If the pose has a frame_id, we need to transform it to the world root frame.
     # Otherwise, we can assume it is already in the world root frame.
     if pose.reference_frame is not None and pose.reference_frame != world.root:
         world_root_T_self = world.transform(pose, world.root).to_homogeneous_matrix()
-        print(world_root_T_self)
     else:
         world_root_T_self = pose.to_homogeneous_matrix()
         world_root_T_self.reference_frame = world.root
@@ -173,7 +173,6 @@ def spawn_semantic_with_body(
             scale=scale,
             world_root_T_self=world_root_T_self,
         )
-    print(object_to_spawn)
     return object_to_spawn
 
 
@@ -191,7 +190,6 @@ def perceive_and_spawn_all_objects(world: World):
         raise ImportError()
 
     perceived_objects_result = robokudo.query_all_objects().res
-    print(perceived_objects_result)
     for perceived_object in perceived_objects_result:
 
         object_dimensions = perceived_object.shape_size[0].dimensions
@@ -216,8 +214,10 @@ def perceive_and_spawn_all_objects(world: World):
         )
 
         # TODO: Needs testing if this is correct and more error handling
-        object_name = "muesli_vitalis_box_nutmix8"
-        object_type = "cereal"
+        object_name = extract_name_from_json_string(perceived_object.attribute)
+        object_type = perceived_object.type
+        # object_name = "muesli_vitalis_box_nutmix"
+        # object_type = "cereal"
 
         spawn_semantic_with_body(
             semantic_type=object_type,

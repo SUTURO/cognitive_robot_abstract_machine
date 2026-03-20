@@ -137,7 +137,7 @@ def process_response(responses: list[list[Any]], challenge: str, person: HriHuma
                             if elem[0] == "Drink":
                                 person.order[2].append(get_obj(elem[1]))
 
-            case "Receptionist":  # Model: Receptionist
+            case "receptionist" | "Receptionist":  # Model: Receptionist
                 if len(response[2]) == 0:
                     logging.warning(f"No roles found in response: {response}")
 

@@ -13,7 +13,11 @@ from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import Manipulator, ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk, Cereal, Bowl
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Milk,
+    Cereal,
+    Bowl,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
@@ -60,7 +64,7 @@ def default_paths() -> WorldSetupPaths:
             "..", "..", "..", "resources", "objects", "breakfast_cereal.stl"
         ),
         bowl_stl=_here("..", "..", "..", "resources", "objects", "bowl.stl"),
-        cup_stl=_here("..", "..", "..", "resources", "objects", "jeroen_cup.stl")
+        cup_stl=_here("..", "..", "..", "resources", "objects", "jeroen_cup.stl"),
     )
 
 
@@ -98,9 +102,7 @@ def add_objects_and_semantics(
         )
         for c in world.get_body_by_name("breakfast_cereal.stl").visual.shapes:
             c.color = Color.BLUE()
-        world.add_semantic_annotation(
-            Bowl(root=world.get_body_by_name("bowl.stl"))
-        )
+        world.add_semantic_annotation(Bowl(root=world.get_body_by_name("bowl.stl")))
         for c in world.get_body_by_name("bowl.stl").visual.shapes:
             c.color = Color.GREEN()
         world.add_semantic_annotation(
@@ -182,9 +184,8 @@ def setup_hsrb_in_environment(
         0.0,
     ),
     cup_xyz_rpy: Tuple[float, float, float, float, float, float] = (
-            1.5,
-            6.7,
-
+        1.5,
+        6.7,
         0.72,
         0.0,
         0.0,

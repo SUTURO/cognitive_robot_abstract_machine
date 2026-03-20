@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 def get_poses_on_semantic_annotation_for_object(
-    semantic_annotation: SemanticAnnotation | str,
-    for_object: SemanticAnnotation | str,
+    semantic_annotation: HasSupportingSurface | str,
+    for_object: HasRootBody | str,
     world: World,
     amount_of_locations: int = 100,
 ) -> List[Pose] | None:
@@ -33,25 +33,15 @@ def get_poses_on_semantic_annotation_for_object(
 
     # Get semantic annotation if given as string and check if it has supporting surface
     if isinstance(semantic_annotation, str):
-        semantic_annotation: SemanticAnnotation = world.get_semantic_annotation_by_name(
-            for_object
+        semantic_annotation: HasSupportingSurface = (
+            world.get_semantic_annotation_by_name(semantic_annotation)
         )
-    if not isinstance(semantic_annotation, HasSupportingSurface):
-        logger.warning(
-            f'Semantic annotation with name "{semantic_annotation}" has no supporting surface. Cannot sample points from surface.'
-        )
-        return None
 
     # Get for_object if given as string and check if it of Type HasRootBody
     if isinstance(for_object, str):
         for_object: SemanticAnnotation = world.get_semantic_annotation_by_name(
             for_object
         )
-    if not isinstance(for_object, HasRootBody):
-        logger.warning(
-            f'Object with name "{for_object.name}" has no root body. Cannot sample points for object.'
-        )
-        return None
 
     points = semantic_annotation.sample_points_from_surface(
         for_object, amount=amount_of_locations
