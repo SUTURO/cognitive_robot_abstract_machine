@@ -300,10 +300,12 @@ def test_model_synchronization_merge_full_world(rclpy_node):
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
         _world=w1,
+        synchronous=True
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
         _world=w2,
+        synchronous=True
     )
 
     pr2_world = URDFParser.from_file(
@@ -314,6 +316,7 @@ def test_model_synchronization_merge_full_world(rclpy_node):
             "pr2_kinematic_tree.urdf",
         )
     ).parse()
+
 
     def wait_for_sync(timeout=8.0, interval=0.05):
         start = time.time()
