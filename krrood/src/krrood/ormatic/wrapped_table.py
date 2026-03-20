@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
@@ -7,18 +8,18 @@ from inspect import isclass
 
 from typing_extensions import List, Dict, TYPE_CHECKING, Optional, Set, Type, get_origin
 
-from .dao import AlternativeMapping
-from .utils import InheritanceStrategy
-from ..class_diagrams.class_diagram import (
+from krrood.ormatic.dao import AlternativeMapping
+from krrood.ormatic.utils import InheritanceStrategy
+from krrood.class_diagrams.class_diagram import (
     WrappedClass,
     Inheritance,
 )
-from ..class_diagrams.failures import ClassIsUnMappedInClassDiagram
-from ..class_diagrams.wrapped_field import WrappedField
-from ..utils import module_and_class_name
+from krrood.class_diagrams.failures import ClassIsUnMappedInClassDiagram
+from krrood.class_diagrams.wrapped_field import WrappedField
+from krrood.utils import module_and_class_name
 
 if TYPE_CHECKING:
-    from .ormatic import ORMatic
+    from krrood.ormatic.ormatic import ORMatic
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,17 @@ class AssociationObject:
     """
     The name of the primary key column, if any.
     """
+
+    @property
+    def table_name(self):
+        """
+        :return: The table name encoded as a hash that is stable across different python processes.
+        This needs to happen this way as it is very likely that association table names will get too long for common SQL
+        dialects.
+        """
+        number = int(hashlib.sha256(str(self.name).encode("utf-8")).hexdigest(), 16)
+        short_number = str(number)[:62]
+        return f"_{short_number}"
 
 
 @dataclass
