@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Union
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
 from giskardpy.motion_statechart.context import BuildContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
@@ -16,7 +16,6 @@ from semantic_digital_twin.spatial_types import (
     Point3,
     HomogeneousTransformationMatrix,
 )
-from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
@@ -26,23 +25,21 @@ from semantic_digital_twin.world_description.world_entity import (
 @dataclass(repr=False, eq=False)
 class Place(Sequence):
     """
-    Assumes the object is already attached to the tool frame and the gripper is closed
+    Assumes the object is already attached to the tool frame and the gripper is closed.
+    goal: HomogeneousTransformationMatrix → full pose control; Point3 → position-only with z-up alignment.
     """
 
     manipulator: Manipulator = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
+    goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
-    goal_pose: Optional[HomogeneousTransformationMatrix] = field(kw_only=True, default=None)
-    goal_point: Optional[Point3] = field(kw_only=True, default=None)
     simulated: bool = field(default=True, kw_only=True)
 
     def __post_init__(self):
         super().__post_init__()
-        if self.goal_pose is None and self.goal_point is None:
-            raise ValueError("Place requires either goal_pose or goal_point")
         # Note: Retracting separate from placing
         approach = ApproachPlacement(manipulator=self.manipulator, object_geometry=self.object_geometry,
-                                     goal_pose=self.goal_pose, goal_point=self.goal_point, ft=self.ft)
+                                     goal=self.goal, ft=self.ft)
         open_gripper = OpenHand(simulated_execution=self.simulated)
         self.nodes.append(approach)
         self.nodes.append(open_gripper)
@@ -53,8 +50,7 @@ class ApproachPlacement(Goal):
     # Assumes object is attached to tool frame
     manipulator: Manipulator = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
-    goal_pose: Optional[HomogeneousTransformationMatrix] = field(kw_only=True, default=None)
-    goal_point: Optional[Point3] = field(kw_only=True, default=None)
+    goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
 
     def expand(self, context: BuildContext) -> None:
@@ -64,22 +60,23 @@ class ApproachPlacement(Goal):
             self.ft_monitor = ForceImpactMonitor(threshold=5, topic_name="ft_irgendwas")
             self.add_node(self.ft_monitor)
 
-        if self.goal_pose is not None:
-            if self.goal_pose.reference_frame != context.world.root:
-                self.goal_pose = context.world.transform(spatial_object=self.goal_pose, target_frame=context.world.root)
+        if isinstance(self.goal, HomogeneousTransformationMatrix):
+            goal_pose = self.goal
+            if goal_pose.reference_frame != context.world.root:
+                goal_pose = context.world.transform(spatial_object=goal_pose, target_frame=context.world.root)
 
             pre_tool_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                point=self.goal_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root),
-                rotation_matrix=self.goal_pose.to_rotation_matrix(),
+                point=goal_pose.to_position() + Vector3(0, 0, 0.2, reference_frame=context.world.root),
+                rotation_matrix=goal_pose.to_rotation_matrix(),
                 reference_frame=context.world.root,
             )
             pre_pose_goal = CartesianPose(root_link=context.world.root, tip_link=self.manipulator.tool_frame,
                                           goal_pose=pre_tool_pose)
             self.object_goal = CartesianPose(root_link=context.world.root, tip_link=self.object_geometry,
-                                             goal_pose=self.goal_pose)
+                                             goal_pose=goal_pose)
             self.add_node(Sequence([pre_pose_goal, self.object_goal]))
-        else:
-            goal_point = context.world.transform(spatial_object=self.goal_point, target_frame=context.world.root)
+        elif isinstance(self.goal, Point3):
+            goal_point = context.world.transform(spatial_object=self.goal, target_frame=context.world.root)
             pre_point = goal_point + Vector3(0, 0, 0.2, reference_frame=context.world.root)
             pre_point.reference_frame = context.world.root
 
@@ -96,6 +93,8 @@ class ApproachPlacement(Goal):
                                                  goal_point=goal_point)
             self.add_node(z_up)
             self.add_node(Sequence([pre_pos, self.object_goal]))
+        else:
+            raise TypeError(f"goal must be HomogeneousTransformationMatrix or Point3, got {type(self.goal)}")
 
     def build(self, context: BuildContext) -> NodeArtifacts:
         artifacts = super().build(context)
