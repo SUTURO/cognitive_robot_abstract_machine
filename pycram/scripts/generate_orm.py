@@ -4,7 +4,6 @@ from dataclasses import is_dataclass
 
 import numpy as np
 
-
 import pycram.locations.costmaps
 import pycram.orm.ormatic_interface
 import semantic_digital_twin.orm.ormatic_interface
@@ -18,10 +17,6 @@ from krrood.ormatic.type_dict import TypeDict
 from krrood.ormatic.utils import classes_of_package, classes_of_module
 from krrood.utils import recursive_subclasses
 from pycram.orm.model import NumpyType
-from semantic_digital_twin.world_description.world_modification import (
-    WorldModelModification,
-    WorldModelModificationBlock,
-)
 
 # ----------------------------------------------------------------------------------------------------------------------
 # This script generates the ORM classes for the pycram package

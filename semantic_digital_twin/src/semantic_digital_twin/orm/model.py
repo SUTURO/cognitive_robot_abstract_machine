@@ -10,6 +10,7 @@ from typing_extensions import List
 from typing_extensions import Optional
 
 from krrood.ormatic.dao import AlternativeMapping
+from semantic_digital_twin.mixin import HasSimulatorProperties
 from semantic_digital_twin.spatial_types import (
     RotationMatrix,
     Vector3,
@@ -28,7 +29,7 @@ from semantic_digital_twin.world_description.world_state import WorldState
 
 
 @dataclass
-class WorldMapping(AlternativeMapping[World]):
+class WorldMapping(HasSimulatorProperties, AlternativeMapping[World]):
     kinematic_structure_entities: List[KinematicStructureEntity]
     connections: List[Connection]
     semantic_annotations: List[SemanticAnnotation]
@@ -45,6 +46,7 @@ class WorldMapping(AlternativeMapping[World]):
             degrees_of_freedom=list(obj.degrees_of_freedom),
             state=obj.state,
             name=obj.name,
+            simulator_additional_properties=obj.simulator_additional_properties,
         )
 
     def to_domain_object(self) -> World:
@@ -53,15 +55,18 @@ class WorldMapping(AlternativeMapping[World]):
         with result.modify_world():
             for entity in self.kinematic_structure_entities:
                 result.add_kinematic_structure_entity(entity)
+
             for dof in self.degrees_of_freedom:
                 result.add_degree_of_freedom(dof)
+
             for connection in self.connections:
                 result.add_connection(connection)
+
             for semantic_annotation in self.semantic_annotations:
                 result.add_semantic_annotation(semantic_annotation)
-            result.delete_orphaned_dofs()
-            result.state = self.state
-            result.state._world = result
+            # result.delete_orphaned_dofs()
+            # result.state = self.state
+            # result.state._world = result
 
         return result
 

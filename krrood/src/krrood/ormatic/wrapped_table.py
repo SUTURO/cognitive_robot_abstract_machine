@@ -287,7 +287,7 @@ class WrappedTable:
                     self.wrapped_clazz.index
                 )
             )
-            for parent_wrapped in inheritance_parents:
+            for parent_wrapped in inheritance_parents[::-1]:
                 # Check if this parent has a wrapped table and if the relation is Inheritance
                 # We need to check the actual relation object
                 edge_data = (

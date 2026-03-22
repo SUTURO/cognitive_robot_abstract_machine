@@ -248,6 +248,11 @@ class FromDataAccessObjectState(DataAccessObjectState[FromDataAccessObjectWorkIt
     Whether the state is currently in the processing loop.
     """
 
+    resolution_mode: bool = False
+    """
+    Whether the state is currently in the resolution phase.
+    """
+
     synthetic_parent_daos: Dict[
         Tuple[int, Type[DataAccessObject]], DataAccessObject
     ] = field(default_factory=dict)
@@ -841,9 +846,20 @@ class DataAccessObject(HasGeneric[T]):
         :param state: The conversion state.
         :param discovery_order: The order in which DAOs were discovered.
         """
+        # Pass 2.1: Populate all relationships and scalars for all discovered instances.
+        # This ensures that all objects point to each other (even if not yet fully resolved).
+        state.resolution_mode = False
         for work_item in reversed(discovery_order):
             if not state.is_initialized(work_item.dao_instance):
-                work_item.dao_instance._fill_from_dao(work_item.domain_object, state)
+                work_item.dao_instance._populate_relationships_and_scalars_from_dao(
+                    work_item.domain_object, state
+                )
+
+        # Pass 2.2: Finalize resolution and resolve AlternativeMappings.
+        state.resolution_mode = True
+        for work_item in reversed(discovery_order):
+            if not state.is_initialized(work_item.dao_instance):
+                work_item.dao_instance._resolve_from_dao(work_item.domain_object, state)
                 state.mark_initialized(work_item.dao_instance)
 
     def _finalize_containers(
@@ -916,6 +932,64 @@ class DataAccessObject(HasGeneric[T]):
             state.push_work_item(self, domain_object)
         return state.get(self)
 
+    def _populate_relationships_from_dao(
+        self, domain_object: T, state: FromDataAccessObjectState
+    ) -> None:
+        """
+        Populate the relationships of the domain object.
+
+        :param domain_object: The domain object.
+        :param state: The conversion state.
+        """
+        mapper: sqlalchemy.orm.Mapper = sqlalchemy.inspection.inspect(type(self))
+        for relationship in mapper.relationships:
+            self._populate_relationship(domain_object, relationship, state)
+
+    def _populate_relationships_and_scalars_from_dao(
+        self, domain_object: T, state: FromDataAccessObjectState
+    ) -> None:
+        """
+        Populate the relationships and scalar columns of the domain object.
+
+        :param domain_object: The domain object.
+        :param state: The conversion state.
+        """
+        mapper: sqlalchemy.orm.Mapper = sqlalchemy.inspection.inspect(type(self))
+
+        # Populate scalar columns
+        for column in mapper.columns:
+            if is_data_column(column):
+                value = getattr(self, column.name)
+                object.__setattr__(domain_object, column.name, value)
+
+        # Populate all relationships
+        self._populate_relationships_from_dao(domain_object, state)
+
+    def _resolve_from_dao(
+        self, domain_object: T, state: FromDataAccessObjectState
+    ) -> T:
+        """
+        Finalize resolution of AlternativeMappings and handle inheritance.
+        Also re-populates relationships to ensure they point to resolved domain objects
+        instead of AlternativeMapping instances.
+
+        :param domain_object: The domain object.
+        :param state: The conversion state.
+        :return: The fully populated (and potentially resolved) domain object.
+        """
+        # Re-populate relationships to pick up resolved AlternativeMappings.
+        # Regular objects will be overwritten with the same instance,
+        # but mappings will be replaced by their domain object results.
+        self._populate_relationships_from_dao(domain_object, state)
+
+        # Populate from alternative parent if any
+        self._build_base_keyword_arguments_for_alternative_parent(domain_object, state)
+
+        if isinstance(domain_object, AlternativeMapping):
+            return self._handle_alternative_mapping_result(domain_object, state)
+
+        return domain_object
+
     def _fill_from_dao(self, domain_object: T, state: FromDataAccessObjectState) -> T:
         """
         Populate the domain object with data from the DAO.
@@ -929,7 +1003,9 @@ class DataAccessObject(HasGeneric[T]):
         if state.discovery_mode:
             return self._trigger_discovery(domain_object, mapper, state)
 
-        return self._populate_domain_object(domain_object, mapper, state)
+        # Fallback for when _fill_from_dao is called directly (not during Phase 2)
+        self._populate_relationships_and_scalars_from_dao(domain_object, state)
+        return self._resolve_from_dao(domain_object, state)
 
     def _trigger_discovery(
         self,
@@ -965,38 +1041,6 @@ class DataAccessObject(HasGeneric[T]):
                     [item.from_dao(state=state) for item in value]
 
         self._build_base_keyword_arguments_for_alternative_parent(domain_object, state)
-        return domain_object
-
-    def _populate_domain_object(
-        self,
-        domain_object: T,
-        mapper: sqlalchemy.orm.Mapper,
-        state: FromDataAccessObjectState,
-    ) -> T:
-        """
-        Fully populate the domain object using setattr.
-
-        :param domain_object: The domain object to populate.
-        :param mapper: The SQLAlchemy mapper.
-        :param state: The conversion state.
-        :return: The populated domain object.
-        """
-        # Populate scalar columns
-        for column in mapper.columns:
-            if is_data_column(column):
-                value = getattr(self, column.name)
-                object.__setattr__(domain_object, column.name, value)
-
-        # Populate all relationships
-        for relationship in mapper.relationships:
-            self._populate_relationship(domain_object, relationship, state)
-
-        # Populate from alternative parent if any
-        self._build_base_keyword_arguments_for_alternative_parent(domain_object, state)
-
-        if isinstance(domain_object, AlternativeMapping):
-            return self._handle_alternative_mapping_result(domain_object, state)
-
         return domain_object
 
     def _handle_alternative_mapping_result(
@@ -1093,42 +1137,6 @@ class DataAccessObject(HasGeneric[T]):
         :return: The corresponding domain object.
         """
         return dao_instance.from_dao(state=state)
-
-    def _register_for_conversion(self, state: FromDataAccessObjectState) -> T:
-        """
-        Register this DAO for conversion if not already present.
-
-        :param state: The conversion state.
-        :return: The uninitialized domain object.
-        """
-        if not state.has(self):
-            domain_object = state.allocate_and_memoize(
-                self, self.constructable_original_class()
-            )
-            state.push_work_item(self, domain_object)
-        return state.get(self)
-
-    def _perform_from_dao_conversion(self, state: FromDataAccessObjectState) -> T:
-        """
-        Perform the four-phase conversion process.
-
-        :param state: The conversion state.
-        :return: The converted domain object.
-        """
-        state.is_processing = True
-        discovery_order = []
-        if not state.has(self):
-            state.allocate_and_memoize(self, self.constructable_original_class())
-        state.push_work_item(self, state.get(self))
-
-        self._discover_dependencies(state, discovery_order)
-        self._fill_domain_objects(state, discovery_order)
-        self._finalize_containers(state, discovery_order)
-        self._call_post_inits(state, discovery_order)
-
-        state.is_processing = False
-
-        return state.get(self)
 
     def _build_base_keyword_arguments_for_alternative_parent(
         self,
