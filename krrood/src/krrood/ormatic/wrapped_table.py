@@ -577,7 +577,7 @@ class WrappedTable:
         # handle JSON containers
         elif (
             wrapped_field.is_collection_of_builtins
-            or wrapped_field.type_endpoint in self.ormatic.type_mappings
+            # or wrapped_field.type_endpoint in self.ormatic.type_mappings
             and wrapped_field.is_container
         ):
             logger.info(f"Parsing as JSON.")

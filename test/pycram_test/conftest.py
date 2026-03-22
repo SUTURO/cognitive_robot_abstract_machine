@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from krrood.ormatic.utils import create_engine, drop_database
 from pycram.datastructures.dataclasses import Context
 
-# from pycram.orm.ormatic_interface import Base
+from pycram.orm.ormatic_interface import Base
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,

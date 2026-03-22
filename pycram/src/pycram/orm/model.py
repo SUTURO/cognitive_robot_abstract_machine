@@ -14,7 +14,6 @@ from pycram.plans.plan import (
 from pycram.plans.plan_node import PlanNode
 from semantic_digital_twin.world import World
 
-
 # ----------------------------------------------------------------------------------------------------------------------
 #            Map all Designators, that are not self-mapping, here.
 #            By default all classes are self-mapping, so you only need to add the ones where not every attribute is
@@ -64,22 +63,13 @@ class PlanMapping(AlternativeMapping[Plan]):
         )
 
     def to_domain_object(self) -> T:
-        result = Plan(context=self.context)
+        result = Plan(context=self.context, initial_world=self.initial_world)
         for node in self.nodes:
             result.add_node(node)
 
         for edge in self.edges:
             result.add_edge(edge.parent, edge.child)
         return result
-
-
-#
-# @dataclass
-# class MonitorNodeDAO(ORMaticExplicitMapping):
-#
-#     @classproperty
-#     def explicit_mapping(cls) -> Type:
-#         return MonitorNode
 
 
 class NumpyType(TypeDecorator):

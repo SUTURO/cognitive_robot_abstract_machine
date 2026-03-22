@@ -52,6 +52,10 @@ class WorldMapping(AlternativeMapping[World]):
 
         with result.modify_world():
             for entity in self.kinematic_structure_entities:
+                print(type(entity))
+                print(type(entity.name))
+                if entity.name is not None:
+                    print(entity.name)
                 result.add_kinematic_structure_entity(entity)
             for dof in self.degrees_of_freedom:
                 result.add_degree_of_freedom(dof)

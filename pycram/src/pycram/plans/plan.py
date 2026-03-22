@@ -243,6 +243,7 @@ class Plan:
 
         :return: The return value of the root node
         """
+        self.initial_world = deepcopy(self.world)
         result = self.root.perform()
         return result
 
