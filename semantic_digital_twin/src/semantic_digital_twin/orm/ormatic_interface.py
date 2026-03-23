@@ -1355,14 +1355,12 @@ class DishwasherDAO_objects_association(Base, AssociationDataAccessObject):
     )
 
 
-class DiningTableDAO_objects_association(Base, AssociationDataAccessObject):
+class TableDAO_objects_association(Base, AssociationDataAccessObject):
 
-    __tablename__ = "DiningTableDAO_objects_association"
+    __tablename__ = "TableDAO_objects_association"
 
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_diningtabledao_id: Mapped[int] = mapped_column(
-        ForeignKey("DiningTableDAO.database_id")
-    )
+    source_tabledao_id: Mapped[int] = mapped_column(ForeignKey("TableDAO.database_id"))
     target_hasrootbodydao_id: Mapped[int] = mapped_column(
         ForeignKey("HasRootBodyDAO.database_id")
     )
@@ -7720,7 +7718,7 @@ class SofaDAO(
 
 
 class TableDAO(
-    HasSupportingSurfaceDAO,
+    HasLegsDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Table
     ],
@@ -7729,14 +7727,31 @@ class TableDAO(
     __tablename__ = "TableDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasSupportingSurfaceDAO.database_id),
-        primary_key=True,
+        ForeignKey(HasLegsDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    supporting_surface_id: Mapped[int] = mapped_column(
+        ForeignKey("RegionDAO.database_id", use_alter=True),
+        nullable=True,
         use_existing_column=True,
+    )
+
+    objects: Mapped[builtins.list[TableDAO_objects_association]] = relationship(
+        "TableDAO_objects_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[TableDAO_objects_association.source_tabledao_id]",
+    )
+    supporting_surface: Mapped[RegionDAO] = relationship(
+        "RegionDAO",
+        uselist=False,
+        foreign_keys=[supporting_surface_id],
+        post_update=True,
     )
 
     __mapper_args__ = {
         "polymorphic_identity": "TableDAO",
-        "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
+        "inherit_condition": database_id == HasLegsDAO.database_id,
     }
 
 
@@ -7779,7 +7794,7 @@ class DeskDAO(
 
 
 class DiningTableDAO(
-    HasLegsDAO,
+    TableDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.DiningTable
     ],
@@ -7788,31 +7803,12 @@ class DiningTableDAO(
     __tablename__ = "DiningTableDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasLegsDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    supporting_surface_id: Mapped[int] = mapped_column(
-        ForeignKey("RegionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    objects: Mapped[builtins.list[DiningTableDAO_objects_association]] = relationship(
-        "DiningTableDAO_objects_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[DiningTableDAO_objects_association.source_diningtabledao_id]",
-    )
-    supporting_surface: Mapped[RegionDAO] = relationship(
-        "RegionDAO",
-        uselist=False,
-        foreign_keys=[supporting_surface_id],
-        post_update=True,
+        ForeignKey(TableDAO.database_id), primary_key=True, use_existing_column=True
     )
 
     __mapper_args__ = {
         "polymorphic_identity": "DiningTableDAO",
-        "inherit_condition": database_id == HasLegsDAO.database_id,
+        "inherit_condition": database_id == TableDAO.database_id,
     }
 
 
