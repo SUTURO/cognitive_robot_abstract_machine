@@ -11,6 +11,7 @@ from giskardpy.motion_statechart.motion_statechart import (
     MotionStatechart,
 )
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from giskardpy.executor import SimulationPacer
 from giskardpy.ros_executor import Ros2Executor
 from pycram.datastructures.enums import ExecutionType
 from semantic_digital_twin.world import World
@@ -78,6 +79,7 @@ class MotionExecutor:
                     target_frequency=50, prediction_horizon=4, verbose=False
                 ),
             ),
+            pacer=SimulationPacer(real_time_factor=2),
             ros_node=self.ros_node,
         )
         executor.compile(self.motion_state_chart)
