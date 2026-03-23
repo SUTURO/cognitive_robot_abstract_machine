@@ -1,7 +1,7 @@
 import logging
 from dataclasses import dataclass, field
 
-from giskardpy.motion_statechart.context import BuildContext, ExecutionContext
+from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import ActionServerTask
 from typing_extensions import Type, TypeVar
@@ -25,12 +25,12 @@ try:
         effort: float = field(kw_only=True)
         message_type: Type[Action] = field(kw_only=True, default=GripperApplyEffort)
 
-        def build_msg(self, context: BuildContext):
+        def build_msg(self, context: MotionStatechartContext):
             goal_msg = GripperApplyEffort.Goal()
             goal_msg.effort = self.effort
             self._msg = goal_msg
 
-        def on_tick(self, context: ExecutionContext) -> ObservationStateValues:
+        def on_tick(self, context: MotionStatechartContext) -> ObservationStateValues:
             if self._result:
                 return ObservationStateValues.TRUE
             return ObservationStateValues.UNKNOWN
