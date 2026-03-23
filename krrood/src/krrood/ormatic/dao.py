@@ -7,7 +7,8 @@ import threading
 import time
 from dataclasses import dataclass, field, is_dataclass, fields, MISSING
 from functools import lru_cache
-from typing import _GenericAlias
+from typing import TYPE_CHECKING, get_origin, get_args
+import typing
 
 import sqlalchemy.inspection
 import sqlalchemy.orm
@@ -288,6 +289,18 @@ class FromDataAccessObjectState(DataAccessObjectState[FromDataAccessObjectWorkIt
         """
         self.initialized_ids.add(id(dao_instance))
 
+    def record_dependency(
+        self, parent_dao: DataAccessObject, dependency: DataAccessObject
+    ):
+        """
+        Record a dependency from one DAO to another during the discovery phase.
+
+        :param parent_dao: The DAO that depends on another.
+        :param dependency: The DAO that is depended upon.
+        """
+        if self.discovery_mode:
+            self.dependencies.setdefault(id(parent_dao), set()).add(id(dependency))
+
     def push_work_item(self, dao_instance: DataAccessObject, domain_object: Any):
         """
         Add a new work item to the processing queue.
@@ -351,7 +364,7 @@ class HasGeneric(Generic[T]):
         cannot be constructed directly.
         """
         original_class = cls.original_class()
-        if type(original_class) is _GenericAlias:
+        if hasattr(original_class, "__origin__"):
             return get_origin(original_class)
         else:
             return original_class
@@ -365,7 +378,7 @@ class HasGeneric(Generic[T]):
         """
         # filter for instances of generic aliases in the superclasses
         for base in filter(
-            lambda x: isinstance(x, _GenericAlias),
+            lambda x: hasattr(x, "__origin__"),
             cls.__orig_bases__,
         ):
             return get_args(base)[0]
@@ -906,14 +919,56 @@ class DataAccessObject(HasGeneric[T]):
         """
         state.resolution_mode = True
 
+        # Map DAO ID to work item and its discovery index.
         id_to_work_item = {id(wi.dao_instance): wi for wi in discovery_order}
-        discovery_order_indices = {
-            id(wi.dao_instance): i for i, wi in enumerate(discovery_order)
-        }
-        dependants: Dict[int, Set[int]] = {dao_id: set() for dao_id in id_to_work_item}
-        pending_dependency_counts = {dao_id: 0 for dao_id in id_to_work_item}
+        id_to_index = {id(wi.dao_instance): i for i, wi in enumerate(discovery_order)}
 
-        # Build the dependency graph for the current batch of objects.
+        # Build local graph for the current batch.
+        dependants, pending_counts = self._build_dependency_graph(
+            state, id_to_work_item
+        )
+
+        # Initialize the set of ready objects.
+        ready_indices = [
+            i
+            for i, wi in enumerate(discovery_order)
+            if pending_counts[id(wi.dao_instance)] == 0
+        ]
+        unresolved_indices = set(range(len(discovery_order)))
+
+        # Process objects in topological order.
+        while unresolved_indices:
+            current_index = self._pick_next_ready_index(
+                ready_indices, unresolved_indices
+            )
+            unresolved_indices.remove(current_index)
+
+            work_item = discovery_order[current_index]
+            self._finalize_work_item(work_item, state)
+
+            # Update dependants and move newly ready ones to the queue.
+            for dependant_id in dependants[id(work_item.dao_instance)]:
+                pending_counts[dependant_id] -= 1
+                if pending_counts[dependant_id] == 0:
+                    idx = id_to_index[dependant_id]
+                    if idx in unresolved_indices:
+                        ready_indices.append(idx)
+
+    def _build_dependency_graph(
+        self,
+        state: FromDataAccessObjectState,
+        id_to_work_item: Dict[int, FromDataAccessObjectWorkItem],
+    ) -> Tuple[Dict[int, Set[int]], Dict[int, int]]:
+        """
+        Build a local dependency graph (adjacency list and in-degrees) for the current batch.
+
+        :param state: The conversion state containing global dependencies.
+        :param id_to_work_item: Mapping of DAO IDs to their work items.
+        :return: A tuple (dependants, pending_counts).
+        """
+        dependants = {dao_id: set() for dao_id in id_to_work_item}
+        pending_counts = {dao_id: 0 for dao_id in id_to_work_item}
+
         for dao_id, deps in state.dependencies.items():
             if dao_id not in id_to_work_item:
                 continue
@@ -921,43 +976,43 @@ class DataAccessObject(HasGeneric[T]):
                 # We only care about dependencies within the current set of DAOs.
                 if dep_id in id_to_work_item and dep_id != dao_id:
                     dependants[dep_id].add(dao_id)
-                    pending_dependency_counts[dao_id] += 1
+                    pending_counts[dao_id] += 1
+        return dependants, pending_counts
 
-        # Find all objects that have no pending dependencies.
-        unresolved_indices = set(range(len(discovery_order)))
-        ready_indices = [
-            i
-            for i, wi in enumerate(discovery_order)
-            if pending_dependency_counts[id(wi.dao_instance)] == 0
-        ]
+    def _pick_next_ready_index(
+        self, ready_indices: List[int], unresolved_indices: Set[int]
+    ) -> int:
+        """
+        Pick the next object to resolve from the ready queue.
 
-        while unresolved_indices:
-            if not ready_indices:
-                # Cycle detected: break it by picking the latest discovered item.
-                next_index = max(unresolved_indices)
-                ready_indices.append(next_index)
+        If the queue is empty, a cycle exists, and we break it by picking
+        the latest discovered item.
 
-            # Prioritize items discovered later (closer to the leaves in DFS).
-            ready_indices.sort()
-            current_index = ready_indices.pop()
+        :param ready_indices: List of indices ready for resolution.
+        :param unresolved_indices: Set of indices yet to be resolved.
+        :return: The index of the next object to resolve.
+        """
+        if not ready_indices:
+            # Cycle detected: break it by picking the latest discovered item.
+            next_index = max(unresolved_indices)
+            ready_indices.append(next_index)
 
-            if current_index not in unresolved_indices:
-                continue
+        # Prioritize items discovered later (closer to the leaves in DFS).
+        ready_indices.sort()
+        return ready_indices.pop()
 
-            unresolved_indices.remove(current_index)
-            work_item = discovery_order[current_index]
+    def _finalize_work_item(
+        self, work_item: FromDataAccessObjectWorkItem, state: FromDataAccessObjectState
+    ) -> None:
+        """
+        Fully resolve and initialize a single work item.
 
-            if not state.is_initialized(work_item.dao_instance):
-                work_item.dao_instance._resolve_from_dao(work_item.domain_object, state)
-                state.mark_initialized(work_item.dao_instance)
-
-            # Update dependants and add them to the ready queue if they become ready.
-            for dependant_id in dependants[id(work_item.dao_instance)]:
-                pending_dependency_counts[dependant_id] -= 1
-                if pending_dependency_counts[dependant_id] == 0:
-                    dep_index = discovery_order_indices[dependant_id]
-                    if dep_index in unresolved_indices:
-                        ready_indices.append(dep_index)
+        :param work_item: The work item to finalize.
+        :param state: The conversion state.
+        """
+        if not state.is_initialized(work_item.dao_instance):
+            work_item.dao_instance._resolve_from_dao(work_item.domain_object, state)
+            state.mark_initialized(work_item.dao_instance)
 
     def _finalize_containers(
         self,
@@ -1022,8 +1077,8 @@ class DataAccessObject(HasGeneric[T]):
         :param state: The conversion state.
         :return: The uninitialized domain object.
         """
-        if state.discovery_mode and state.current_dao is not None:
-            state.dependencies.setdefault(id(state.current_dao), set()).add(id(self))
+        if state.current_dao is not None:
+            state.record_dependency(state.current_dao, self)
 
         if not state.has(self):
             domain_object = state.allocate_and_memoize(
