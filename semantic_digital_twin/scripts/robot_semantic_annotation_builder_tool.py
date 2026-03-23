@@ -26,6 +26,8 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QLabel,
     QDialog,
+    QLineEdit,
+    QDoubleSpinBox,
 )
 
 from giskardpy.middleware.ros2 import rospy
@@ -39,7 +41,18 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
-from semantic_digital_twin.robots.abstract_robot import Neck, Arm, KinematicChain
+from semantic_digital_twin.robots.abstract_robot import (
+    Neck,
+    Arm,
+    KinematicChain,
+    HumanoidGripper,
+    ParallelGripper,
+    Finger,
+    Camera,
+    FieldOfView,
+    Manipulator,
+    Sensor,
+)
 from semantic_digital_twin.robots.robot_mixins import (
     HasNeck,
     HasArms,
@@ -213,6 +226,240 @@ class ComponentSelectionDialog(QDialog):
 
 
 @dataclass
+class TypeSelectionDialog(QDialog):
+    """
+    Dialog for choosing between multiple types.
+    """
+
+    title: str
+    options: List[str]
+    selected_type: Optional[str] = field(init=False, default=None)
+
+    def __post_init__(self):
+        super().__init__()
+        self.setWindowTitle(self.title)
+        self.init_ui()
+
+    def init_ui(self):
+        """
+        Initialize the UI.
+        """
+        layout = QVBoxLayout()
+        for option in self.options:
+            button = QPushButton(option)
+            button.clicked.connect(
+                lambda checked, opt=option: self.on_option_selected(opt)
+            )
+            layout.addWidget(button)
+        self.setLayout(layout)
+
+    def on_option_selected(self, option: str):
+        """
+        Callback for when an option is selected.
+        """
+        self.selected_type = option
+        self.accept()
+
+
+@dataclass
+class FingerWidget(QGroupBox):
+    """
+    Widget for managing finger properties.
+    """
+
+    application: Application
+    finger: Finger
+    parent_widget: QWidget
+
+    def __post_init__(self):
+        super().__init__(self.finger.name.name)
+        self.init_ui()
+
+    def init_ui(self):
+        """
+        Initialize the UI.
+        """
+        layout = QVBoxLayout()
+        remove_button = QPushButton("Remove Finger")
+        remove_button.clicked.connect(
+            lambda: self.application.remove_finger(self.finger)
+        )
+        layout.addWidget(remove_button)
+
+        root_name = self.finger.root.name.name if self.finger.root else "None"
+        root_button = QPushButton(f"Root Body: {root_name}")
+        root_button.clicked.connect(
+            lambda: self.application.assign_body_to_finger_root(self.finger)
+        )
+        layout.addWidget(root_button)
+
+        tip_name = self.finger.tip.name.name if self.finger.tip else "None"
+        tip_button = QPushButton(f"Tip Body: {tip_name}")
+        tip_button.clicked.connect(
+            lambda: self.application.assign_body_to_finger_tip(self.finger)
+        )
+        layout.addWidget(tip_button)
+
+        self.setLayout(layout)
+
+
+@dataclass
+class ManipulatorWidget(QGroupBox):
+    """
+    Widget for managing manipulator properties.
+    """
+
+    application: Application
+    arm: Arm
+    manipulator: Manipulator
+
+    def __post_init__(self):
+        super().__init__(f"Manipulator: {self.manipulator.__class__.__name__}")
+        self.init_ui()
+
+    def init_ui(self):
+        """
+        Initialize the UI.
+        """
+        layout = QVBoxLayout()
+        remove_button = QPushButton("Remove Manipulator")
+        remove_button.clicked.connect(
+            lambda: self.application.remove_manipulator(self.arm)
+        )
+        layout.addWidget(remove_button)
+
+        root_name = self.manipulator.root.name.name if self.manipulator.root else "None"
+        root_button = QPushButton(f"Root Body: {root_name}")
+        root_button.clicked.connect(
+            lambda: self.application.assign_body_to_manipulator_root(self.arm)
+        )
+        layout.addWidget(root_button)
+
+        tool_name = (
+            self.manipulator.tool_frame.name.name
+            if self.manipulator.tool_frame
+            else "None"
+        )
+        tool_button = QPushButton(f"Tool Frame: {tool_name}")
+        tool_button.clicked.connect(
+            lambda: self.application.assign_body_to_manipulator_tool_frame(self.arm)
+        )
+        layout.addWidget(tool_button)
+
+        add_finger_button = QPushButton("Add Finger")
+        add_finger_button.clicked.connect(
+            lambda: self.application.add_finger_to_manipulator(self.arm)
+        )
+        layout.addWidget(add_finger_button)
+
+        if isinstance(self.manipulator, ParallelGripper):
+            if self.manipulator.finger:
+                add_finger_button.setEnabled(False)
+                layout.addWidget(
+                    FingerWidget(self.application, self.manipulator.finger, self)
+                )
+            if self.manipulator.thumb:
+                layout.addWidget(
+                    FingerWidget(self.application, self.manipulator.thumb, self)
+                )
+        elif isinstance(self.manipulator, HumanoidGripper):
+            for finger in self.manipulator.fingers:
+                layout.addWidget(FingerWidget(self.application, finger, self))
+            if self.manipulator.thumb:
+                layout.addWidget(
+                    FingerWidget(self.application, self.manipulator.thumb, self)
+                )
+
+        self.setLayout(layout)
+
+
+@dataclass
+class SensorWidget(QGroupBox):
+    """
+    Widget for managing sensor properties.
+    """
+
+    application: Application
+    arm: Arm
+    sensor: Sensor
+
+    def __post_init__(self):
+        super().__init__(f"Sensor: {self.sensor.name.name}")
+        self.init_ui()
+
+    def init_ui(self):
+        """
+        Initialize the UI.
+        """
+        layout = QVBoxLayout()
+        remove_button = QPushButton("Remove Sensor")
+        remove_button.clicked.connect(
+            lambda: self.application.remove_sensor(self.arm, self.sensor)
+        )
+        layout.addWidget(remove_button)
+
+        root_name = self.sensor.root.name.name if self.sensor.root else "None"
+        root_button = QPushButton(f"Root Body: {root_name}")
+        root_button.clicked.connect(
+            lambda: self.application.assign_body_to_sensor_root(self.sensor)
+        )
+        layout.addWidget(root_button)
+
+        if isinstance(self.sensor, Camera):
+            min_height_layout = QHBoxLayout()
+            min_height_layout.addWidget(QLabel("Min Height:"))
+            min_height_spin = QDoubleSpinBox()
+            min_height_spin.setValue(self.sensor.minimal_height)
+            min_height_spin.valueChanged.connect(
+                lambda val: setattr(self.sensor, "minimal_height", val)
+            )
+            min_height_layout.addWidget(min_height_spin)
+            layout.addLayout(min_height_layout)
+
+            max_height_layout = QHBoxLayout()
+            max_height_layout.addWidget(QLabel("Max Height:"))
+            max_height_spin = QDoubleSpinBox()
+            max_height_spin.setValue(self.sensor.maximal_height)
+            max_height_spin.valueChanged.connect(
+                lambda val: setattr(self.sensor, "maximal_height", val)
+            )
+            max_height_layout.addWidget(max_height_spin)
+            layout.addLayout(max_height_layout)
+
+            default_checkbox = QCheckBox("Default Camera")
+            default_checkbox.setChecked(self.sensor.default_camera)
+            default_checkbox.toggled.connect(
+                lambda checked: setattr(self.sensor, "default_camera", checked)
+            )
+            layout.addWidget(default_checkbox)
+
+            if not self.sensor.field_of_view:
+                self.sensor.field_of_view = FieldOfView(0.0, 0.0)
+
+            fov_v_layout = QHBoxLayout()
+            fov_v_layout.addWidget(QLabel("FOV Vertical:"))
+            fov_v_spin = QDoubleSpinBox()
+            fov_v_spin.setValue(self.sensor.field_of_view.vertical_angle)
+            fov_v_spin.valueChanged.connect(
+                lambda val: setattr(self.sensor.field_of_view, "vertical_angle", val)
+            )
+            fov_v_layout.addWidget(fov_v_spin)
+            layout.addLayout(fov_v_layout)
+
+            fov_h_layout = QHBoxLayout()
+            fov_h_layout.addWidget(QLabel("FOV Horizontal:"))
+            fov_h_spin = QDoubleSpinBox()
+            fov_h_spin.setValue(self.sensor.field_of_view.horizontal_angle)
+            fov_h_spin.valueChanged.connect(
+                lambda val: setattr(self.sensor.field_of_view, "horizontal_angle", val)
+            )
+            fov_h_layout.addWidget(fov_h_spin)
+            layout.addLayout(fov_h_layout)
+
+        self.setLayout(layout)
+
+
+@dataclass
 class NeckWidget(QGroupBox):
     """
     Widget for managing neck properties.
@@ -325,6 +572,19 @@ class ArmWidget(QGroupBox):
         )
         layout.addWidget(visualize_button)
 
+        add_manipulator_button = QPushButton("Add Manipulator")
+        add_manipulator_button.setEnabled(self.arm.manipulator is None)
+        add_manipulator_button.clicked.connect(
+            lambda: self.application.add_manipulator_callback(self.arm)
+        )
+        layout.addWidget(add_manipulator_button)
+
+        add_sensor_button = QPushButton("Add Sensor")
+        add_sensor_button.clicked.connect(
+            lambda: self.application.add_sensor_callback(self.arm)
+        )
+        layout.addWidget(add_sensor_button)
+
         self.setLayout(layout)
 
 
@@ -401,7 +661,15 @@ class Application(QMainWindow):
 
         main_layout = QHBoxLayout()
         main_layout.addLayout(left_layout, stretch=4)
-        main_layout.addLayout(self._create_chosen_components_layout(), stretch=1)
+
+        self.right_scroll_area = QScrollArea()
+        self.right_scroll_area.setWidgetResizable(True)
+        self.right_widget = QWidget()
+        self.right_layout = self._create_chosen_components_layout()
+        self.right_widget.setLayout(self.right_layout)
+        self.right_scroll_area.setWidget(self.right_widget)
+
+        main_layout.addWidget(self.right_scroll_area, stretch=1)
 
         central_widget = QWidget()
         central_widget.setLayout(main_layout)
@@ -488,6 +756,12 @@ class Application(QMainWindow):
 
         for arm in self.arms:
             self.components_list_layout.addWidget(ArmWidget(self, arm))
+            if arm.manipulator:
+                self.components_list_layout.addWidget(
+                    ManipulatorWidget(self, arm, arm.manipulator)
+                )
+            for sensor in arm.sensors:
+                self.components_list_layout.addWidget(SensorWidget(self, arm, sensor))
 
     def _add_neck_callback(self):
         """
@@ -518,6 +792,131 @@ class Application(QMainWindow):
         """
         self.arms.remove(arm)
         self._update_chosen_components_list()
+
+    def add_manipulator_callback(self, arm: Arm):
+        """
+        Callback for adding a manipulator to an arm.
+        """
+        dialog = TypeSelectionDialog(
+            "Choose Manipulator Type", ["HumanoidGripper", "ParallelGripper"]
+        )
+        if dialog.exec_():
+            if dialog.selected_type == "HumanoidGripper":
+                arm.manipulator = HumanoidGripper(
+                    name=PrefixedName(f"{arm.name.name}_gripper"),
+                    tool_frame=None,
+                    front_facing_orientation=None,
+                    front_facing_axis=None,
+                    thumb=Finger(name=PrefixedName(f"{arm.name.name}_thumb")),
+                )
+            elif dialog.selected_type == "ParallelGripper":
+                arm.manipulator = ParallelGripper(
+                    name=PrefixedName(f"{arm.name.name}_gripper"),
+                    tool_frame=None,
+                    front_facing_orientation=None,
+                    front_facing_axis=None,
+                    finger=None,
+                    thumb=Finger(name=PrefixedName(f"{arm.name.name}_thumb")),
+                )
+            self._update_chosen_components_list()
+
+    def add_finger_to_manipulator(self, arm: Arm):
+        """
+        Adds a finger to a manipulator.
+        """
+        if isinstance(arm.manipulator, HumanoidGripper):
+            finger_name = (
+                f"{arm.manipulator.name.name}_finger_{len(arm.manipulator.fingers)}"
+            )
+            arm.manipulator.fingers.append(Finger(name=PrefixedName(finger_name)))
+            self._update_chosen_components_list()
+        elif isinstance(arm.manipulator, ParallelGripper):
+            if arm.manipulator.finger is None:
+                finger_name = f"{arm.manipulator.name.name}_finger"
+                arm.manipulator.finger = Finger(name=PrefixedName(finger_name))
+                self._update_chosen_components_list()
+
+    def remove_finger(self, finger: Finger):
+        """
+        Removes a finger from its manipulator.
+        """
+        for arm in self.interface.robot.arms:
+            if arm.manipulator:
+                if isinstance(arm.manipulator, HumanoidGripper):
+                    if finger in arm.manipulator.fingers:
+                        arm.manipulator.fingers.remove(finger)
+                        self._update_chosen_components_list()
+                        return
+                elif isinstance(arm.manipulator, ParallelGripper):
+                    if arm.manipulator.finger == finger:
+                        arm.manipulator.finger = None
+                        self._update_chosen_components_list()
+                        return
+
+    def remove_manipulator(self, arm: Arm):
+        """
+        Removes the manipulator from an arm.
+        """
+        arm.manipulator = None
+        self._update_chosen_components_list()
+
+    def add_sensor_callback(self, arm: Arm):
+        """
+        Callback for adding a sensor to an arm.
+        """
+        dialog = TypeSelectionDialog("Choose Sensor Type", ["Camera"])
+        if dialog.exec_():
+            if dialog.selected_type == "Camera":
+                sensor_name = f"{arm.name.name}_camera_{len(arm.sensors)}"
+                camera = Camera(name=PrefixedName(sensor_name))
+                arm.sensors.append(camera)
+            self._update_chosen_components_list()
+
+    def remove_sensor(self, arm: Arm, sensor: Sensor):
+        """
+        Removes a sensor from an arm.
+        """
+        arm.sensors.remove(sensor)
+        self._update_chosen_components_list()
+
+    def assign_body_to_manipulator_root(self, arm: Arm):
+        """
+        Starts selection mode for manipulator root body.
+        """
+        self.selection_mode = f"manipulator_root_{arm.name.name}"
+        self.selection_label.setText(
+            f"Select Root Body for {arm.manipulator.name.name}"
+        )
+
+    def assign_body_to_manipulator_tool_frame(self, arm: Arm):
+        """
+        Starts selection mode for manipulator tool frame.
+        """
+        self.selection_mode = f"manipulator_tool_{arm.name.name}"
+        self.selection_label.setText(
+            f"Select Tool Frame for {arm.manipulator.name.name}"
+        )
+
+    def assign_body_to_finger_root(self, finger: Finger):
+        """
+        Starts selection mode for finger root body.
+        """
+        self.selection_mode = f"finger_root_{finger.name.name}"
+        self.selection_label.setText(f"Select Root Body for {finger.name.name}")
+
+    def assign_body_to_finger_tip(self, finger: Finger):
+        """
+        Starts selection mode for finger tip body.
+        """
+        self.selection_mode = f"finger_tip_{finger.name.name}"
+        self.selection_label.setText(f"Select Tip Body for {finger.name.name}")
+
+    def assign_body_to_sensor_root(self, sensor: Sensor):
+        """
+        Starts selection mode for sensor root body.
+        """
+        self.selection_mode = f"sensor_root_{sensor.name.name}"
+        self.selection_label.setText(f"Select Root Body for {sensor.name.name}")
 
     def assign_body_to_neck_pitch(self):
         """
@@ -586,6 +985,72 @@ class Application(QMainWindow):
             arm = next((a for a in self.arms if a.name.name == arm_name), None)
             if arm:
                 arm.tip = body
+
+        elif self.selection_mode.startswith("manipulator_root_"):
+            arm_name = self.selection_mode.replace("manipulator_root_", "")
+            arm = next((a for a in self.arms if a.name.name == arm_name), None)
+            if arm and arm.manipulator:
+                arm.manipulator.root = body
+        elif self.selection_mode.startswith("manipulator_tool_"):
+            arm_name = self.selection_mode.replace("manipulator_tool_", "")
+            arm = next((a for a in self.arms if a.name.name == arm_name), None)
+            if arm and arm.manipulator:
+                arm.manipulator.tool_frame = body
+        elif self.selection_mode.startswith("finger_root_"):
+            finger_name = self.selection_mode.replace("finger_root_", "")
+            # Look for finger in all arms/manipulators
+            for arm in self.arms:
+                if arm.manipulator:
+                    if isinstance(arm.manipulator, ParallelGripper):
+                        if (
+                            arm.manipulator.finger
+                            and arm.manipulator.finger.name.name == finger_name
+                        ):
+                            arm.manipulator.finger.root = body
+                        if (
+                            arm.manipulator.thumb
+                            and arm.manipulator.thumb.name.name == finger_name
+                        ):
+                            arm.manipulator.thumb.root = body
+                    elif isinstance(arm.manipulator, HumanoidGripper):
+                        for f in arm.manipulator.fingers:
+                            if f.name.name == finger_name:
+                                f.root = body
+                        if (
+                            arm.manipulator.thumb
+                            and arm.manipulator.thumb.name.name == finger_name
+                        ):
+                            arm.manipulator.thumb.root = body
+        elif self.selection_mode.startswith("finger_tip_"):
+            finger_name = self.selection_mode.replace("finger_tip_", "")
+            for arm in self.arms:
+                if arm.manipulator:
+                    if isinstance(arm.manipulator, ParallelGripper):
+                        if (
+                            arm.manipulator.finger
+                            and arm.manipulator.finger.name.name == finger_name
+                        ):
+                            arm.manipulator.finger.tip = body
+                        if (
+                            arm.manipulator.thumb
+                            and arm.manipulator.thumb.name.name == finger_name
+                        ):
+                            arm.manipulator.thumb.tip = body
+                    elif isinstance(arm.manipulator, HumanoidGripper):
+                        for f in arm.manipulator.fingers:
+                            if f.name.name == finger_name:
+                                f.tip = body
+                        if (
+                            arm.manipulator.thumb
+                            and arm.manipulator.thumb.name.name == finger_name
+                        ):
+                            arm.manipulator.thumb.tip = body
+        elif self.selection_mode.startswith("sensor_root_"):
+            sensor_name = self.selection_mode.replace("sensor_root_", "")
+            for arm in self.arms:
+                for sensor in arm.sensors:
+                    if sensor.name.name == sensor_name:
+                        sensor.root = body
 
         self.selection_mode = None
         self.selection_label.setText("")
