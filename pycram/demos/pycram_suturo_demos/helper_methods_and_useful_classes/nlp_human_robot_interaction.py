@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Any, Optional
 
 import rclpy
@@ -38,12 +39,13 @@ class TalkingNode(Node):
             10
         )
 
-    def pub(self, text: str):
+    def pub(self, text: str, delay: int = 0):
         msg = String()
         msg.data = text
         self.get_logger().info(f"Publishing: {text}")
 
         self.talk_pub.publish(msg)
+        time.sleep(delay)
 
 class HriHuman(Human):
     """
