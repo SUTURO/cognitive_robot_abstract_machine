@@ -3,6 +3,8 @@ import inspect
 import os
 import shutil
 import time
+from typing import Self
+
 import trimesh
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -20,26 +22,28 @@ from multiverse_simulator import (
     MultiverseAttribute,
     MultiverseCallbackResult,
 )
+
+from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json
 from krrood.utils import recursive_subclasses
 from scipy.spatial.transform import Rotation
 from trimesh.visual import TextureVisuals
 
-from ..callbacks.callback import ModelChangeCallback
-from ..datastructures.prefixed_name import PrefixedName
-from ..spatial_types.spatial_types import (
+from semantic_digital_twin.callbacks.callback import ModelChangeCallback
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
     Quaternion,
 )
-from ..world import World
-from ..world_description.connections import (
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     PrismaticConnection,
     ActiveConnection1DOF,
     FixedConnection,
     Connection6DoF,
 )
-from ..world_description.geometry import (
+from semantic_digital_twin.world_description.geometry import (
     Box,
     Cylinder,
     Sphere,
@@ -49,7 +53,7 @@ from ..world_description.geometry import (
     Mesh,
     Color,
 )
-from ..world_description.world_entity import (
+from semantic_digital_twin.world_description.world_entity import (
     Region,
     Body,
     KinematicStructureEntity,
@@ -57,8 +61,8 @@ from ..world_description.world_entity import (
     WorldEntity,
     Actuator,
 )
-from ..mixin import SimulatorAdditionalProperty
-from ..world_description.world_modification import (
+from semantic_digital_twin.mixin import SimulatorAdditionalProperty
+from semantic_digital_twin.world_description.world_modification import (
     AddKinematicStructureEntityModification,
     AddActuatorModification,
 )
@@ -663,7 +667,7 @@ class MujocoEntityNotFoundError(MujocoError):
 
 
 @dataclass
-class MujocoActuator(SimulatorAdditionalProperty):
+class MujocoActuator(SimulatorAdditionalProperty, SubclassJSONSerializer):
     """
     Represents a MuJoCo-specific actuator in the world model.
     For more information, see: https://mujoco.readthedocs.io/en/stable/XMLreference.html#actuator-general
@@ -750,6 +754,50 @@ class MujocoActuator(SimulatorAdditionalProperty):
     mujoco.mjtGain.mjGAIN_MUSCLE:   gain_term = mju_muscleGain(…)
     mujoco.mjtGain.mjGAIN_USER:     gain_term = mjcb_act_gain(…)
     """
+
+    def to_json(self) -> Dict[str, Any]:
+        """
+        Serializes the MujocoActuator to a JSON-compatible dictionary.
+
+        :return: A dictionary representation of the MujocoActuator.
+        """
+        return {
+            "activation_limited": self.activation_limited,
+            "activation_range": to_json(self.activation_range),
+            "control_limited": self.control_limited,
+            "control_range": to_json(self.control_range),
+            "force_limited": self.force_limited,
+            "force_range": to_json(self.force_range),
+            "bias_parameters": to_json(self.bias_parameters),
+            "bias_type": self.bias_type,
+            "dynamics_parameters": to_json(self.dynamics_parameters),
+            "dynamics_type": self.dynamics_type,
+            "gain_parameters": to_json(self.gain_parameters),
+            "gain_type": self.gain_type,
+        }
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        """
+        Deserializes a JSON-compatible dictionary to a MujocoActuator instance.
+
+        :param data: A dictionary representation of a MujocoActuator.
+        :return: A MujocoActuator instance created from the provided data.
+        """
+        return cls(
+            activation_limited=mujoco.mjtLimited(data["activation_limited"]),
+            activation_range=data["activation_range"],
+            control_limited=mujoco.mjtLimited(data["control_limited"]),
+            control_range=data["control_range"],
+            force_limited=mujoco.mjtLimited(data["force_limited"]),
+            force_range=data["force_range"],
+            bias_parameters=data["bias_parameters"],
+            bias_type=mujoco.mjtBias(data["bias_type"]),
+            dynamics_parameters=data["dynamics_parameters"],
+            dynamics_type=mujoco.mjtDyn(data["dynamics_type"]),
+            gain_parameters=data["gain_parameters"],
+            gain_type=mujoco.mjtGain(data["gain_type"]),
+        )
 
 
 @dataclass
@@ -2131,19 +2179,14 @@ class MujocoActuatorSpawner(MujocoEntitySpawner, ActuatorSpawner):
         )
 
 
-@dataclass
+@dataclass(eq=False)
 class MultiSimSynchronizer(ModelChangeCallback, ABC):
     """
     A callback to synchronize the world model with the Multiverse simulator.
     This callback will listen to the world model changes and update the Multiverse simulator accordingly.
     """
 
-    world: World
-    """
-    The world to synchronize with the simulator.
-    """
-
-    simulator: MultiverseSimulator
+    simulator: MultiverseSimulator = field(kw_only=True)
     """
     The Multiverse simulator to synchronize with the world.
     """
@@ -2159,19 +2202,20 @@ class MultiSimSynchronizer(ModelChangeCallback, ABC):
     """
 
     def _notify(self, **kwargs):
-        for modification in self.world._model_manager.model_modification_blocks[-1]:
-            if isinstance(modification, AddKinematicStructureEntityModification):
-                entity = modification.kinematic_structure_entity
-                self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
-            elif isinstance(modification, AddActuatorModification):
-                entity = modification.actuator
+        for modification in self._world._model_manager.model_modification_blocks[-1]:
+            if isinstance(
+                modification,
+                (AddKinematicStructureEntityModification, AddActuatorModification),
+            ):
+                entity = modification.to_domain_object(self._world)
+                entity = self._world.get_world_entity_with_id_by_id(entity.id)
                 self.entity_spawner.spawn(simulator=self.simulator, entity=entity)
 
     def stop(self):
-        self.world._model_manager.model_change_callbacks.remove(self)
+        self._world._model_manager.model_change_callbacks.remove(self)
 
 
-@dataclass
+@dataclass(eq=False)
 class MujocoSynchronizer(MultiSimSynchronizer):
     simulator: MultiverseMujocoConnector
     entity_converter: Type[EntityConverter] = field(default=MujocoConverter)
@@ -2241,7 +2285,7 @@ class MultiSim(ABC):
             **kwargs,
         )
         self.synchronizer = self.synchronizer_class(
-            world=world,
+            _world=world,
             simulator=self.simulator,
         )
         self._viewer = viewer
