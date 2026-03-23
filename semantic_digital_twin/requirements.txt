@@ -9,7 +9,6 @@ hypothesis
 pytest
 scipy
 sqlacodegen
-ripple_down_rules>=0.6.51
 pytest-order
 sqlalchemy
 embreex # Hardware acceleration for trimesh raycasting
