@@ -148,7 +148,9 @@ def try_make_viz(world):
         )
 
         node = rclpy.create_node("viz_marker")
-        return VizMarkerPublisher(world, node)
+        viz = VizMarkerPublisher(_world=world, node=node)
+        viz.with_tf_publisher()
+        return viz
     except Exception:
         logger.info(
             "VizMarkerPublisher is unavailable (ROS not running or deps missing)."
@@ -199,7 +201,6 @@ def setup_hsrb_in_environment(
         0.0,
         0.0,
     ),
-    with_viz: bool = True,
     with_objects: bool = field(kw_only=True, default=True),
 ) -> SetupResult:
     rclpy.init()
@@ -225,12 +226,7 @@ def setup_hsrb_in_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
 
-    if with_viz:
-        try:
-            viz = try_make_viz(world)
-            viz.with_tf_publisher()
-        except Exception as e:
-            logger.warn("Failed to setup viz" + str(e))
+    viz = try_make_viz(world)
 
     return SetupResult(
         world=world,
