@@ -10,7 +10,6 @@ from suturo_resources.queries import (
     query_get_next_object_euclidean_x_y,
     query_annotations_by_color,
 )
-from sympy import false
 
 import semantic_digital_twin
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes import (
@@ -60,7 +59,7 @@ logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
 rclpy.init()
 SIMULATED = True
-result = robot_setup(simulation=SIMULATED, with_simulated_objects=false)
+result = robot_setup(simulation=SIMULATED, with_simulated_objects=False)
 rclpy_node, world, robot_view, context = (
     result.node,
     result.world,
