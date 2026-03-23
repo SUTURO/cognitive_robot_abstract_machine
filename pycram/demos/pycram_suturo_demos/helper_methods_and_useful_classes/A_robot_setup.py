@@ -5,7 +5,6 @@ def robot_setup(
     *,
     simulation: bool = True,
     with_simulated_objects: bool = True,
-    with_viz: bool = True,
 ):
     """
     Set up the robot either in simulation or on the real system.
@@ -25,7 +24,6 @@ def robot_setup(
         return setup_hsrb_in_environment(
             load_environment=load_environment,
             with_objects=with_simulated_objects,
-            with_viz=with_viz,
         )
 
     from pycram_suturo_demos.helper_methods_and_useful_classes.A_real_setup import (
@@ -33,5 +31,5 @@ def robot_setup(
     )
 
     return world_setup_with_test_objects(
-        with_object=with_simulated_objects, with_viz=with_viz
+        with_object=with_simulated_objects
     )
