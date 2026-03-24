@@ -8,34 +8,58 @@ import operator
 
 from typing_extensions import Union, Iterable
 
-from .core.base_expressions import SymbolicExpression
-from .enums import DomainSource
-from .failures import UnsupportedExpressionTypeForDistinct
-from .query.match import Match, MatchVariable
-from .operators.aggregators import Max, Min, Sum, Average, Count
-from .operators.comparator import Comparator
-from .operators.core_logical_operators import chained_logic, AND, OR
-from .operators.logical_quantifiers import ForAll, Exists
-from .operators.concatenation import Concatenation
-from .query.quantifiers import (
+from krrood.entity_query_language.core.base_expressions import SymbolicExpression, TruthValueOperator
+from krrood.entity_query_language.core.mapped_variable import (
+    FlatVariable,
+    CanBehaveLikeAVariable,
+)
+from krrood.entity_query_language.core.variable import (
+    DomainType,
+    Literal,
+    ExternallySetVariable,
+)
+from krrood.entity_query_language.enums import DomainSource
+from krrood.entity_query_language.exceptions import UnsupportedExpressionTypeForDistinct
+from krrood.entity_query_language.operators.aggregators import (
+    Max,
+    Min,
+    Sum,
+    Average,
+    Count,
+    CountAll,
+    Mode,
+    MultiMode,
+)
+from krrood.entity_query_language.operators.comparator import Comparator
+from krrood.entity_query_language.operators.concatenation import Concatenation
+from krrood.entity_query_language.operators.core_logical_operators import (
+    chained_logic,
+    AND,
+    OR,
+)
+from krrood.entity_query_language.operators.logical_quantifiers import ForAll, Exists
+from krrood.entity_query_language.predicate import *  # type: ignore
+from krrood.entity_query_language.query.match import (
+    Match,
+    MatchVariable,
+)
+from krrood.entity_query_language.query.quantifiers import (
     ResultQuantificationConstraint,
     An,
     The,
     ResultQuantifier,
 )
-from .rules.conclusion_selector import Refinement, Alternative, Next
-from .query.query import Entity, SetOf, Query
-from .utils import is_iterable
-from .core.variable import (
-    DomainType,
-    Literal,
-    ExternallySetVariable,
+from krrood.entity_query_language.query.query import Entity, SetOf, Query
+from krrood.entity_query_language.rules.conclusion import Add
+from krrood.entity_query_language.rules.conclusion_selector import (
+    Refinement,
+    Alternative,
+    Next,
 )
-from .core.mapped_variable import FlatVariable, CanBehaveLikeAVariable
-from .predicate import *  # type: ignore
-from ..symbol_graph.symbol_graph import Symbol, SymbolGraph
+from krrood.entity_query_language.utils import is_iterable
+from krrood.symbol_graph.symbol_graph import Symbol, SymbolGraph
 
-ConditionType = Union[SymbolicExpression, bool, Predicate]
+ConditionType = Union[SymbolicExpression, bool, Predicate, TruthValueOperator]
 """
 The possible types for conditions.
 """
@@ -76,12 +100,12 @@ def match(
     :param type_: The type of the variable (i.e., The class you want to instantiate).
     :return: The Match instance.
     """
-    return Match(type_=type_)
+    return Match(factory=type_)
 
 
 def match_variable(
     type_: Union[Type[T], Selectable[T]], domain: DomainType
-) -> Union[T, CanBehaveLikeAVariable[T], MatchVariable[T]]:
+) -> Union[T, Entity[T], MatchVariable[T]]:
     """
     Same as :py:func:`krrood.entity_query_language.match.match` but with a domain to use for the variable created
      by the match.
@@ -90,7 +114,18 @@ def match_variable(
     :param domain: The domain used for the variable created by the match.
     :return: The Match instance.
     """
-    return MatchVariable(type_=type_, domain=domain)
+    return MatchVariable(factory=type_, domain=domain)
+
+
+def underspecified(
+    expression: Union[Type[T], Callable[..., T]],
+) -> Union[Type[T], Match[T]]:
+    """
+    Same as :py:func:`krrood.entity_query_language.factories.match` but instead of searching for solutions in
+    the domain objects, it is used as a query for generative processes to infer solutions that satisfy the constraints
+    in the query.
+    """
+    return Match(factory=expression)
 
 
 # %% Variable Declaration
@@ -206,7 +241,7 @@ def flat_variable(
 # %% Logical Operators
 
 
-def and_(*conditions: ConditionType):
+def and_(*conditions: ConditionType) -> ConditionType:
     """
     Logical conjunction of conditions.
 
@@ -218,7 +253,7 @@ def and_(*conditions: ConditionType):
     return chained_logic(AND, *conditions)
 
 
-def or_(*conditions):
+def or_(*conditions) -> ConditionType:
     """
     Logical disjunction of conditions.
 
@@ -307,6 +342,17 @@ def the(
 # %% Rules
 
 
+def add(variable: Any, value: Any) -> None:
+    """
+    Add a value to a variable.
+
+    :param variable: The variable to which the value will be added.
+    :param value: The value to be added to the variable.
+    :return: None
+    """
+    Add(variable, value)
+
+
 def inference(
     type_: Type[T],
 ) -> Union[Type[T], Callable[[Any], Variable[T]]]:
@@ -362,7 +408,9 @@ def next_rule(*conditions: ConditionType) -> SymbolicExpression:
     """
     return Next.create_and_update_rule_tree(*conditions)
 
+
 # %% Aggregators
+
 
 def max(
     variable: Selectable[T],
@@ -382,6 +430,38 @@ def max(
     return Max(
         variable, _key_function_=key, _default_value_=default, _distinct_=distinct
     )
+
+
+def mode(
+    variable: Selectable[T],
+    default: Optional[T] = None,
+) -> Union[T, Mode[T]]:
+    """
+    Calculate and return the first mode from the variable values. The mode is the most common value in the iterable. It is found by
+    counting the occurrences of each value and returning the one with the highest count. If there are multiple values
+    with the same highest count, the first one encountered is returned. This is an aggregation function, thus the query
+    will be fully evaluated before the result is returned.
+
+    :param variable: The variable for which the mode value is to be found.
+    :param default: The value returned when the iterable is empty.
+    :return: A Max object that can be evaluated to find the mode value.
+    """
+    return Mode(variable, _default_value_=default)
+
+
+def multimode(
+    variable: Selectable[T],
+    default: Optional[T] = None,
+) -> Union[T, MultiMode[T]]:
+    """
+    Calculate and return all mode values from the variable values. Similar to :py:func:`krrood.entity_query_language.factories.mode`
+    but returns all values that have the same mode value (i.e., all values that have the same highest count).
+
+    :param variable: The variable for which the mode value is to be found.
+    :param default: The value returned when the iterable is empty.
+    :return: A Max object that can be evaluated to find the mode value.
+    """
+    return MultiMode(variable, _default_value_=default)
 
 
 def min(
@@ -444,18 +524,25 @@ def average(
     )
 
 
-def count(
-    variable: Optional[Selectable[T]] = None, distinct: bool = False
-) -> Union[T, Count[T]]:
+def count(variable: Selectable[T], distinct: bool = False) -> Union[T, Count[T]]:
     """
     Count the number of values produced by the given variable.
 
-    :param variable: The variable for which the count is calculated, if not given, the count of all results (by group)
-     is returned.
+    :param variable: The variable for which the count is calculated.
     :param distinct: Whether to only consider distinct values.
     :return: A Count object that can be evaluated to count the number of values.
     """
     return Count(variable, _distinct_=distinct)
+
+
+def count_all(distinct: bool = False) -> Union[T, Count[T]]:
+    """
+    Count all results (by group).
+
+    :param distinct: Whether to only consider distinct values.
+    :return: A Count object that can be evaluated to count the number of values.
+    """
+    return CountAll(_distinct_=distinct)
 
 
 def distinct(

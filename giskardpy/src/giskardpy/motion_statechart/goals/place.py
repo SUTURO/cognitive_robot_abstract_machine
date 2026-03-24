@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Union
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
-from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.pick_up import CloseHand, OpenHand
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
@@ -62,7 +62,7 @@ class ApproachPlacement(Goal):
     goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         super().expand(context)
 
         if self.ft:
@@ -128,7 +128,7 @@ class ApproachPlacement(Goal):
                 f"goal must be HomogeneousTransformationMatrix or Point3, got {type(self.goal)}"
             )
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         if self.ft:
             artifacts.observation = trinary_logic_or(
@@ -152,7 +152,7 @@ class Retracting(Goal):
     weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_CA, kw_only=True)
     ft: bool = field(default=False, kw_only=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         tip_link = self.manipulator.tool_frame
         root_link = context.world.root
 
@@ -174,7 +174,7 @@ class Retracting(Goal):
 
         self.add_node(self.cart_pos)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         artifacts.observation = self.cart_pos.observation_variable
         return artifacts

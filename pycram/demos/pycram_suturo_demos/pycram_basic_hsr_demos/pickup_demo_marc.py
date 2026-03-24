@@ -13,10 +13,11 @@ from pycram.robot_plans import (
     GiskardPullUpActionDescription,
     MoveTorsoActionDescription,
 )
-from pycram_suturo_demos.start_demos_ms03 import TalkingNode
-from semantic_digital_twin.datastructures.definitions import TorsoState
-from semantic_digital_twin.world import World
+from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import TalkingNode
+from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import validate_grasped
+
 from semantic_digital_twin.world_description.world_entity import Body
+
 
 
 # ------------------------ BASE-DEFINITIONS
@@ -27,6 +28,7 @@ def pickup_demo(
 ):
     # logger creaton
     talking_node = TalkingNode()
+    standard_delay = 2
     logger = logging.get_logger(__name__)
 
     # if the determined object is None, the pickup is skipped, because the object was not parsed properly
@@ -47,10 +49,10 @@ def pickup_demo(
     )
 
     # ------------------------ EXECUTION
+    context.robot.root.global_pose.to
     with robot_type:
-        talking_node.pub("Stating pickup")
+        talking_node.pub(text="Stating pickup",delay=standard_delay)
         logger.info("Starting pickup demo")
-        time.sleep(2)
         SequentialPlan(
             context,
             GiskardGraspActionDescription(
@@ -60,22 +62,22 @@ def pickup_demo(
                 gripper_vertical=True,
             ),
         ).perform()
-        while input("Was the object grasped? ").strip().lower() != "yes":
-            # retract and regrasp
-            SequentialPlan(
-                context,
-                GiskardRetractActionDescription(simulated=simulation, arm=Arms.LEFT),
-                ParkArmsActionDescription(Arms.BOTH),
-                GiskardGraspActionDescription(
-                    simulated=simulation,
-                    object_designator=object_to_pickup,
-                    arm=Arms.LEFT,
-                    gripper_vertical=True,
-                ),
-            ).perform()
-
-        talking_node.pub("Object grasped, pulling up and parking arms")
-        time.sleep(2)
+        for i in range(2):
+            grasped = validate_grasped()
+            if not grasped:
+                talking_node.pub(f"Object not grasped, retracting and parking arms and retrying, {i+1} of 3",delay=standard_delay)
+                # TODO: back off further than currently doing, so toya has more space to reposition.
+                SequentialPlan(
+                    context,
+                    GiskardRetractActionDescription(simulated=simulation, arm=Arms.LEFT),
+                    ParkArmsActionDescription(Arms.BOTH),
+                    GiskardGraspActionDescription(
+                        simulated=simulation,
+                        object_designator=object_to_pickup,
+                        arm=Arms.LEFT,
+                        gripper_vertical=True,
+                    ),
+                ).perform()
+        talking_node.pub("Object grasped, pulling up and parking arms",delay=standard_delay)
         plan_pullup.perform()
-        logger.info("parking arms finished")
-        logger.info("PickUp has been executed")
+        logger.info("PickUp has is now finished",delay=standard_delay)

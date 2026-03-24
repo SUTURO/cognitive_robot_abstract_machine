@@ -122,9 +122,8 @@ def try_make_viz(world: World, node: Any) -> Optional[VizMarkerPublisher]:
             VizMarkerPublisher,
         )
 
-        viz = VizMarkerPublisher(world=world, node=node)
+        viz = VizMarkerPublisher(_world=world, node=node)
         viz.with_tf_publisher()
-
         return viz
     except Exception as e:
         logger.info(f"VizMarkerPublisher unavailable: {e}")
@@ -134,11 +133,10 @@ def try_make_viz(world: World, node: Any) -> Optional[VizMarkerPublisher]:
 def world_setup_with_test_objects(
     *,
     with_object: bool = True,
-    with_viz: bool = True,
 ) -> SetupResult:
     hsrb_world, robot_view, context, manipulator, node = setup_ros_node()
 
-    # viz = try_make_viz(hsrb_world, node)
+    viz = try_make_viz(hsrb_world, node)
 
     return SetupResult(
         world=hsrb_world,
@@ -146,4 +144,5 @@ def world_setup_with_test_objects(
         context=context,
         manipulator=manipulator,
         node=node,
+        viz=viz,
     )

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 
-from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts
 from giskardpy.motion_statechart.ros2_nodes.gripper_command import GripperCommandTask
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
@@ -18,7 +18,7 @@ class CloseHand(Goal):
     ft: bool = field(kw_only=True, default=False)
     simulated_execution: bool = field(kw_only=True, default=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         if self.simulated_execution:
             self.close_gripper = JointPositionList(
                 goal_state=JointState.from_str_dict(
@@ -32,7 +32,7 @@ class CloseHand(Goal):
             )
         self.add_node(self.close_gripper)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         artifacts.observation = self.close_gripper.observation_variable
         return artifacts
@@ -42,7 +42,7 @@ class CloseHand(Goal):
 class OpenHand(Goal):
     simulated_execution: bool = field(kw_only=True, default=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         if self.simulated_execution:
             self.open_gripper = JointPositionList(
                 goal_state=JointState.from_str_dict(
@@ -55,7 +55,7 @@ class OpenHand(Goal):
             )
         self.add_node(self.open_gripper)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         artifacts.observation = self.open_gripper.observation_variable
         return artifacts

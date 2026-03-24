@@ -6,12 +6,15 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Callable
 
+import rclpy
+from rclpy import create_node
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
     attach_object_to_hsrb,
 )
 from semantic_digital_twin.datastructures.definitions import GripperState
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 from ...motions.pick_up import PullUpMotion
 
@@ -28,6 +31,8 @@ from ....datastructures.pose import PoseStamped
 from ....failures import ObjectNotGraspedError
 from ....failures import ObjectNotInGraspingArea
 from ....language import SequentialPlan, CodePlan
+from pycram.ros.ros2.ros_tools import wait_for_message
+
 from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 
@@ -433,8 +438,51 @@ class GiskardGraspAction(ActionDescription):
             ),
         ).perform()
 
+    # implement sometime, currently not implemented, since Motions have weird heirachys
+    def item_between_fingertips(self,
+            fingertip_distance: float,
+            closed_value: float = -0.1007,
+            open_value: float = 0.0538,
+            threshhold: float = 0.05,
+    ) -> bool:
+        """
+        Returns True if the gripper is not fully closed and not fully open,
+        which can indicate that an item is between the fingertips.
+
+        Args:
+            fingertip_distance: Current value from /gripper_command/fingertip_distance
+            closed_value: Typical fully closed value
+            open_value: Typical fully open value
+            threshhold: Tolerance around the reference values
+
+        Returns:
+            True if the distance suggests an object is between the fingertips.
+        """
+        closed_min = closed_value - threshhold
+        closed_max = closed_value + threshhold
+        open_min = open_value - threshhold
+        open_max = open_value + threshhold
+
+        is_closed = closed_min <= fingertip_distance <= closed_max
+        is_open = open_min <= fingertip_distance <= open_max
+
+        # Object likely present if it is neither clearly open nor clearly closed
+        return not is_closed and not is_open
+
     def validate(self):
-        pass
+        node = rclpy.create_node("gripper_distance_subscriber")
+
+        msg = wait_for_message(msg_type=float, node=node, topic_name="/gripper_command/fingertip_distance")
+        success = msg is not None
+        if success:
+            logger.info(f"Gripper fingertip distance: {msg.data}")
+        else:
+            logger.warning("Timed out waiting for gripper fingertip distance")
+        node.destroy_node()
+
+        is_object_between_fingertips = self.item_between_fingertips(fingertip_distance=msg)
+        return is_object_between_fingertips
+
 
     @classmethod
     def description(

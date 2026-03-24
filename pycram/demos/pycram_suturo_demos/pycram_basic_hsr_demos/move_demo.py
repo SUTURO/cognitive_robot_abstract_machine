@@ -19,6 +19,7 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
         orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
         frame=world.root,
     )
+    # TODO edit on robocup to new table pose
     POPCORN_TABLE = PoseStamped.from_list(
         position=[1.3, 5.3, 0.0],
         orientation=[0.0, 0.0, 0.72, 0.64],

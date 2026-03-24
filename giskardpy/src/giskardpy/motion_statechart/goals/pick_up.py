@@ -6,7 +6,7 @@ from typing import Tuple
 from typing_extensions import Optional, List
 
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
-from giskardpy.motion_statechart.context import BuildContext
+from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
 from giskardpy.motion_statechart.graph_node import (
     Goal,
@@ -74,7 +74,7 @@ class PickUp(Goal):
     ft: bool = field(kw_only=True, default=False)
     simulated_execution: bool = field(default=True, kw_only=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         super().expand(context)
         self.sequence = Sequence(
             [
@@ -85,7 +85,7 @@ class PickUp(Goal):
         )
         self.add_node(self.sequence)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         artifacts.observation = self.sequence.observation_variable
         return artifacts
@@ -102,7 +102,7 @@ class GraspMagic(ABC):
 
     @abstractmethod
     def get_grasp_sequence(
-        self, context: BuildContext
+        self, context: MotionStatechartContext
     ) -> Tuple[
         Tuple[CartesianPosition, "Parallel"], Tuple[CartesianPosition, "Parallel"]
     ]:
@@ -110,7 +110,7 @@ class GraspMagic(ABC):
         pass
 
     def _select_optimal_grasp_axis(
-        self, context: BuildContext, obj_bbox: BoundingBox, obj_to_robot: Vector3
+        self, context: MotionStatechartContext, obj_bbox: BoundingBox, obj_to_robot: Vector3
     ) -> Tuple[Vector3, Optional[float]]:
         """Returns (grasp_axis, forced_sign). forced_sign is ±1 for explicit sides, None for CLOSEST."""
         if self.preferred_side != GraspSide.CLOSEST:
@@ -190,7 +190,7 @@ class GraspMagic(ABC):
         grasp_axis.scale(1)
         return grasp_axis, None
 
-    def _compute_grasp_geometry(self, context: BuildContext) -> Tuple[
+    def _compute_grasp_geometry(self, context: MotionStatechartContext) -> Tuple[
         HomogeneousTransformationMatrix,
         Body,
         BoundingBox,
@@ -227,7 +227,7 @@ class GraspMagic(ABC):
 
     def _compute_position_along_axis(
         self,
-        context: BuildContext,
+        context: MotionStatechartContext,
         obj_pose: HomogeneousTransformationMatrix,
         obj_bbox: BoundingBox,
         grasp_axis: Vector3,
@@ -254,7 +254,7 @@ class GraspMagic(ABC):
 
     def _get_orientation_nodes(
         self,
-        context: BuildContext,
+        context: MotionStatechartContext,
         tool_frame: KinematicStructureEntity,
         grasp_axis: Vector3,
         forced_sign: Optional[float],
@@ -317,7 +317,7 @@ class GraspMagic(ABC):
 @dataclass(repr=False, eq=False)
 class BoxGraspMagic(GraspMagic):
     def get_grasp_sequence(
-        self, context: BuildContext
+        self, context: MotionStatechartContext
     ) -> Tuple[Tuple[CartesianPosition, Parallel], Tuple[CartesianPosition, Parallel]]:
         obj_pose, tool_frame, obj_bbox, obj_to_robot, grasp_axis, forced_sign = (
             self._compute_grasp_geometry(context)
@@ -384,7 +384,7 @@ class BoxGraspMagic(GraspMagic):
 @dataclass(repr=False, eq=False)
 class CylinderGraspMagic(GraspMagic):
     def get_grasp_sequence(
-        self, context: BuildContext
+        self, context: MotionStatechartContext
     ) -> Tuple[Tuple[CartesianPosition, Parallel], Tuple[CartesianPosition, Parallel]]:
         obj_pose = self.object_geometry.global_pose
         tool_frame = self.manipulator.tool_frame
@@ -460,11 +460,11 @@ class _GraspPhase(Goal):
     _align: Parallel = field(kw_only=True)
     _wait_for_align: bool = field(kw_only=True, default=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         self.add_node(self._cart)
         self.add_node(self._align)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         if self._wait_for_align:
             artifacts.observation = trinary_logic_and(
@@ -479,7 +479,7 @@ class _GraspPhase(Goal):
 class GraspingSequence(Goal):
     grasp_magic: GraspMagic = field(kw_only=True)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         (pre_cart, pre_align), (grasp_cart, grasp_align) = (
             self.grasp_magic.get_grasp_sequence(context)
         )
@@ -493,7 +493,7 @@ class GraspingSequence(Goal):
         )
         self.add_node(self._seq)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         artifacts.observation = self._seq.observation_variable
         return artifacts
@@ -505,7 +505,7 @@ class PullUp(Goal):
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
 
-    def expand(self, context: BuildContext) -> None:
+    def expand(self, context: MotionStatechartContext) -> None:
         super().expand(context)
         if self.ft:
             self._ft = ForceImpactMonitor(threshold=50, topic_name="ft_irgendwas")
@@ -530,7 +530,7 @@ class PullUp(Goal):
         self.add_node(self._cart_position)
         self.add_node(self._keep_orientation)
 
-    def build(self, context: BuildContext) -> NodeArtifacts:
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         if self.ft:
             artifacts.observation = trinary_logic_and(

@@ -11,7 +11,8 @@ from uuid import uuid4
 import numpy as np
 import pytest
 import sqlalchemy
-from pkg_resources import resource_filename
+from importlib.resources import files
+from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,6 +33,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Handle,
     Door,
     Fridge,
+    Drawer,
 )
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world import World
@@ -143,11 +145,11 @@ def test_state_synchronization(rclpy_node):
 
     synchronizer_1 = StateSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = StateSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     # Allow time for publishers/subscribers to connect on unique topics
@@ -169,13 +171,13 @@ def test_state_synchronization_world_model_change_after_init(rclpy_node):
 
     synchronizer_1 = StateSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     create_dummy_world(w1)
     create_dummy_world(w2)
     synchronizer_2 = StateSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     # Allow time for publishers/subscribers to connect on unique topics
@@ -206,13 +208,13 @@ def test_model_reload(rclpy_node):
     w2 = World()
 
     synchronizer_1 = ModelReloadSynchronizer(
-        rclpy_node,
-        w1,
+        node=rclpy_node,
+        _world=w1,
         session=session1,
     )
     synchronizer_2 = ModelReloadSynchronizer(
-        rclpy_node,
-        w2,
+        node=rclpy_node,
+        _world=w2,
         session=session2,
     )
 
@@ -235,11 +237,11 @@ def test_model_synchronization_body_only(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -264,11 +266,11 @@ def test_model_synchronization_creation_only(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -295,18 +297,12 @@ def test_model_synchronization_merge_full_world(rclpy_node):
     w1 = World(name="w1")
     w2 = World(name="w2")
 
-    synchronizer_1 = ModelSynchronizer(
-        node=rclpy_node,
-        world=w1,
-    )
-    synchronizer_2 = ModelSynchronizer(
-        node=rclpy_node,
-        world=w2,
-    )
+    synchronizer_1 = ModelSynchronizer(node=rclpy_node, _world=w1)
+    synchronizer_2 = ModelSynchronizer(node=rclpy_node, _world=w2)
 
     pr2_world = URDFParser.from_file(
         os.path.join(
-            resource_filename("semantic_digital_twin", "../../"),
+            Path(files("semantic_digital_twin")).parent.parent,
             "resources",
             "urdf",
             "pr2_kinematic_tree.urdf",
@@ -340,9 +336,12 @@ def test_model_synchronization_merge_full_world(rclpy_node):
 
     w1_connection_hashes = [hash(c) for c in w1.connections]
     w2_connection_hashes = [hash(c) for c in w2.connections]
-    assert w1_connection_hashes == w2_connection_hashes
-    assert len(w1.connections) == len(w2.connections)
-    assert len(w2.degrees_of_freedom) == len(w1.degrees_of_freedom)
+    assert (
+        w1_connection_hashes == w2_connection_hashes
+    ), f"w1: {[c.name for c in w1.connections]}, w2: {[c.name for c in w2.connections]}"
+    assert len(w1.degrees_of_freedom) == len(
+        w2.degrees_of_freedom
+    ), f"w1: {[d.name for d in w1.degrees_of_freedom]}, w2: {[d.name for d in w2.degrees_of_freedom]}"
 
     synchronizer_1.close()
     synchronizer_2.close()
@@ -353,10 +352,10 @@ def test_callback_pausing(rclpy_node):
     w1 = World(name="w1")
     w2 = World(name="w2")
 
-    model_synchronizer_1 = ModelSynchronizer(node=rclpy_node, world=w1)
-    model_synchronizer_2 = ModelSynchronizer(node=rclpy_node, world=w2)
-    state_synchronizer_1 = StateSynchronizer(node=rclpy_node, world=w1)
-    state_synchronizer_2 = StateSynchronizer(node=rclpy_node, world=w2)
+    model_synchronizer_1 = ModelSynchronizer(node=rclpy_node, _world=w1)
+    model_synchronizer_2 = ModelSynchronizer(node=rclpy_node, _world=w2)
+    state_synchronizer_1 = StateSynchronizer(node=rclpy_node, _world=w1)
+    state_synchronizer_2 = StateSynchronizer(node=rclpy_node, _world=w2)
 
     model_synchronizer_2.pause()
     state_synchronizer_2.pause()
@@ -373,7 +372,7 @@ def test_callback_pausing(rclpy_node):
         c = Connection6DoF.create_with_dofs(parent=b2, child=new_body, world=w1)
         w1.add_connection(c)
 
-    time.sleep(0.1)
+    time.sleep(0.2)
     assert len(model_synchronizer_2.missed_messages) == 1
     assert len(w1.kinematic_structure_entities) == 2
     assert len(w2.kinematic_structure_entities) == 0
@@ -385,7 +384,7 @@ def test_callback_pausing(rclpy_node):
     model_synchronizer_2.apply_missed_messages()
     state_synchronizer_2.apply_missed_messages()
 
-    time.sleep(0.1)
+    time.sleep(0.2)
     assert len(w1.kinematic_structure_entities) == 2
     assert len(w2.kinematic_structure_entities) == 2
     assert len(w1.connections) == 1
@@ -399,11 +398,11 @@ def test_ChangeDifHasHardwareInterface(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -446,11 +445,11 @@ def test_semantic_annotation_modifications(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     b1 = Body(name=PrefixedName("b1"))
@@ -462,10 +461,50 @@ def test_semantic_annotation_modifications(rclpy_node):
         w1.add_semantic_annotation(v1)
         w1.add_semantic_annotation(v2)
 
-    time.sleep(0.2)
+    time.sleep(0.5)
     assert [hash(sa) for sa in w1.semantic_annotations] == [
         hash(sa) for sa in w2.semantic_annotations
     ]
+
+
+def test_semantic_annotation_change_parameter_during_same_modification_block(
+    rclpy_node,
+):
+    w1 = World(name="w1")
+    w2 = World(name="w2")
+
+    synchronizer_1 = ModelSynchronizer(
+        node=rclpy_node,
+        _world=w1,
+    )
+    synchronizer_2 = ModelSynchronizer(
+        node=rclpy_node,
+        _world=w2,
+    )
+    root = Body(name=PrefixedName("root"))
+    b1 = Body(name=PrefixedName("b1"))
+    drawer = Drawer(root=b1)
+
+    b2 = Body(name=PrefixedName("b2"))
+    handle = Handle(root=b2)
+
+    with w1.modify_world():
+        w1.add_body(root)
+        w1.add_body(b1)
+        w1.add_body(b2)
+        root_C_b1 = Connection6DoF.create_with_dofs(parent=root, child=b1, world=w1)
+        w1.add_connection(root_C_b1)
+        root_C_b2 = Connection6DoF.create_with_dofs(parent=root, child=b2, world=w1)
+        w1.add_connection(root_C_b2)
+    with w1.modify_world():
+        w1.add_semantic_annotation(drawer)
+        w1.add_semantic_annotation(handle)
+        drawer.add_handle(handle)
+
+    time.sleep(1)
+    assert [hash(sa) for sa in w1.semantic_annotations] == [
+        hash(sa) for sa in w2.semantic_annotations
+    ], f"w1: {[sa.name for sa in w1.semantic_annotations]}, w2: {[sa.name for sa in w2.semantic_annotations]}"
 
 
 def test_synchronize_6dof(rclpy_node):
@@ -474,14 +513,14 @@ def test_synchronize_6dof(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
-    state_synch = StateSynchronizer(world=w1, node=rclpy_node)
-    state_synch2 = StateSynchronizer(world=w2, node=rclpy_node)
+    state_synch = StateSynchronizer(_world=w1, node=rclpy_node)
+    state_synch2 = StateSynchronizer(_world=w2, node=rclpy_node)
 
     b1 = Body(name=PrefixedName("b1"))
     b2 = Body(name=PrefixedName("b2"))
@@ -521,12 +560,12 @@ def test_synchronous_state_synchronization(rclpy_node):
 
         synchronizer_1 = StateSynchronizer(
             node=rclpy_node,
-            world=w1,
+            _world=w1,
             synchronous=True,
         )
         synchronizer_2 = StateSynchronizer(
             node=receiver_node,
-            world=w2,
+            _world=w2,
         )
 
         # Allow time for publishers/subscribers to discover each other
@@ -569,16 +608,16 @@ def test_synchronous_model_synchronization(rclpy_node):
 
         synchronizer_1 = ModelSynchronizer(
             node=rclpy_node,
-            world=w1,
+            _world=w1,
             synchronous=True,
         )
         synchronizer_2 = ModelSynchronizer(
             node=receiver_node,
-            world=w2,
+            _world=w2,
         )
 
         # Allow time for publishers/subscribers to discover each other
-        time.sleep(0.2)
+        time.sleep(0.5)
 
         with w1.modify_world():
             new_body = Body(name=PrefixedName("b3"))
@@ -624,8 +663,8 @@ def test_synchronous_publish_blocks_until_receiver_acknowledges(rclpy_node):
         w1 = create_dummy_world()
         w2 = create_dummy_world()
 
-        synchronizer_1 = StateSynchronizer(node=rclpy_node, world=w1, synchronous=True)
-        synchronizer_2 = StateSynchronizer(node=receiver_node, world=w2)
+        synchronizer_1 = StateSynchronizer(node=rclpy_node, _world=w1, synchronous=True)
+        synchronizer_2 = StateSynchronizer(node=receiver_node, _world=w2)
 
         # Allow time for publishers/subscribers to discover each other
         time.sleep(0.2)
@@ -690,7 +729,7 @@ def test_synchronous_publish_blocks_until_receiver_acknowledges(rclpy_node):
 
 def test_compute_state_changes_no_changes(rclpy_node):
     w = create_dummy_world()
-    s = StateSynchronizer(node=rclpy_node, world=w)
+    s = StateSynchronizer(node=rclpy_node, _world=w)
     # Immediately compare without changing state
     changes = s.compute_state_changes()
     assert changes == {}
@@ -699,7 +738,7 @@ def test_compute_state_changes_no_changes(rclpy_node):
 
 def test_compute_state_changes_single_change(rclpy_node):
     w = create_dummy_world()
-    s = StateSynchronizer(node=rclpy_node, world=w)
+    s = StateSynchronizer(node=rclpy_node, _world=w)
     # change first position
     w.state.data[0, 0] += 1e-3
     changes = s.compute_state_changes()
@@ -711,7 +750,7 @@ def test_compute_state_changes_single_change(rclpy_node):
 
 def test_compute_state_changes_shape_change_full_snapshot(rclpy_node):
     w = create_dummy_world()
-    s = StateSynchronizer(node=rclpy_node, world=w)
+    s = StateSynchronizer(node=rclpy_node, _world=w)
     # append a new DOF by writing a new name into state
     new_uuid = uuid4()
     w.state._add_dof(new_uuid)
@@ -724,7 +763,7 @@ def test_compute_state_changes_shape_change_full_snapshot(rclpy_node):
 
 def test_compute_state_changes_nan_handling(rclpy_node):
     w = create_dummy_world()
-    s = StateSynchronizer(node=rclpy_node, world=w)
+    s = StateSynchronizer(node=rclpy_node, _world=w)
     # set both previous and current to NaN for entry 0
     w.state.data[0, 0] = np.nan
     s.previous_world_state_data[0] = np.nan
@@ -740,11 +779,11 @@ def test_attribute_updates(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=world1,
+        _world=world1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=world2,
+        _world=world2,
     )
 
     root = Body(name=PrefixedName("root"))
@@ -801,8 +840,8 @@ class TestAnnotation(SemanticAnnotation):
 def test_synchronized_attribute_modification(rclpy_node):
     w1 = World(name="w1")
     w2 = World(name="w2")
-    sync1 = ModelSynchronizer(node=rclpy_node, world=w1)
-    sync2 = ModelSynchronizer(node=rclpy_node, world=w2)
+    sync1 = ModelSynchronizer(node=rclpy_node, _world=w1)
+    sync2 = ModelSynchronizer(node=rclpy_node, _world=w2)
 
     # Allow time for publishers/subscribers to connect
     time.sleep(0.5)
@@ -927,11 +966,11 @@ def test_skipping_incorrect_message(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -964,11 +1003,11 @@ def test_world_simultaneous_synchronization_stress_test(
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -1005,11 +1044,11 @@ def test_nested_modify_world_publish_changes_true_false(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world():
@@ -1048,11 +1087,11 @@ def test_dont_publish_changes(rclpy_node):
 
     synchronizer_1 = ModelSynchronizer(
         node=rclpy_node,
-        world=w1,
+        _world=w1,
     )
     synchronizer_2 = ModelSynchronizer(
         node=rclpy_node,
-        world=w2,
+        _world=w2,
     )
 
     with w1.modify_world(publish_changes=False):
@@ -1141,12 +1180,12 @@ def test_acknowledgement_with_missed_messages(rclpy_node):
 
         synchronizer_1 = StateSynchronizer(
             node=rclpy_node,
-            world=w1,
+            _world=w1,
             synchronous=True,
         )
         synchronizer_2 = StateSynchronizer(
             node=receiver_node,
-            world=w2,
+            _world=w2,
         )
         synchronizer_2.pause()
 

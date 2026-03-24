@@ -2,17 +2,33 @@ import os
 import time
 
 import pytest
-from random_events.product_algebra import SimpleEvent, Event
 
-from krrood.probabilistic_knowledge.parameterizer import Parameterizer
+from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.entity_query_language.factories import (
+    variable_from,
+    underspecified,
+)
+from krrood.parametrization.model_registries import DictRegistry
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
+from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import TaskStatus
+from pycram.datastructures.pose import (
+    PyCramPose,
+    Header,
+    PyCramVector3,
+    PyCramQuaternion,
+)
 from pycram.language import ParallelPlan, CodeNode
-from pycram.plan import PlanNode, Plan, ActionDescriptionNode, ActionNode, MotionNode
 from pycram.motion_executor import simulated_robot
+from pycram.orm.ormatic_interface import *  # type: ignore
+from pycram.plan import PlanNode, Plan, ActionDescriptionNode, ActionNode, MotionNode
 from pycram.robot_plans import *
 from semantic_digital_twin.adapters.urdf import URDFParser
-from pycram.orm.ormatic_interface import *
+from semantic_digital_twin.robots.abstract_robot import (
+    Manipulator,
+)
 
 
 @pytest.fixture(scope="session")
@@ -676,37 +692,75 @@ def test_algebra_sequential_plan(mutable_model_world):
     """
     world, robot_view, context = mutable_model_world
 
-    target_location = PoseStamped.from_list([..., ..., 0], [0, 0, 0, 1], frame=None)
-
-    sp = SequentialPlan(
-        context,
-        MoveTorsoActionDescription(TorsoState.LOW),
-        NavigateActionDescription(
-            target_location=target_location,
-            keep_joint_states=...,
+    target_location = underspecified(PoseStamped)(
+        pose=underspecified(PyCramPose)(
+            position=underspecified(PyCramVector3)(x=..., y=..., z=0),
+            orientation=underspecified(PyCramQuaternion)(x=0, y=0, z=0, w=1),
         ),
-        MoveTorsoActionDescription(torso_state=...),
+        header=underspecified(Header)(frame_id=variable_from([robot_view.root])),
+    )
+    navigate_action = underspecified(NavigateAction)(
+        target_location=target_location,
+        keep_joint_states=...,
     )
 
-    parameterization = sp.generate_parameterizations()
-    target_location.frame_id = world.root
-    new_actions = []
+    navigate_action.resolve()
+    parameters = UnderspecifiedParameters(navigate_action)
 
-    for action, parameters in parameterization:
-        distribution = parameters.create_fully_factorized_distribution()
-        distribution, _ = distribution.conditional(
-            parameters.assignments_for_conditioning
-        )
-        sample = distribution.sample(1)[0]
+    model = fully_factorized(parameters.variables.values())
 
-        sample_dict = parameters.create_assignment_from_variables_and_sample(
-            distribution.variables, sample
-        )
+    registry = DictRegistry({NavigateAction: model})
 
-        parameterized = parameters.parameterize_object_with_sample(action, sample_dict)
-        new_actions.append(parameterized)
+    pm_backend = ProbabilisticBackend(registry, 10)
 
-    new_plan = SequentialPlan(context, *new_actions)
+    resolved_navigate = next(pm_backend.evaluate(navigate_action))
+    plan = SequentialPlan(context, MoveTorsoAction(TorsoState.LOW), resolved_navigate)
+
     with simulated_robot:
-        new_plan.perform()
-    print(robot_view.root.global_pose)
+        plan.perform()
+
+
+def test_parameterization_of_pick_up(mutable_model_world):
+    world, robot_view, context = mutable_model_world
+
+    milk = world.get_body_by_name("milk.stl")
+
+    milk_variable = variable_from([milk])
+
+    pick_up_description = underspecified(PickUpAction)(
+        object_designator=milk_variable,
+        arm=...,
+        grasp_description=underspecified(GraspDescription)(
+            approach_direction=...,
+            vertical_alignment=...,
+            rotate_gripper=...,
+            manipulation_offset=0.05,
+            manipulator=variable(Manipulator, world.semantic_annotations),
+        ),
+    )
+    pick_up_description.resolve()
+
+    parameters = UnderspecifiedParameters(pick_up_description)
+
+    assert len(parameters.variables) == 7
+
+    [manipulator_offset] = [
+        v
+        for v in parameters.variables.values()
+        if v.name.endswith("manipulation_offset")
+    ]
+
+    assert parameters.assignments_for_conditioning[manipulator_offset] == 0.05
+
+    model = fully_factorized(parameters.variables.values())
+    registry = DictRegistry({PickUpAction: model})
+
+    pm_backend = ProbabilisticBackend(registry, 10)
+    action = next(pm_backend.evaluate(pick_up_description))
+    plan = SequentialPlan(context, action)
+
+    with simulated_robot:
+        try:
+            plan.perform()
+        except TimeoutError:
+            pass
