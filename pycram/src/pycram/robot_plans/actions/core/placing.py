@@ -291,7 +291,7 @@ class GiskardRetractAction(ActionDescription):
     Parsing simulation argument
     """
 
-    back_off_pose : PoseStamped | None = field(default=None, kw_only=True)
+    back_off_pose: PoseStamped | None = field(default=None, kw_only=True)
 
     _pre_perform_callbacks = []
     """
@@ -317,21 +317,23 @@ class GiskardRetractAction(ActionDescription):
         ).perform()
 
         # TODO: implement a better way to determine the back-off pose
-        backed_off_pose = self.back_off_pose if self.back_off_pose is None else self.target_location
+        backed_off_pose = (
+            self.back_off_pose if self.back_off_pose is None else self.target_location
+        )
         if self.simulated:
-                SequentialPlan(
-                    self.context,
-                    NavigateActionDescription(
-                        target_location=backed_off_pose, keep_joint_states=True
-                    ),
-                ).perform()
+            SequentialPlan(
+                self.context,
+                NavigateActionDescription(
+                    target_location=self.back_off_pose, keep_joint_states=True
+                ),
+            ).perform()
         else:
             from pycram.external_interfaces import nav2_move
 
             os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
             goal = backed_off_pose.ros_message()
-            print(f"Moving to {goal}'")
-            nav2_move.start_nav_to_pose(goal)
+            print(f"Moving to {self.back_off_pose}'")
+            nav2_move.start_nav_to_pose(self.back_off_pose)
 
     def validate(
         self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None

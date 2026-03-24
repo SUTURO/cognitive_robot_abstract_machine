@@ -12,12 +12,16 @@ from pycram.robot_plans import (
     GiskardGraspActionDescription,
     GiskardPullUpActionDescription,
     MoveTorsoActionDescription,
+    GiskardPickUpActionDescription,
 )
-from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import TalkingNode
-from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import validate_grasped
+from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import (
+    TalkingNode,
+)
+from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
+    validate_grasped,
+)
 
 from semantic_digital_twin.world_description.world_entity import Body
-
 
 
 # ------------------------ BASE-DEFINITIONS
@@ -38,31 +42,17 @@ def pickup_demo(
 
     robot_type: ExecutionEnvironment = simulated_robot if simulation else real_robot
 
-    # -------------------------------- PLANNING
-
-    plan_pullup = SequentialPlan(
-        context,
-        GiskardPullUpActionDescription(
-            arm=Arms.LEFT, object_designator=object_to_pickup, simulated=simulation
-        ),
-        ParkArmsActionDescription(Arms.BOTH),
-    )
-
     # ------------------------ EXECUTION
-    context.robot.root.global_pose.to
     with robot_type:
-        talking_node.pub(text="Stating pickup",delay=standard_delay)
+        talking_node.pub(text="Stating pickup", delay=standard_delay)
         logger.info("Starting pickup demo")
         SequentialPlan(
             context,
-            GiskardGraspActionDescription(
+            GiskardPickUpActionDescription(
                 simulated=simulation,
                 object_designator=object_to_pickup,
                 arm=Arms.LEFT,
                 gripper_vertical=True,
             ),
         ).perform()
-
-        talking_node.pub("Object grasped, pulling up and parking arms",delay=standard_delay)
-        plan_pullup.perform()
-        logger.info("PickUp has is now finished",delay=standard_delay)
+        logger.info("PickUp has is now finished", delay=standard_delay)
