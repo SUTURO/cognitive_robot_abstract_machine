@@ -342,6 +342,12 @@ class ExternalCollisionAvoidance(Goal):
 
         for body in self.robot.bodies_with_collision:
             if context.collision_manager.get_max_avoided_bodies(body):
+                group = self.external_collision_manager.get_collision_group(body)
+                if group.root == context.world.root:
+                    # world root group causes the environment (eg table) to be treated as
+                    # robot-vs-robot collision and skipped by on_compute_collisions().
+                    # I think?
+                    continue
                 self.external_collision_manager.register_group_of_body(body)
 
         robot_bodies = self.robot.bodies
