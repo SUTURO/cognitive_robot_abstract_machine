@@ -1,6 +1,7 @@
 from typing import Any
 from time import sleep
 
+from pycram.datastructures.pose import PoseStamped
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 import rclpy
@@ -11,6 +12,11 @@ from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_inter
 from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
 
 from pycram_suturo_demos.pycram_basic_hsr_demos.dialog_with_human_demo import main as dialog_with_human_demo_main
+
+from pycram.external_interfaces.nav2_move import start_nav_to_pose
+
+
+start_point = PoseStamped.from_list(position=[0, 0, 0], orientation=[0, 0, 0, 1])
 
 
 
@@ -62,6 +68,8 @@ def main():
     nlp = NlpInterfaceDemoStartM3()
     talk = TalkingNode()
     tti = TextToImagePublisher()
+
+    start_nav_to_pose(start_point)
 
     while True:
 
