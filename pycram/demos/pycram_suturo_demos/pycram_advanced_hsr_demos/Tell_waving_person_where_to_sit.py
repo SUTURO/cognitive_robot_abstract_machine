@@ -3,10 +3,9 @@ import os
 from enum import Enum
 from typing import Optional
 from time import sleep
-
 import pycram.external_interfaces.robokudo
 import semantic_digital_twin
-from pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
+from demos.pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
     ContinuousWavingDetector,
 )
 from pycram.external_interfaces import nav2_move
@@ -66,8 +65,10 @@ def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
         head_pan = world.get_body_by_name("head_pan_link")
         head_pan_pose = PoseStamped.from_spatial_type(head_pan.global_pose)
         result.orientation = head_pan_pose.orientation
-    logger.info(
-        f"Transformierte Pose in map: Position=({result.position.x:.3f}, {result.position.y:.3f}, {result.position.z:.3f}), "
+    print(
+        f"Transformierte Pose in map: Position=({result.position.x:.3f}, {result.position.y:.3f}, {result.position.z:.3f})"
+    )
+    print(
         f"Orientation=({result.orientation.x:.3f}, {result.orientation.y:.3f}, {result.orientation.z:.3f}, {result.orientation.w:.3f})"
     )
     return result
@@ -102,7 +103,6 @@ def drive_to_pose(target_pose: PoseStamped):
     #     min_distance=MIN_DISTANCE_M,
     # )
     # nav_target = target_pose
-
     park_arms()
     nav2_move.start_nav_to_pose(target_pose)
 
@@ -132,10 +132,11 @@ def find_free_seat() -> str:
 
 
 with real_robot:
-    print(get_robot_pose().orientation)
+    print(
+        f"Robot Position-> X:{get_robot_pose().position.x} Y:{get_robot_pose().position.y}"
+    )
     os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
     text_pub = TextToImagePublisher()
-    # 1.5 , 2.26
     # 1. Scan for a waving human
     text_pub.publish_text("Looking for a waving human...")
     look_in_direction(Direction.LEFT)
@@ -154,8 +155,8 @@ with real_robot:
         f"Driving to human:\n X:{human_goal.pose.position.x } \n Y:{human_goal.pose.position.y}"
     )
     drive_to_pose(human_goal)
-    text_pub.publish_text("Hallo!")
-    sleep(3)
+    text_pub.publish_text(f"Hello, I will now look for a free seat...")
+    sleep(6)
 
     # 3. Drive to sofa
     sofa_pose = PoseStamped.from_list(
@@ -168,10 +169,12 @@ with real_robot:
         f"Driving to sofa:\n X:{goal.pose.position.x} \n Y:{goal.pose.position.y}"
     )
     nav2_move.start_nav_to_pose(goal)
-    print(get_robot_pose().position)
+    print(
+        f"Robot Position-> X:{get_robot_pose().position.x} Y:{get_robot_pose().position.y}"
+    )
     # 4. Find a free seat
     result = find_free_seat()
-    text_pub.publish_text(f"Got a result")
+    text_pub.publish_text(f"Got Data")
 
     # 5. Drive back to the human
     text_pub.publish_text(
