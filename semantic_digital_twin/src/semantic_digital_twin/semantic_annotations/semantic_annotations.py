@@ -533,7 +533,7 @@ class Bottle(HasRootBody, HasDestination):
     """
     Abstract class for bottles.
     """
-    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Sink, Cupboard]
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard]
 
 
 @dataclass(eq=False)

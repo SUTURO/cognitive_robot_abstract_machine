@@ -36,6 +36,10 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     Milk,
     Cereal,
+    Bottle,
+    GarbageBin,
+    Sink,
+    Cupboard,
 )
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -951,6 +955,30 @@ class TestFactories(unittest.TestCase):
             double_door.calculate_left_right_door_from_view_point(view_point_back),
             (door_right, door_left),
         )
+
+    def test_has_destination_mixin(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        with world.modify_world():
+            milk = Milk.create_with_new_body_in_world(name=PrefixedName("milk"), world=world)
+            bottle = Bottle.create_with_new_body_in_world(name=PrefixedName("bottle"), world=world)
+            cup = Cup.create_with_new_body_in_world(name=PrefixedName("cup"), world=world)
+            garbage_bin = GarbageBin.create_with_new_body_in_world(name=PrefixedName("garbage_bin"), world=world)
+
+        # Test that instances correctly return the class variables
+        self.assertIn(Fridge, milk.destination_class_names)
+        
+        self.assertIn(Cupboard, bottle.destination_class_names)
+        self.assertNotIn(Sink, bottle.destination_class_names) # Sink wurde entfernt
+        
+        self.assertIn(Cupboard, cup.destination_class_names)
+        self.assertIn(Table, cup.destination_class_names)
+        self.assertIn(Sink, cup.destination_class_names)
+        
+        # GarbageBin references itself via @classproperty
+        self.assertIn(GarbageBin, garbage_bin.destination_class_names)
 
 
 if __name__ == "__main__":
