@@ -17,8 +17,11 @@ from semantic_digital_twin.collision_checking.collision_manager import Collision
 from semantic_digital_twin.collision_checking.collision_matrix import (
     CollisionMatrix,
     CollisionCheck,
+    MaxAvoidedCollisionsOverride,
 )
 from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowAllCollisions,
+    AllowCollisionForBodies,
     AvoidCollisionBetweenGroups,
     AllowCollisionBetweenGroups,
     AllowNonRobotCollisions,
@@ -571,3 +574,93 @@ class TestCollisionGroups:
             }
         )
         assert not root_matrix.is_collision_groups_combination_checked(group_a, group_b)
+
+
+def test_AvoidExternalCollisions(pr2_world_state_reset):
+    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+    body_subset = {pr2_world_state_reset.get_body_by_name("base_link")}
+    rule = AvoidExternalCollisions(
+        buffer_zone_distance=0.1,
+        violated_distance=0.05,
+        robot=pr2,
+        body_subset=body_subset,
+    )
+
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+
+def test_AvoidSelfCollisions(pr2_world_state_reset):
+    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+    rule = AvoidSelfCollisions(
+        buffer_zone_distance=0.1,
+        violated_distance=0.05,
+        robot=pr2,
+    )
+
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+
+def test_rule_get_init_kwargs_for_world(pr2_world_state_reset):
+
+    bodies = {pr2_world_state_reset.get_body_by_name("base_link")}
+    rule = AllowCollisionForBodies(allowed_collision_bodies=bodies)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    group_a = [pr2_world_state_reset.get_body_by_name("base_link")]
+    group_b = [pr2_world_state_reset.get_body_by_name("torso_lift_link")]
+    rule = AllowCollisionBetweenGroups(body_group_a=group_a, body_group_b=group_b)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
+    rule = AllowSelfCollisions(robot=pr2)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    bodies = [pr2_world_state_reset.get_body_by_name("base_link")]
+    rule = AllowDefaultInCollision(bodies=bodies, robot=pr2)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    collision_checks = {
+        CollisionCheck(
+            pr2_world_state_reset.get_body_by_name("base_link"),
+            pr2_world_state_reset.get_body_by_name("torso_lift_link"),
+        )
+    }
+    rule = AllowAlwaysInCollision(robot=pr2, collision_checks=collision_checks)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    collision_checks = {
+        CollisionCheck(
+            pr2_world_state_reset.get_body_by_name("base_link"),
+            pr2_world_state_reset.get_body_by_name("torso_lift_link"),
+        )
+    }
+    rule = AllowNeverInCollision(
+        robot=pr2, collision_checks=collision_checks, number_of_tries=100
+    )
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    allowed_collision_bodies = {pr2_world_state_reset.get_body_by_name("base_link")}
+    allowed_collision_pairs = {
+        CollisionCheck(
+            pr2_world_state_reset.get_body_by_name("base_link"),
+            pr2_world_state_reset.get_body_by_name("torso_lift_link"),
+        )
+    }
+    rule = SelfCollisionMatrixRule()
+    rule.allowed_collision_bodies = allowed_collision_bodies
+    rule.allowed_collision_pairs = allowed_collision_pairs
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)
+
+    bodies = {pr2_world_state_reset.get_body_by_name("base_link")}
+    rule = MaxAvoidedCollisionsOverride(value=5, bodies=bodies)
+    kwargs = rule.get_init_kwargs_for_world(pr2_world_state_reset)
+    assert rule == rule.__class__(**kwargs)

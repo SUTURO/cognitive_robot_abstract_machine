@@ -80,6 +80,13 @@ class AvoidCollisionRule(CollisionRule, ABC):
     def apply_to_collision_matrix(self, collision_matrix: CollisionMatrix):
         collision_matrix.add_collision_checks(self.added_collision_checks)
 
+    def get_init_kwargs_for_world(self, world: World) -> dict[str, Any]:
+        return {
+            **super().get_init_kwargs_for_world(world),
+            "buffer_zone_distance": self.buffer_zone_distance,
+            "violated_distance": self.violated_distance,
+        }
+
 
 @dataclass
 class AllowCollisionRule(CollisionRule, ABC):
