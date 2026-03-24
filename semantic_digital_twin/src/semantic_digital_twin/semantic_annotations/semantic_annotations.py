@@ -536,6 +536,8 @@ class Bottle(HasRootBody, HasDestination):
     destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard]
 
 
+
+
 @dataclass(eq=False)
 class Statue(HasRootBody): ...
 

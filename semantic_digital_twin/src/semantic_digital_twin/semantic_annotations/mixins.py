@@ -958,7 +958,7 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
         return container_event
 
 @dataclass(eq=False)
-class HasDestination:
+class HasDestination(ABC):
     """
     A mixin class for semantic annotations that can have one or multiple preferred destinations.
 

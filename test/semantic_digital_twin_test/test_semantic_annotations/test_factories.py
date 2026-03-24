@@ -971,7 +971,7 @@ class TestFactories(unittest.TestCase):
         self.assertIn(Fridge, milk.destination_class_names)
         
         self.assertIn(Cupboard, bottle.destination_class_names)
-        self.assertNotIn(Sink, bottle.destination_class_names) # Sink wurde entfernt
+        self.assertNotIn(Sink, bottle.destination_class_names)
         
         self.assertIn(Cupboard, cup.destination_class_names)
         self.assertIn(Table, cup.destination_class_names)
