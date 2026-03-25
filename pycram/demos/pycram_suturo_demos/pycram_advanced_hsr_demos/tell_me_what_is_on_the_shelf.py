@@ -21,6 +21,7 @@ from pycram.robot_plans import (
 )
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.datastructures.definitions import TorsoState
+from pycram_suturo_demos.pycram_basic_hsr_demos.talking_demo import TtsPublisher
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -92,16 +93,18 @@ def print_result(result):
     for r in result:
         print(r.type)
         text_pub.publish_text(f"Seen {r.type}.")
+        tts.publish(f"Seen {r.type}")
         sleep(2)
 
 
 with real_robot:
     text_pub = TextToImagePublisher()
-
+    tts = TtsPublisher()
     start_pose = get_robot_pose()
 
     # Driving to shelf (Koordinaten anpassen!)
     text_pub.publish_text("Driving to shelf.")
+    tts.publish("Driving to shelf")
     shelf_pose = PoseStamped.from_list(
         position=[3.572, 5.334, 0.0],
         orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
@@ -113,9 +116,11 @@ with real_robot:
 
     # Looking at shelf
     text_pub.publish_text("Looking at shelf.")
+    tts.publish("Looking at shelf")
     move_torso_low1.perform()
     look_in_direction(Direction.FRONT_DOWN)
     text_pub.publish_text("Looking at low shelf.")
+    tts.publish("Looking at low shelf")
     o_test = send_query(obj_type="object")
     print(f"Low test: {o_test}")
     sleep(1)
@@ -124,6 +129,7 @@ with real_robot:
     print("Looking at shelf FRONT.")
     move_torso_mid(Direction.FRONT)
     text_pub.publish_text("Looking at high shelf.")
+    tts.publish("Looking at high shelf")
     o_test2 = send_query(obj_type="object")
     print(f"High test: {o_test2}")
     sleep(1)
@@ -133,14 +139,17 @@ with real_robot:
 
     # Driving back
     text_pub.publish_text("Driving back to person.")
+    tts.publish("Driving back to person")
     final_move = start_pose.ros_message()
     nav2_move.start_nav_to_pose(final_move)
 
     # Reporting what is on the shelf
     if result_low is None and result_high is None:
         text_pub.publish_text("No objects seen.")
+        tts.publish("No objects seen")
     elif len(result_low.res) == 0 and len(result_high.res) == 0:
         text_pub.publish_text("No objects seen.")
+        tts.publish("No objects seen")
     elif result_low is None or len(result_low.res) == 0:
         print_result(result_high.res)
     elif result_high is None or len(result_high.res) == 0:
