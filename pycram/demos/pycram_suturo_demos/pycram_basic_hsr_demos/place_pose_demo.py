@@ -1,4 +1,5 @@
 import logging
+from typing import List
 
 import semantic_digital_twin
 from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
@@ -9,6 +10,10 @@ from demos.pycram_suturo_demos.helper_methods_and_useful_classes.A_robot_setup i
 )
 from pycram.motion_executor import simulated_robot, real_robot
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.semantic_annotations.mixins import (
+    HasRootBody,
+    HasSupportingSurface,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Milk,
 )
@@ -23,6 +28,24 @@ or False to run it on the real robot.
 
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 logger = logging.getLogger(__name__)
+
+
+def filter_points_full_on_surface(
+    points: List[Point3], obj: HasRootBody, surface: HasSupportingSurface
+) -> List[Point3]:
+    obj_min, obj_max = obj.min_max_points
+    surf_min, surf_max = surface.min_max_points
+
+    return [
+        point
+        for point in points
+        if (
+            surf_min.x <= point.x + obj_min.x <= surf_max.x
+            and surf_min.x <= point.x + obj_max.x <= surf_max.x
+            and surf_min.y <= point.y + obj_min.y <= surf_max.y
+            and surf_min.y <= point.y + obj_max.y <= surf_max.y
+        )
+    ]
 
 
 def simulation_demo():
@@ -43,6 +66,8 @@ def simulation_demo():
         )
 
     points = desk.sample_points_from_surface(milk)
+    # To test filter function
+    # points = filter_points_full_on_surface(points, milk, desk)
     point = points[0] if points else Point3()
     pose = Pose(position=point, reference_frame=point.reference_frame)
 
@@ -50,7 +75,7 @@ def simulation_demo():
         move_object_to_new_pose(milk, pose.to_homogeneous_matrix())
         desk.add_object(milk)
 
-    for i in range(0, 10):
+    for i in range(0, 5):
         with world.modify_world():
             obj = Milk.create_with_new_body_in_world(
                 name=PrefixedName(f"milk_carton_{i}"),
@@ -58,6 +83,8 @@ def simulation_demo():
                 scale=Scale(0.1, 0.1, 0.2),
             )
         points = desk.sample_points_from_surface(obj)
+        # To test the filter function
+        # points = filter_points_full_on_surface(points, obj, desk)
         point = points[0] if points else Point3()
         pose = Pose(position=point, reference_frame=point.reference_frame)
 
