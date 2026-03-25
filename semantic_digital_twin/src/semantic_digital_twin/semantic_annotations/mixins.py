@@ -29,30 +29,30 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     SumUnit,
     leaf,
 )
-from ..datastructures.prefixed_name import PrefixedName
-from ..datastructures.variables import SpatialVariables
-from ..exceptions import (
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.datastructures.variables import SpatialVariables
+from semantic_digital_twin.exceptions import (
     MismatchingWorld,
 )
-from ..spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
-from ..world import World
-from ..world_description.connections import (
+from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
-from ..world_description.degree_of_freedom import DegreeOfFreedomLimits
-from ..world_description.geometry import Scale
-from ..world_description.shape_collection import BoundingBoxCollection
-from ..world_description.world_entity import (
+from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedomLimits
+from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.shape_collection import BoundingBoxCollection
+from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
     Region,
     KinematicStructureEntity,
     Connection,
 )
-from ..world_description.world_modification import synchronized_attribute_modification
+from semantic_digital_twin.world_description.world_modification import synchronized_attribute_modification
 
 if TYPE_CHECKING:
-    from .semantic_annotations import (
+    from semantic_digital_twin.semantic_annotations.semantic_annotations import (
         Drawer,
         Door,
         Handle,
@@ -765,7 +765,7 @@ class HasSupportingSurface(HasStorageSpace, ABC):
 
         surface_circuit = self._build_surface_sampler(
             category_of_interest=category_of_interest,
-            object_bloat_and_variance=largest_xy_object_dimension,
+            object_bloat=largest_xy_object_dimension,
         )
 
         if surface_circuit is None:
@@ -779,18 +779,19 @@ class HasSupportingSurface(HasStorageSpace, ABC):
     def _build_surface_sampler(
         self,
         category_of_interest: Optional[Type[SemanticAnnotation]] = None,
-        object_bloat_and_variance: float = 0.1,
+        object_bloat: float = 0.1,
+        variance: float = 0.1,
     ):
         """
         Build a probabilistic circuit representing the supporting surface, truncated by the objects on the surface,
         and with Gaussian mixtures around the objects of interest.
 
         :param category_of_interest: The type of object sample points around.
-        :param object_bloat_and_variance: The amount of bloat to apply to the object events, and the standard
-            deviation to use for the Gaussian mixtures.
+        :param object_bloat: The amount of bloat to apply to the object events.
+        :param variance: The variance to use for the Gaussian mixtures.
         """
         truncated_event_2d = self._2d_surface_sample_space_excluding_objects(
-            object_bloat_and_variance
+            object_bloat
         )
 
         objects_of_interest = (
@@ -803,7 +804,7 @@ class HasSupportingSurface(HasStorageSpace, ABC):
                 world_P_obj_list=[
                     obj.root.global_pose.to_position() for obj in objects_of_interest
                 ],
-                variance=object_bloat_and_variance,
+                variance=variance,
                 sample_space=truncated_event_2d,
             )
         else:
@@ -969,8 +970,11 @@ class HasDestination(ABC):
     "Where should this object be brought?"
     """
 
-    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = []
-    """
-    List of semantic annotation types representing suitable destinations.
-    If empty, no destination is known.
-    """
+    @classproperty
+    @abstractmethod
+    def destination_class_names(cls) -> List[Type[SemanticAnnotation]]:
+        """
+        List of semantic annotation types representing suitable destinations.
+        If empty, no destination is known.
+        """
+        pass
