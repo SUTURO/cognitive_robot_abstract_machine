@@ -22,7 +22,9 @@ from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     SelfCollisionAvoidance,
     ExternalCollisionAvoidance,
+    ExternalCollisionDistanceMonitor,
     UpdateTemporaryCollisionRules,
+    make_external_collision_rules,
 )
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
@@ -30,7 +32,6 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 )
 from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionRule,
-    AvoidExternalCollisions,
 )
 from semantic_digital_twin.world_description.geometry import Cylinder
 from krrood.symbolic_math.symbolic_math import trinary_logic_not, trinary_logic_and
@@ -108,18 +109,18 @@ class PickUp(Goal):
             ]
         )
         self.add_node(self.sequence)
+        arm_buffer = 0.01
         self.add_node(
             UpdateTemporaryCollisionRules(
                 temporary_rules=[
-                    AvoidExternalCollisions(robot=robot, buffer_zone_distance=min(0.05,
-                                                                                  max(self.grasp_magic.object_geometry.collision.scale.z / 2 - 0.01, 0.01))),
+                    *make_external_collision_rules(robot=robot, arm_buffer_zone=arm_buffer),
                     _AllowObjectCollisions(
                         _object_body=self.grasp_magic.object_geometry
                     ),
                 ]
             )
         )
-        self.add_node(SelfCollisionAvoidance(robot=robot))
+        # self.add_node(SelfCollisionAvoidance(robot=robot))
         self.add_node(ExternalCollisionAvoidance(robot=robot))
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:

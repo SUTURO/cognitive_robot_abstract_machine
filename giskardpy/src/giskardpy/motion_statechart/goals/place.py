@@ -3,8 +3,15 @@ from typing import Union
 from giskardpy.data_types.exceptions import ForceTorqueSaysNoException
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
-from giskardpy.motion_statechart.goals.pick_up import CloseHand, OpenHand
-from giskardpy.motion_statechart.goals.templates import Sequence, Parallel
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    ExternalCollisionAvoidance,
+    ExternalCollisionDistanceMonitor,
+    SelfCollisionAvoidance,
+    UpdateTemporaryCollisionRules,
+    make_external_collision_rules,
+)
+from giskardpy.motion_statechart.goals.pick_up import CloseHand, OpenHand, _AllowObjectCollisions
+from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts, CancelMotion
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
@@ -15,7 +22,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
 )
 from krrood.symbolic_math.symbolic_math import trinary_logic_or
-from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.robots.abstract_robot import AbstractRobot, Manipulator
 from semantic_digital_twin.spatial_types import (
     Vector3,
     Point3,
@@ -28,7 +35,7 @@ from semantic_digital_twin.world_description.world_entity import (
 
 
 @dataclass(repr=False, eq=False)
-class Place(Sequence):
+class Place(Goal):
     """
     Assumes the object is already attached to the tool frame and the gripper is closed.
     goal: HomogeneousTransformationMatrix → full pose control; Point3 → position-only with z-up alignment.
@@ -39,19 +46,38 @@ class Place(Sequence):
     goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
     simulated: bool = field(default=True, kw_only=True)
+    _motion_sequence: Sequence = field(init=False)
 
-    def __post_init__(self):
-        super().__post_init__()
+    def expand(self, context: MotionStatechartContext) -> None:
+        super().expand(context)
+        robot = self.manipulator._robot
         # Note: Retracting separate from placing
-        approach = ApproachPlacement(
-            manipulator=self.manipulator,
-            object_geometry=self.object_geometry,
-            goal=self.goal,
-            ft=self.ft,
+        self._motion_sequence = Sequence([
+            ApproachPlacement(
+                manipulator=self.manipulator,
+                object_geometry=self.object_geometry,
+                goal=self.goal,
+                ft=self.ft,
+            ),
+            OpenHand(simulated_execution=self.simulated),
+        ])
+        self.add_node(self._motion_sequence)
+        arm_buffer = 0.01 # min(0.05, max(self.object_geometry.collision.scale.z / 2 - 0.01, 0.01))
+        self.add_node(
+            UpdateTemporaryCollisionRules(
+                temporary_rules=[
+                    *make_external_collision_rules(robot=robot, arm_buffer_zone=arm_buffer),
+                    _AllowObjectCollisions(_object_body=self.object_geometry),
+                ]
+            )
         )
-        open_gripper = OpenHand(simulated_execution=self.simulated)
-        self.nodes.append(approach)
-        self.nodes.append(open_gripper)
+        # self.add_node(SelfCollisionAvoidance(robot=robot))
+        self.add_node(ExternalCollisionAvoidance(robot=robot))
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        artifacts = super().build(context)
+        artifacts.observation = self._motion_sequence.observation_variable
+        return artifacts
 
 
 @dataclass(repr=False, eq=False)

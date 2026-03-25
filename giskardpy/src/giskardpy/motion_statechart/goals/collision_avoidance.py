@@ -8,7 +8,7 @@ from semantic_digital_twin.collision_checking.collision_matrix import (
     CollisionRule,
     CollisionMatrix,
 )
-from semantic_digital_twin.collision_checking.collision_rules import AvoidSelfCollisions
+from semantic_digital_twin.collision_checking.collision_rules import AvoidSelfCollisions, AvoidExternalCollisions
 from semantic_digital_twin.collision_checking.collision_variable_managers import (
     SelfCollisionVariableManager,
     ExternalCollisionVariableManager,
@@ -239,6 +239,33 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
         )
 
         return artifacts
+
+
+def make_external_collision_rules(
+    robot: AbstractRobot,
+    arm_buffer_zone: float,
+    base_buffer_zone: float = 0.05,
+) -> list:
+    """
+    Returns a list of AvoidExternalCollisions rules that apply a larger buffer zone to base
+    bodies (to prevent the base from clipping furniture) and a smaller one to the arm.
+    """
+    base_bodies = set(robot.base.bodies_with_collision) if robot.base is not None else set()
+    arm_bodies = set(robot.bodies_with_collision) - base_bodies
+    rules = []
+    if base_bodies:
+        rules.append(AvoidExternalCollisions(
+            robot=robot,
+            body_subset=base_bodies,
+            buffer_zone_distance=base_buffer_zone,
+        ))
+    if arm_bodies:
+        rules.append(AvoidExternalCollisions(
+            robot=robot,
+            body_subset=arm_bodies,
+            buffer_zone_distance=arm_buffer_zone,
+        ))
+    return rules
 
 
 @dataclass(eq=False, repr=False)

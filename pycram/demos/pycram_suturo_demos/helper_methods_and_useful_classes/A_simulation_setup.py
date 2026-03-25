@@ -8,6 +8,7 @@ from typing import Callable, Optional, Sequence, Tuple, Any
 
 from pycram.datastructures.dataclasses import Context
 from semantic_digital_twin.adapters.mesh import STLParser
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -73,9 +74,9 @@ def build_hsrb_world(hsrb_urdf: str):
     with world.modify_world():
         odom = Body(name=PrefixedName("odom_combined"))
         world.add_kinematic_structure_entity(odom)
-        world.add_connection(
-            OmniDrive.create_with_dofs(parent=odom, child=world.root, world=world)
-        )
+        omni_drive = OmniDrive.create_with_dofs(parent=odom, child=world.root, world=world)
+        world.add_connection(omni_drive)
+        omni_drive.has_hardware_interface = True
     return world
 
 
@@ -226,7 +227,7 @@ def setup_hsrb_in_environment(
         hsrb_world, env_world, robot_xyz_rpy=robot_xyz_rpy
     )
 
-    viz = try_make_viz(world)
+    viz = VizMarkerPublisher(_world=world, node=node).with_tf_publisher()
 
     return SetupResult(
         world=world,
