@@ -18,7 +18,39 @@ from pycram.ros_utils.text_to_image import TextToImagePublisher
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
 from pycram.robot_plans import ParkArmsActionDescription, LookAtActionDescription
+from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+
+# --- TtsPublisher class inlined from talking_demo.py ---
+try:
+    import rclpy
+    from rclpy.node import Node
+    from std_msgs.msg import String
+except ImportError as e:
+    raise ImportError(
+        "ROS2 Python environment not found. Please source ROS2 and install rclpy and std_msgs."
+    ) from e
+
+
+class TtsPublisher:
+    def __init__(self, node_name="tts_text_publisher", topic_name="/tts_text"):
+        rclpy.init()
+        self.node = Node(node_name)
+        self.publisher = self.node.create_publisher(String, topic_name, 10)
+
+    def publish(self, text: str):
+        msg = String()
+        msg.data = text
+        self.publisher.publish(msg)
+        self.node.get_logger().info(f"Published: '{text}'")
+        rclpy.spin_once(self.node, timeout_sec=0.1)
+
+    def shutdown(self):
+        self.node.destroy_node()
+        rclpy.shutdown()
+
+
+# --- End TtsPublisher class ---
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -137,25 +169,32 @@ with real_robot:
     )
     os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
     text_pub = TextToImagePublisher()
+    tts = TtsPublisher()
     # 1. Scan for a waving human
     text_pub.publish_text("Looking for a waving human...")
+    tts.publish("Looking for a waving human")
     look_in_direction(Direction.LEFT)
     human = scan_for_waving_human()
     if human is None:
         text_pub.publish_text("No waving human found, giving up.")
+        tts.publish("No waving human found, giving up.")
         shutdown_robokudo_interface()
+        tts.shutdown()
         exit(1)
     human_pose = transform_perception_to_map(human)
     text_pub.publish_text(
         f"Found human:\n X:{human_pose.pose.position.x} \n Y:{human_pose.pose.position.y}"
     )
+    tts.publish("Found Human")
     # 2. Drive to the human
     human_goal = human_pose.ros_message()
     text_pub.publish_text(
         f"Driving to human:\n X:{human_goal.pose.position.x } \n Y:{human_goal.pose.position.y}"
     )
+    tts.publish("Driving to human")
     drive_to_pose(human_goal)
     text_pub.publish_text(f"Hello, I will now look for a free seat...")
+    tts.publish("Hello, I will see if I can find a free seat for you")
     sleep(6)
 
     # 3. Drive to sofa
@@ -175,6 +214,7 @@ with real_robot:
     # 4. Find a free seat
     result = find_free_seat()
     text_pub.publish_text(f"Got Data")
+    tts.publish("I got Data")
 
     # 5. Drive back to the human
     text_pub.publish_text(
@@ -185,6 +225,7 @@ with real_robot:
     # 6. Tell the human where to sit
     if len(result.res) == 0:
         text_pub.publish_text(f"Something went wrong while finding seats.")
+        tts.publish("Something went wrong while finding seats")
         print(f"Aborted")
     else:
         right_seat = result.res[0].attribute[0]
@@ -195,15 +236,20 @@ with real_robot:
         print(list_left)
         if list_right[1] == " False" and list_left[1] == " False":
             text_pub.publish_text(f"Both seats free")
+            tts.publish("Both seats free")
             print(f"Both seats free")
         elif list_right[1] == " True" and list_left[1] == " True":
             text_pub.publish_text(f"No seats free")
+            tts.publish("No seats free")
             print(f"No seats free")
         elif list_right[1] == " False" and list_left[1] == " True":
             text_pub.publish_text(f"Right seats free")
+            tts.publish("Right seats free")
             print(f"Right seat free")
         else:
             text_pub.publish_text(f"Left seats free")
+            tts.publish("Left seats free")
             print(f"Left seat free")
 
     shutdown_robokudo_interface()
+    tts.shutdown()
