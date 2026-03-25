@@ -12,6 +12,7 @@ from pycram_suturo_demos.helper_methods_and_useful_classes.A_robot_setup import 
 )
 from pycram.datastructures.enums import Arms
 from pycram.motion_executor import real_robot, simulated_robot
+from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
 
 print("before ParkArms import")
 from pycram.robot_plans.actions.core.robot_body import ParkArmsActionDescription
@@ -43,6 +44,7 @@ object_to_pickup_startpose = PoseStamped.from_list(
 
 
 plan = SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH))
+plan_move = SequentialPlan(context, move_demo(simulated=SIMULATED,context=context,world=world, target_pose="POPCORN_TABLE"))
 plan2 = SequentialPlan(
     context,
     GiskardPickUpActionDescription(

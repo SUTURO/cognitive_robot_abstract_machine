@@ -291,7 +291,7 @@ class GiskardRetractAction(ActionDescription):
     Parsing simulation argument
     """
 
-    back_off_pose: PoseStamped | None = field(default=None, kw_only=True)
+    back_off_pose: PoseStamped = field(default=None, kw_only=True)
 
     _pre_perform_callbacks = []
     """
@@ -304,6 +304,7 @@ class GiskardRetractAction(ActionDescription):
     def execute(self) -> None:
         from ... import RetractMotion, GiskardMoveGripperMotion
         from ... import NavigateActionDescription
+        from pycram.robot_plans.motions.navigation import MoveMotion
 
         arm = ViewManager.get_arm_view(self.arm, self.robot_view)
         manipulator = arm.manipulator
@@ -316,22 +317,15 @@ class GiskardRetractAction(ActionDescription):
             ),
         ).perform()
 
-        # TODO: implement a better way to determine the back-off pose
-        backed_off_pose = (
-            self.back_off_pose if self.back_off_pose is None else self.target_location
-        )
         if self.simulated:
             SequentialPlan(
-                self.context,
-                NavigateActionDescription(
-                    target_location=self.back_off_pose, keep_joint_states=True
-                ),
+                self.context, MoveMotion(self.back_off_pose, True)
             ).perform()
         else:
             from pycram.external_interfaces import nav2_move
 
             os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
-            goal = backed_off_pose.ros_message()
+            goal = self. back_off_pose.ros_message()
             print(f"Moving to {self.back_off_pose}'")
             nav2_move.start_nav_to_pose(self.back_off_pose)
 
