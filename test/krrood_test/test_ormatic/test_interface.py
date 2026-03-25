@@ -9,16 +9,13 @@ from krrood.ormatic.dao import (
     is_data_column,
     ToDataAccessObjectState,
     get_dao_class,
+    FromDataAccessObjectState,
 )
 from krrood.ormatic.exceptions import NoDAOFoundError
 from ..dataset.alternative_mappings_construction_order import (
     Entrypoint,
-    MappedClass,
-    OrdinaryClass,
     BuildFirst,
-    AssociationWithMappedClass,
     BuildFirstAssociation,
-    OrdinaryClassRelation,
 )
 from ..dataset.example_classes import *
 from ..dataset.ormatic_interface import *
@@ -141,7 +138,7 @@ def test_entity_and_derived(session, database):
     session.add(derived_dao)
     session.commit()
 
-    # krrood_test the content of the database
+    # test the content of the database
     queried_entity = session.scalars(select(CustomEntityDAO)).first()
     queried_derived = session.scalars(select(DerivedEntityDAO)).first()
 
@@ -816,54 +813,32 @@ def test_consistent_hashes_of_association_object_table_names():
     )
 
 
-def test_unresolved_reference_in_alternative_mappings(session, database):
+def test_class_dependencies(session, database):
 
-    # %% setup initial world
-    b1 = BuildFirst("a")  # some spatial types
+    b1 = BuildFirst("a")
     b2 = BuildFirst("b")
-    b3 = BuildFirst("c")
-    s1 = BuildFirstAssociation(b1)  # Shapes
-    s2 = BuildFirstAssociation(b2)
+    a1 = BuildFirstAssociation(b1)
 
-    o1 = OrdinaryClass(s1)  # KSE
-    o2 = OrdinaryClass(s2)
-    b1.backreference_to_ordinary_class = o1
-    b2.backreference_to_ordinary_class = o2
-    b3.backreference_to_ordinary_class = o1
-
-    r1 = OrdinaryClassRelation(o1, o2, b3)  # connections
-
-    m1 = MappedClass(
-        ordinary_instances=[o1, o2], relations_between_ordinary_instances=[r1]
-    )  # the initial world of a pycram plan
-
-    # %% setup context world
-    b1 = BuildFirst("a")  # some spatial types
-    b2 = BuildFirst("b")
-    b3 = BuildFirst("c")
-    s1 = BuildFirstAssociation(b1)  # Shapes
-    s2 = BuildFirstAssociation(b2)
-
-    o1 = OrdinaryClass(s1)  # KSE
-    o2 = OrdinaryClass(s2)
-
-    b1.backreference_to_ordinary_class = o1
-    b2.backreference_to_ordinary_class = o2
-    b3.backreference_to_ordinary_class = o1
-
-    r1 = OrdinaryClassRelation(o1, o2, b3)  # connections
-
-    m2 = MappedClass(
-        ordinary_instances=[o1, o2], relations_between_ordinary_instances=[r1]
-    )  # the context world
-    a1 = AssociationWithMappedClass(m2)
-
-    instance = Entrypoint(
-        reference_to_mapped_class=m1, association_with_mapped_class=a1
-    )
+    instance = Entrypoint(b2, a1)
     dao = to_dao(instance)
     session.add(dao)
     session.commit()
 
     queried_dao = session.scalars(select(EntryPointMappingDAO)).one()
-    reconstructed = queried_dao.from_dao()
+    state = FromDataAccessObjectState()
+    reconstructed = queried_dao.from_dao(state=state)
+
+    assert set(state._class_dependencies.nodes()) == {
+        BuildFirstAssociationDAO,
+        BuildFirstMappingDAO,
+        EntryPointMappingDAO,
+    }
+
+    edges = {
+        (state._class_dependencies[source], state._class_dependencies[target])
+        for source, target in state._class_dependencies.edge_list()
+    }
+    assert edges == {
+        (EntryPointMappingDAO, BuildFirstAssociationDAO),
+        (EntryPointMappingDAO, BuildFirstMappingDAO),
+    }

@@ -322,87 +322,94 @@ class FromDataAccessObjectState(DataAccessObjectState[FromDataAccessObjectWorkIt
         self.register(dao_instance, result)
         return result
 
-    def _build_dependency_graph(self, types: List[Type[DataAccessObject]]):
+    def _build_class_dependencies(self, dao_types: List[Type[DataAccessObject]]):
         """
-        Build a dependency graph for the given types that can be used to infer the built order.
-        :param types: The types to build the dependency graph for.
+        Build the class dependencies for the given types that can be used to infer the built order.
+
+        :param dao_types: The data access object types to build the dependency graph for.
         """
-        types_to_index: Dict[Type, int] = (
-            {}
-        )  # quickly access the index of a type in the graph
+        types_to_index: Dict[Type, int] = {
+            type_: self._class_dependencies.add_node(type_) for type_ in dao_types
+        }  # add all dao types to the dependency graph
 
-        # add every type to the graph
-        for type_ in types:
-            types_to_index[type_] = self._class_dependencies.add_node(type_)
+        # add all dependencies between the classes defined from the alternative mappings
+        for dao_type in dao_types:
+            alternative_mapping = dao_type.original_class()
 
-            # if its an alternative mapping, build its dependencies
-            if issubclass(type_, AlternativeMapping):
+            # if it's an alternative mapping, build its dependencies
+            if issubclass(alternative_mapping, AlternativeMapping):
+                self._build_dependencies_of_alternative_mapping(
+                    alternative_mapping, dao_types, types_to_index
+                )
 
-                # get all concrete types that are affected by the dependencies
-                for required_pre_build_class in type_.required_pre_build_classes:
-                    for concrete_type in types:
-                        original_concrete_type = concrete_type.original_class()
-                        if issubclass(original_concrete_type, AlternativeMapping):
-                            original_concrete_type = (
-                                original_concrete_type.original_class()
-                            )
+    def _build_dependencies_of_alternative_mapping(
+        self,
+        alternative_mapping: Type[AlternativeMapping],
+        dao_types: List[Type[DataAccessObject]],
+        types_to_index: Dict[Type, int],
+    ):
+        """
+        Builds the dependencies of a given alternative mapping and updates the internal
+        class dependency graph.
 
-                        # skip types that are not affected
-                        if not issubclass(
-                            original_concrete_type, required_pre_build_class
-                        ):
-                            continue
+        :param alternative_mapping: The alternative mapping for which dependencies
+            are being resolved.
+        :param dao_types: A list of DAO types representing the discovered Data Access
+            Objects.
+        :param types_to_index: A dictionary mapping DAO types to their respective
+            indices in the dependency graph.
 
-                        # add type if not exists to the graph
-                        if (
-                            required_pre_build_class not in types_to_index
-                            and required_pre_build_class in types
-                        ):
-                            types_to_index[required_pre_build_class] = (
-                                self._class_dependencies.add_node(
-                                    required_pre_build_class
-                                )
-                            )
+        """
 
-                        self._class_dependencies.add_edge(
-                            types_to_index[type_],
-                            types_to_index[concrete_type],
-                            None,
-                        )
-        # import matplotlib.pyplot as plt
-        # from rustworkx.visualization import mpl_draw
-        #
-        # mpl_draw(self._class_dependencies, with_labels=True)
-        # plt.show()
+        dao_of_alternative_mapping = get_dao_class(alternative_mapping)
+        # get all concrete types that are affected by the dependencies
+        for required_domain_type in alternative_mapping.required_pre_build_classes():
+            # for every concrete dao type discovered in the discovery phase
+            for concrete_dao_type in dao_types:
+
+                # get the concrete domain type of the dao current dao type
+                concrete_domain_type = concrete_dao_type.original_class()
+                if issubclass(concrete_domain_type, AlternativeMapping):
+                    concrete_domain_type = concrete_domain_type.original_class()
+
+                # skip types that are not required
+                if not issubclass(concrete_domain_type, required_domain_type):
+                    continue
+
+                # add the dependency
+                self._class_dependencies.add_edge(
+                    types_to_index[dao_of_alternative_mapping],
+                    types_to_index[concrete_dao_type],
+                    None,
+                )
 
     def _order_work_items_by_dependency_graph(
         self, work_items: List[FromDataAccessObjectWorkItem]
     ) -> List[FromDataAccessObjectWorkItem]:
         """
         Order the work items such that dependencies are met first.
+
         :param work_items: The work items to order.
         :return: The newly sorted work items.
         """
 
         number_of_work_items = len(work_items)
         result = []
-        for type_index in rustworkx.topological_sort(self._class_dependencies):
-            type_ = self._class_dependencies[type_index]
-            dao_class = get_dao_class(type_)
 
-            print(dao_class, type_)
+        for type_index in reversed(
+            rustworkx.topological_sort(self._class_dependencies)
+        ):
+            dao_type = self._class_dependencies[type_index]
 
             matching_types = [
                 work_item
                 for work_item in work_items
-                if isinstance(work_item.dao_instance, dao_class)
+                if type(work_item.dao_instance) is dao_type
             ]
             result.extend(matching_types)
 
             for work_item in matching_types:
                 work_items.remove(work_item)
-
-        assert len(work_items) == 0
         assert len(result) == number_of_work_items
         return result
 
@@ -935,7 +942,7 @@ class DataAccessObject(HasGeneric[T]):
             work_item.dao_instance._fill_from_dao(work_item.domain_object, state)
 
         # build dependency graphg used to order the discovery queue
-        state._build_dependency_graph(list(collected_types))
+        state._build_class_dependencies(list(collected_types))
 
         state.discovery_mode = False
 
@@ -950,17 +957,41 @@ class DataAccessObject(HasGeneric[T]):
         :param state: The conversion state.
         :param discovery_order: The order in which DAOs were discovered.
         """
-        # Pass 2.1: Populate all relationships and scalars for all discovered instances.
-        # This ensures that all objects point to each other (even if not yet fully resolved).
         state.resolution_mode = False
+        self._populate_relationships_and_scalars(state, discovery_order)
+
+        state.resolution_mode = True
+        self._finalize_resolution(state, discovery_order)
+
+    def _populate_relationships_and_scalars(
+        self,
+        state: FromDataAccessObjectState,
+        discovery_order: List[FromDataAccessObjectWorkItem],
+    ):
+        """
+        Populate all relationships and scalars for all discovered instances.
+        This ensures that all objects point to each other (even if not yet fully resolved).
+
+        :param state: The conversion state.
+        :param discovery_order: The order in which to process the instances.
+        """
         for work_item in discovery_order:
             if not state.is_initialized(work_item.dao_instance):
                 work_item.dao_instance._populate_relationships_and_scalars_from_dao(
                     work_item.domain_object, state
                 )
 
-        # Pass 2.2: Finalize resolution and resolve AlternativeMappings.
-        state.resolution_mode = True
+    def _finalize_resolution(
+        self,
+        state: FromDataAccessObjectState,
+        discovery_order: List[FromDataAccessObjectWorkItem],
+    ):
+        """
+        Finalize resolution of instances and resolve AlternativeMappings.
+
+        :param state: The conversion state.
+        :param discovery_order: The order in which to process the instances.
+        """
         for work_item in discovery_order:
             if not state.is_initialized(work_item.dao_instance):
                 work_item.dao_instance._resolve_from_dao(work_item.domain_object, state)
@@ -1158,7 +1189,6 @@ class DataAccessObject(HasGeneric[T]):
         :param state: The conversion state.
         :return: The final domain object.
         """
-        print("handling alternative mapping of type", type(alternative_mapping))
         final_result = alternative_mapping.to_domain_object()
         # Update memo if AlternativeMapping changed the instance
         state.register(self, final_result)
@@ -1378,7 +1408,9 @@ class AlternativeMapping(HasGeneric[T], abc.ABC):
     def required_pre_build_classes(cls) -> List[Type]:
         """
         A list of other classes that have to be built before this one in the `from_dao` algorithm.
+        The types inside the list are the domain types, not the data access objects nor the alternative mappings.
         """
+        return []
 
 
 @lru_cache(maxsize=None)
