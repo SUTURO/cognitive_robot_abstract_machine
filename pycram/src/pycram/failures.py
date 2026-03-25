@@ -5,6 +5,10 @@ from pathlib import Path
 
 from typing_extensions import TYPE_CHECKING, List, Optional, Type
 
+from semantic_digital_twin.robots.abstract_robot import AbstractRobot
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.world_description.world_entity import Body
+
 if TYPE_CHECKING:
     from pycram.datastructures.pose import PoseStamped
     from pycram.datastructures.enums import (
@@ -642,7 +646,7 @@ class Grasping(Task):
 
 class ObjectNotGraspedError(Grasping):
     def __init__(
-        self, obj: Object, robot: Object, arm: Arms, grasp=None, *args, **kwargs
+        self, obj: Body, robot: AbstractRobot, arm: Arms, grasp=None, *args, **kwargs
     ):
         grasp_str = f"using {grasp} grasp" if grasp else ""
         super().__init__(
