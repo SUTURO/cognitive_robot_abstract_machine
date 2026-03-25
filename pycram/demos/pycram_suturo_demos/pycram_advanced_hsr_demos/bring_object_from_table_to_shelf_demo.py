@@ -1,69 +1,46 @@
 import logging
-from enum import Enum
-from typing import List
+from typing import List, Optional
 
 import geometry_msgs.msg
 from suturo_resources.queries import (
     query_surface_of_most_similar_obj,
-    query_get_next_object_euclidean_x_y,
     query_semantic_annotations_on_surfaces,
+    query_class_by_label,
 )
 
 import semantic_digital_twin
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes import (
-    object_creation,
-)
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
     attach_object_to_hsrb,
     detach_object_from_hsrb,
 )
-from demos.pycram_suturo_demos.helper_methods_and_useful_classes.A_robot_setup import (
-    robot_setup,
-)
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import Arms
-from pycram.datastructures.partial_designator import PartialDesignator
 from pycram.datastructures.pose import PoseStamped
 from pycram.external_interfaces import nav2_move
 from pycram.language import SequentialPlan
-from pycram.motion_executor import simulated_robot, real_robot
+from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
     ParkArmsActionDescription,
     GiskardPickUpActionDescription,
-    NavigateActionDescription,
     GiskardPlaceActionDescription,
     LookAtActionDescription,
     MoveTorsoActionDescription,
-    MoveTorsoAction,
 )
 from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     perceive_and_spawn_all_objects,
 )
-from pycram_suturo_demos.helper_methods_and_useful_classes.semantic_helper_methods import (
-    get_object_class_from_string,
-)
-from pycram_suturo_demos.helper_methods_and_useful_classes.simulation_setup import (
-    SetupResult,
-)
 from semantic_digital_twin.datastructures.definitions import TorsoState
-from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
     HasSupportingSurface,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Cucumber,
-    Banana,
-    Cola,
     Table,
-    Orange,
-    Cupboard,
     ShelfLayer,
 )
 from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import Scale, Color
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -121,6 +98,24 @@ def calc_closest_point_to_robot(
     return min_dist_point
 
 
+def filter_points_full_on_surface(
+    points: List[Point3], obj: HasRootBody, surface: HasSupportingSurface
+) -> List[Point3]:
+    obj_min, obj_max = obj.min_max_points
+    surf_min, surf_max = surface.min_max_points
+
+    return [
+        point
+        for point in points
+        if (
+            surf_min.x <= point.x + obj_min.x <= surf_max.x
+            and surf_min.x <= point.x + obj_max.x <= surf_max.x
+            and surf_min.y <= point.y + obj_min.y <= surf_max.y
+            and surf_min.y <= point.y + obj_max.y <= surf_max.y
+        )
+    ]
+
+
 def get_pose_from_surface(
     context: Context,
     surface: HasSupportingSurface,
@@ -128,6 +123,7 @@ def get_pose_from_surface(
     robot_pose: Point3 = None,
 ) -> Pose:
     points = surface.sample_points_from_surface(obj)
+
     if robot_pose is None:
         point = points[0] if points else Point3()
     else:
@@ -137,7 +133,7 @@ def get_pose_from_surface(
     return pose
 
 
-def place_object_on_table(
+def place_object_on_surface(
     context: Context,
     obj: HasRootBody,
     surface_to_place_on: HasSupportingSurface,
@@ -199,27 +195,94 @@ def look_at_point(context: Context, point: Point3):
         ).perform()
 
 
-def look_at_surface(context: Context, surface: HasSupportingSurface):
-    look_at_point(context, surface.supporting_surface.global_pose.to_position())
+def look_at_surface(
+    context: Context, surface: HasSupportingSurface, offset: Optional[float] = None
+):
+    if offset is None or offset == 0.0:
+        look_at_point(context, surface.supporting_surface.global_pose.to_position())
+    else:
+        look_side_of_surface_middle(context, surface, offset)
+
+
+def look_side_of_surface_middle(
+    context: Context, surface: HasSupportingSurface, offset: float
+):
+    surface_middle_point = (
+        surface.supporting_surface.global_pose.to_translation_matrix()
+    )
+    middle_point_T_robot = context.world.transform(
+        surface_middle_point, context.robot.root
+    )
+
+    middle_point_T_robot.y += offset
+    look_at_point(context, middle_point_T_robot.to_position())
+
+
+def park_arms(context: Context):
+    with real_robot:
+        SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH)).perform()
+
+
+def move_torso(context: Context, state: TorsoState):
+    with real_robot:
+        SequentialPlan(context, MoveTorsoActionDescription(state)).perform()
 
 
 def scan_shelves(context: Context, shelves: List[ShelfLayer]):
     for shelf in shelves:
         z_shelf = float(shelf.global_pose.z)
+
         if z_shelf <= _torso_thresholds["mid"]:
-            move_torso = MoveTorsoActionDescription(TorsoState.LOW)
+            move_torso(context, TorsoState.LOW)
         elif _torso_thresholds["mid"] <= z_shelf <= _torso_thresholds["high"]:
-            move_torso = MoveTorsoActionDescription(TorsoState.MID)
+            move_torso(context, TorsoState.MID)
         else:
-            move_torso = MoveTorsoActionDescription(TorsoState.HIGH)
-        SequentialPlan(context, move_torso).perform()
+            move_torso(context, TorsoState.HIGH)
+
+        look_at_surface(context=context, surface=shelf)
         perceive_and_spawn_all_objects(context.world)
+
         objects_on_shelf = query_semantic_annotations_on_surfaces(
             [shelf], context.world
         )
+        if not objects_on_shelf:
+            continue
         for obj in objects_on_shelf:
             with context.world.modify_world():
                 shelf.add_object(obj)
+
+
+def reset_to_start(context: Context, starting_pose: Pose):
+    park_arms(context)
+    move_to_pose(context=context, pose=starting_pose)
+
+
+def try_and_scan_for_object_on_table(
+    context: Context,
+    object_to_pick_type: type,
+    from_table: Table,
+):
+    move_to_pose(context, _poses[_TABLE_NAME])
+    offset = 0.2
+    for try_count in range(3):
+        # Look at surface with different offset each try
+        look_at_surface(context, from_table, offset=(offset * try_count))
+
+        # Change offset directions each try
+        offset = -offset
+
+        perceive_and_spawn_all_objects(context.world)
+
+        # Check if object was spawned
+        objs: List[HasRootBody] = query_semantic_annotations_on_surfaces(
+            [from_table], context.world
+        ).tolist()
+
+        # Object found on table
+        if object_to_pick_type in objs:
+            return objs[0]
+
+    return None
 
 
 def main(
@@ -230,37 +293,32 @@ def main(
     STARTING_POSE = context.robot.root.global_pose.to_pose()
 
     table: Table = context.world.get_semantic_annotation_by_name(_TABLE_NAME)
+    obj_type = query_class_by_label(object_to_pick)
 
-    move_to_pose(context, _poses[_TABLE_NAME])
-    look_at_surface(context, table)
-    perceive_and_spawn_all_objects(context.world)
+    obj = try_and_scan_for_object_on_table(context, obj_type, table)
 
-    # Get object to pick
-    objs = context.world.get_semantic_annotations_by_type(
-        get_object_class_from_string(object_to_pick)
-    )
-    obj: HasRootBody
-    if objs:
-        obj = objs[0]
-    else:
-        raise Exception("Object not found")
+    if obj is None:
+        reset_to_start(context, STARTING_POSE)
+        return
 
-    shelf_layers = context.world.get_semantic_annotations_by_type(ShelfLayer)
     pickup_object_from_table(context, obj=obj)
 
     move_to_pose(context=context, pose=_poses[_CUPBOARD_NAME])
+
+    shelf_layers = context.world.get_semantic_annotations_by_type(ShelfLayer)
     scan_shelves(context, shelf_layers)
 
     surface_to_place_on: HasSupportingSurface = query_surface_of_most_similar_obj(
         obj, shelf_layers
     )
-
-    place_object_on_table(
+    place_object_on_surface(
         context,
         obj,
         surface_to_place_on,
     )
 
-    with real_robot:
-        SequentialPlan(context, ParkArmsActionDescription(Arms.BOTH)).perform()
-    move_to_pose(context=context, pose=STARTING_POSE)
+    move_to_pose(context=context, pose=_poses[_CUPBOARD_NAME])
+    park_arms(context)
+    move_torso(context, TorsoState.LOW)
+
+    reset_to_start(context, STARTING_POSE)
