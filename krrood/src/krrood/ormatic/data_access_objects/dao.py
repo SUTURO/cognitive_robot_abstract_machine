@@ -19,24 +19,21 @@ from typing_extensions import (
     Tuple,
 )
 
-from krrood.ormatic.data_access_objects import helper
 from krrood.ormatic.data_access_objects.alternative_mappings import AlternativeMapping
 from krrood.ormatic.data_access_objects.base import (
-    DataAccessObjectWorkItem,
     HasGeneric,
 )
 from krrood.ormatic.data_access_objects.from_dao import (
     FromDataAccessObjectWorkItem,
     FromDataAccessObjectState,
 )
-from krrood.ormatic.data_access_objects.helper import get_dao_class
+from krrood.ormatic.data_access_objects.helper import get_dao_class, to_dao
 from krrood.ormatic.data_access_objects.to_dao import ToDataAccessObjectState
-from krrood.ormatic.utils import is_data_column, _get_type_hints_cached
-
 from krrood.ormatic.exceptions import (
     NoGenericError,
     NoDAOFoundDuringParsingError,
 )
+from krrood.ormatic.utils import is_data_column, _get_type_hints_cached
 
 logger = logging.getLogger(__name__)
 _repr_thread_local = threading.local()
@@ -246,7 +243,7 @@ class DataAccessObject(HasGeneric[T]):
         temp_dao = state.pop(source_object)
 
         # create dao of alternatively mapped superclass
-        parent_dao = helper.to_dao(source_object, state)
+        parent_dao = alternative_base.original_class().to_dao(source_object, state)
 
         # Restore the object in the memo dictionary
         if temp_dao is not None:
