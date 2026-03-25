@@ -320,7 +320,7 @@ class GiskardPickUpAction(ActionDescription):
     def __post_init__(self):
         super().__post_init__()
 
-    def execute(self) -> None:
+    def execute(self) -> bool:
         try:
             from ...motions.pick_up import PickupMotion
             from ... import GiskardRetractActionDescription, ParkArmsActionDescription
@@ -335,6 +335,8 @@ class GiskardPickUpAction(ActionDescription):
         # Register attach as a post-perform callback BEFORE queuing the motion
         robot_pose_pre_manipulation = PoseStamped.from_spatial_type(self.context.robot.root.global_pose)
 
+        grasped: bool = False
+
         # try to grasp the object, if it is not grasped, throw an ObjectNotGraspedError so one can react within the demo
         try:
             SequentialPlan(
@@ -346,6 +348,7 @@ class GiskardPickUpAction(ActionDescription):
                     gripper_vertical=self.gripper_vertical,
                 ),
             ).perform()
+            grasped = True
         except Exception as e:
             SequentialPlan(
                 self.context,
@@ -356,7 +359,9 @@ class GiskardPickUpAction(ActionDescription):
                 ),
                 ParkArmsActionDescription(Arms.BOTH)).perform()
             logger.error(f"Internal PickUpError with error message: {e}")
-            raise ObjectNotGraspedError(obj=self.object_designator,robot=self.context.robot, arm=self.arm)
+            grasped = False
+            return grasped
+
 
         SequentialPlan(
             self.context,
@@ -373,6 +378,8 @@ class GiskardPickUpAction(ActionDescription):
         nav2_move.start_nav_to_pose(robot_pose_pre_manipulation)
 
         SequentialPlan(self.context,ParkArmsActionDescription(Arms.BOTH)).perform()
+
+        return grasped
 
     # implement sometime, currently not implemented, since Motions have weird heirachys
     def item_between_fingertips(

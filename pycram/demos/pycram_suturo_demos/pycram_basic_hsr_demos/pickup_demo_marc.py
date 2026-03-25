@@ -55,4 +55,5 @@ def pickup_demo(
                 gripper_vertical=True,
             ),
         ).perform()
+
         logger.info("PickUp has is now finished", delay=standard_delay)
