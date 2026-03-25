@@ -238,8 +238,6 @@ def perceive_and_spawn_all_objects(world: World):
         # object_name = "muesli_vitalis_box_nutmix2"
         # object_type = "cereal"
 
-        print(f"object_name: {object_name}")
-        print(f"object_type: {object_type}")
         spawn_semantic_with_body(
             semantic_type=object_type,
             name=object_name,
