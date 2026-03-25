@@ -29,6 +29,7 @@ from pycram.robot_plans import (
 from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     perceive_and_spawn_all_objects,
 )
+from pycram_suturo_demos.pycram_basic_hsr_demos.talking_demo import TtsPublisher
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
@@ -70,6 +71,8 @@ _poses = {
 }
 
 _torso_thresholds = {"high": 2.0, "mid": 1.5}
+
+tts = TtsPublisher()
 
 
 def pose_to_ros(pose: Pose):
@@ -295,14 +298,20 @@ def main(
     table: Table = context.world.get_semantic_annotation_by_name(_TABLE_NAME)
     obj_type = query_class_by_label(object_to_pick)
 
+    tts.publish("I will try to scan for the object on the table")
     obj = try_and_scan_for_object_on_table(context, obj_type, table)
 
     if obj is None:
+        tts.publish(
+            "Object was not found after multiple tries. I will reset to the starting position"
+        )
         reset_to_start(context, STARTING_POSE)
         return
 
+    tts.publish("I found the object and will now try to pick it up")
     pickup_object_from_table(context, obj=obj)
 
+    tts.publish("I will now move to the shelf")
     move_to_pose(context=context, pose=_poses[_CUPBOARD_NAME])
 
     shelf_layers = context.world.get_semantic_annotations_by_type(ShelfLayer)
@@ -311,6 +320,7 @@ def main(
     surface_to_place_on: HasSupportingSurface = query_surface_of_most_similar_obj(
         obj, shelf_layers
     )
+    tts.publish("I will try to place the object in the shelf")
     place_object_on_surface(
         context,
         obj,
@@ -321,4 +331,6 @@ def main(
     park_arms(context)
     move_torso(context, TorsoState.LOW)
 
+    tts.publish("I finished all tasks and will to the starting position")
     reset_to_start(context, STARTING_POSE)
+    tts.shutdown()
