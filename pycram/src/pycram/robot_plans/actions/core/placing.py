@@ -319,6 +319,7 @@ class GiskardPlaceAndDetachAction(ActionDescription):
                 object_designator=self.object_designator,
                 arm=Arms.LEFT,
                 target_location=self.target_location,
+                ignore_orientation=self.ignore_orientation,
             ),
         ).perform()
 
