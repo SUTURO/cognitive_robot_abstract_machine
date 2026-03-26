@@ -20,6 +20,7 @@ from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods
     get_pickup_mode,
     perceive_and_spawn_all_objects, look_at_point, try_percieve_and_retrieve,
 )
+from pycram_suturo_demos.pycram_basic_hsr_demos.hri_handover import handover_robot_human_no_init
 from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
 from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo import (
     pickup_demo,
@@ -50,22 +51,20 @@ Full sequence constains:
 """
 
 
-def pickup_main(
+def bring_item_from_table_to_human_demo(
+    *,
     context: Context,
     object_name: str,
 ):
     rclpy.init()
     simulated = False
-    table = ""
-
+    world = context.world
     talking_node = TalkingNode()
     standard_delay = 2
 
-    world = context.world
-    robot_view = context.robot
-
+    # TODO insert correct name here
+    table = ""
     table = world.get_body_by_name("cooking_table")
-
 
     # Move to table, on which the object is to be expected.
     move_to_table = move_demo(
@@ -84,31 +83,33 @@ def pickup_main(
     talking_node.pub(text="Moving to table.", delay=standard_delay)
     move_to_table()
 
-    # three attempts to perceive the object, and retrieve it from the world.
-    for i in range(3):
-        object_to_pickup = try_percieve_and_retrieve(world=world)
-        if object_to_pickup is not None:
+    for j in range(2):
+
+        for i in range(3):
+            object_to_pickup: Body | None = try_percieve_and_retrieve(context=context, object_name=object_name,
+                                                               talking_node=talking_node, simulated=simulated, angle=i)
+            if object_to_pickup:
+                break
+
+        if object_to_pickup is None:
+            talking_node.pub(text="I couldnt find the object, driving back to start.", delay=standard_delay)
+            move_to_starting_pose()
             break
 
-    perceive_and_spawn_all_objects(world)
-    object_to_pickup = world.get_body_by_name(object_name)
+        pickup_callback = pickup_demo(
+            simulation=simulated,
+            context=context,
+            object_to_pickup=object_to_pickup,
+        )
 
-    # move to perception angle 1
-    if object_to_pickup == None:
-        talking_node.pub("I could not find the object. Going back to starting pose.")
-        move_to_starting_pose()
-        return
+        if pickup_callback:
+            talking_node.pub(text="The object has been picked up, now moving to starting pose for handover", delay=standard_delay)
+            break
+        else:
+            talking_node.pub(text="object has not been picked up, retrying", delay=standard_delay)
+            continue
 
-    talking_node.pub(
-        text=f"Initializing pickup of {object_to_pickup.name}", delay=standard_delay
-    )
-    pickup_demo(
-        simulation=simulated,
-        context=context,
-        object_to_pickup=object_to_pickup,
-    )
-    talking_node.pub(
-        text=f"Pickup has been finished, now moving back to start position",
-        delay=standard_delay,
-    )
+
     move_to_starting_pose()
+    handover_robot_human_no_init(context=context, simulated=simulated)
+
