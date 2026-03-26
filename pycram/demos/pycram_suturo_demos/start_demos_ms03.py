@@ -10,6 +10,7 @@ from std_msgs.msg import String
 
 from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import TalkingNode
 from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
+from pycram_suturo_demos.pycram_advanced_hsr_demos.bring_item_from_table import bring_item_from_table_to_human_demo
 from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
 
 from pycram_suturo_demos.pycram_basic_hsr_demos.dialog_with_human_demo import main as dialog_with_human_demo_main
@@ -117,6 +118,7 @@ def main():
                     elif len(re) == 2:
                         print(f"Start Challenge 'Bring object {item[0]} from the {re[0]} to the {re[1]}.'")
                         talk.pub(f"I will drive to the {re[0]} now and get the object {item[0]} and bring it to the {re[1]}.", delay=5)
+                        bring_item_from_table_to_human_demo(context=context,object_name=item[0])
                         bring_object_from_table_to_shelf_demo(context=context, object_to_pick=item[0])
                     else:
                         print("Oh no")
