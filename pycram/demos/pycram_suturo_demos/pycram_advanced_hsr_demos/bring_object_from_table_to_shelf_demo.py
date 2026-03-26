@@ -25,9 +25,13 @@ from pycram.robot_plans import (
     GiskardPlaceActionDescription,
     LookAtActionDescription,
     MoveTorsoActionDescription,
+    GiskardPlaceAndDetachActionDescription,
 )
 from pycram_suturo_demos.helper_methods_and_useful_classes.object_creation import (
     perceive_and_spawn_all_objects,
+)
+from pycram_suturo_demos.pycram_basic_hsr_demos.hri_handover import (
+    handover_human_robot_no_init,
 )
 from pycram_suturo_demos.pycram_basic_hsr_demos.talking_demo import TtsPublisher
 from semantic_digital_twin.datastructures.definitions import TorsoState
@@ -150,34 +154,29 @@ def place_object_on_surface(
     pose_stamped = PoseStamped.from_spatial_type(pose.to_homogeneous_matrix())
     plan = SequentialPlan(
         context,
-        GiskardPlaceActionDescription(
+        GiskardPlaceAndDetachActionDescription(
             object_designator=obj.root,
             arm=Arms.LEFT,
             target_location=pose_stamped,
             simulated=False,
+            ignore_orientation=True,
         ),
     )
     with real_robot:
         plan.perform()
-        detach_object_from_hsrb(
-            world=context.world,
-            object_designator=obj.root,
-        )
 
 
 def pickup_object_from_table(context: Context, obj: HasRootBody):
-    plan = SequentialPlan(
-        context,
-        GiskardPickUpActionDescription(
-            simulated=False,
-            object_designator=obj.root,
-            arm=Arms.LEFT,
-            gripper_vertical=True,
-        ),
-    )
     with real_robot:
-        plan.perform()
-        attach_object_to_hsrb(world=context.world, object_designator=obj.root)
+        return SequentialPlan(
+            context,
+            GiskardPickUpActionDescription(
+                simulated=False,
+                object_designator=obj.root,
+                arm=Arms.LEFT,
+                gripper_vertical=True,
+            ),
+        ).perform()
 
 
 def move_to_pose(context: Context, pose: Pose):
@@ -202,7 +201,7 @@ def look_at_surface(
     context: Context, surface: HasSupportingSurface, offset: Optional[float] = None
 ):
     if offset is None or offset == 0.0:
-        look_at_point(context, surface.supporting_surface.global_pose.to_position())
+        look_at_point(context, surface.global_pose.to_position())
     else:
         look_side_of_surface_middle(context, surface, offset)
 
@@ -210,9 +209,7 @@ def look_at_surface(
 def look_side_of_surface_middle(
     context: Context, surface: HasSupportingSurface, offset: float
 ):
-    surface_middle_point = (
-        surface.supporting_surface.global_pose.to_translation_matrix()
-    )
+    surface_middle_point = surface.global_pose.to_translation_matrix()
     middle_point_T_robot = context.world.transform(
         surface_middle_point, context.robot.root
     )
@@ -265,7 +262,6 @@ def try_and_scan_for_object_on_table(
     object_to_pick_type: type,
     from_table: Table,
 ):
-    move_to_pose(context, _poses[_TABLE_NAME])
     offset = 0.2
     for try_count in range(3):
         # Look at surface with different offset each try
@@ -288,6 +284,16 @@ def try_and_scan_for_object_on_table(
     return None
 
 
+def try_to_pick_up_else_hri(context: Context, obj: HasRootBody):
+    for try_count in range(3):
+        did_pick_up = pickup_object_from_table(context, obj)
+        if did_pick_up:
+            return
+        look_at_point(context, obj.global_pose.to_position())
+    tts.publish("Could not pick up the object. Manual handover needed.")
+    handover_human_robot_no_init(simulated=False, context=context)
+
+
 def main(
     context: Context,
     object_to_pick: str = None,
@@ -298,20 +304,22 @@ def main(
     table: Table = context.world.get_semantic_annotation_by_name(_TABLE_NAME)
     obj_type = query_class_by_label(object_to_pick)
 
-    tts.publish("I will try to scan for the object on the table")
+    move_to_pose(context, _poses[_TABLE_NAME])
+
+    tts.publish("I will try to scan for the object on the table.")
     obj = try_and_scan_for_object_on_table(context, obj_type, table)
 
     if obj is None:
         tts.publish(
-            "Object was not found after multiple tries. I will reset to the starting position"
+            "Object was not found after multiple tries. I will reset to the starting position."
         )
         reset_to_start(context, STARTING_POSE)
         return
 
-    tts.publish("I found the object and will now try to pick it up")
-    pickup_object_from_table(context, obj=obj)
+    tts.publish("I found the object and will now try to pick it up.")
+    try_to_pick_up_else_hri(context=context, obj=obj)
 
-    tts.publish("I will now move to the shelf")
+    tts.publish("I will now move to the shelf.")
     move_to_pose(context=context, pose=_poses[_CUPBOARD_NAME])
 
     shelf_layers = context.world.get_semantic_annotations_by_type(ShelfLayer)
@@ -320,7 +328,7 @@ def main(
     surface_to_place_on: HasSupportingSurface = query_surface_of_most_similar_obj(
         obj, shelf_layers
     )
-    tts.publish("I will try to place the object in the shelf")
+    tts.publish("I will try to place the object in the shelf.")
     place_object_on_surface(
         context,
         obj,
@@ -331,6 +339,6 @@ def main(
     park_arms(context)
     move_torso(context, TorsoState.LOW)
 
-    tts.publish("I finished all tasks and will move to the starting position")
+    tts.publish("I finished all tasks and will move to the starting position.")
     reset_to_start(context, STARTING_POSE)
     tts.shutdown()
