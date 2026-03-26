@@ -165,6 +165,7 @@ def find_free_seat() -> str:
 
 def main():
     with real_robot:
+        start_position = get_robot_pose()
         print(
             f"Robot Position-> X:{get_robot_pose().position.x} Y:{get_robot_pose().position.y}"
         )
@@ -233,24 +234,83 @@ def main():
             list_right = right_seat.split(",")
             left_seat = result.res[0].attribute[1]
             list_left = left_seat.split(",")
+            chair = result.res[0].attribute[2]
+            list_chair = chair.split(",")
             print(list_right)
             print(list_left)
-            if list_right[1] == " False" and list_left[1] == " False":
-                text_pub.publish_text(f"Both seats free")
-                tts.publish("Both seats free")
-                print(f"Both seats free")
-            elif list_right[1] == " True" and list_left[1] == " True":
+            print(list_chair)
+            if (
+                list_right[1] == " False"
+                and list_left[1] == " False"
+                and list_chair[1] == " False"
+            ):
+                text_pub.publish_text(f"Sofa is free and also chair")
+                tts.publish("All seats are free")
+                print(f"all seats are free")
+            elif (
+                list_right[1] == " True"
+                and list_left[1] == " True"
+                and list_chair[1] == " True"
+            ):
                 text_pub.publish_text(f"No seats free")
                 tts.publish("No seats free")
                 print(f"No seats free")
-            elif list_right[1] == " False" and list_left[1] == " True":
+            elif (
+                list_right[1] == " False"
+                and list_left[1] == " True"
+                and list_chair[1] == " True"
+            ):
                 text_pub.publish_text(f"Right seats free")
                 tts.publish("Right seats free")
                 print(f"Right seat free")
-            else:
+            elif (
+                list_right[1] == " True"
+                and list_left[1] == " False"
+                and list_chair[1] == " True"
+            ):
                 text_pub.publish_text(f"Left seats free")
                 tts.publish("Left seats free")
                 print(f"Left seat free")
+            elif (
+                list_right[1] == " True"
+                and list_left[1] == " True"
+                and list_chair[1] == " False"
+            ):
+                text_pub.publish_text(f"Chair is free")
+                tts.publish("Chair is free")
+                print(f"Chair seat free")
+            elif (
+                list_right[1] == " False"
+                and list_left[1] == " False"
+                and list_chair[1] == " True"
+            ):
+                text_pub.publish_text(f"Right and left seats are free")
+                tts.publish("Right and left seats are free")
+                print(f"Right and left seat free")
+            elif (
+                list_right[1] == " False"
+                and list_left[1] == " True"
+                and list_chair[1] == " False"
+            ):
+                text_pub.publish_text(f"Right seat and chair are free")
+                tts.publish("Right seat and chair are free")
+                print(f"Right seat and chair free")
+            elif (
+                list_right[1] == " True"
+                and list_left[1] == " False"
+                and list_chair[1] == " False"
+            ):
+                text_pub.publish_text(f"Left seat and chair are free")
+                tts.publish("Left seat and chair are free")
+                print(f"Left seat and chair free")
+            else:
+                text_pub.publish_text(
+                    f"Something went wrong while interpreting the data."
+                )
+                tts.publish("Something went wrong while interpreting the data")
+                print(f"Something went wrong while interpreting the data")
+
+        nav2_move.start_nav_to_pose(start_position.ros_message())
 
         shutdown_robokudo_interface()
         tts.shutdown()
