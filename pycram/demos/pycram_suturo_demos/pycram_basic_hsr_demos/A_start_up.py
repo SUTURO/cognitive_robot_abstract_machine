@@ -6,6 +6,8 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import logging
 from suturo_resources.suturo_map import load_environment
+from suturo_resources.apartment_map import build_apartment_map
+
 from typing_extensions import Tuple, Any
 
 import semantic_digital_twin.exceptions
@@ -82,20 +84,22 @@ def setup_hsrb_context(
 
     # Fetch world
     world: World = fetch_world_from_service(rclpy_node)
+    print(world.root)
 
     # Synchronizers
-    model_sync = ModelSynchronizer(world=world, node=rclpy_node)
-    state_sync = StateSynchronizer(world=world, node=rclpy_node)
+    model_sync = ModelSynchronizer(_world=world, node=rclpy_node, synchronous=True)
+    state_sync = StateSynchronizer(_world=world, node=rclpy_node, synchronous=True)
 
     # Optional TF publisher
     # TFPublisher(world=world, node=rclpy_node)
 
-    # env_world = load_environment()
-    # with world.modify_world():
-    #     world.merge_world(env_world)
+    env_world = build_apartment_map()  # load_environment()
+    with world.modify_world():
+        world.merge_world(env_world)
 
     # Visualization
-    VizMarkerPublisher(world=world, node=rclpy_node)
+    # viz = VizMarkerPublisher(_world=world, node=rclpy_node)
+    # viz.with_tf_publisher()
 
     # Robot semantic view
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]

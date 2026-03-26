@@ -46,31 +46,31 @@ from semantic_digital_twin.world import World
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
-_TABLE_NAME = "dining_table"
-_CUPBOARD_NAME = "cupboard_annotation"
+_TABLE_NAME = "sofa_table"
+_CUPBOARD_NAME = "my_new_cabinet"
 
 _poses = {
     _TABLE_NAME: Pose().from_xyz_quaternion(
-        1.3,
-        5.3,
+        2.967,
+        -0.034,
         0.0,
         0.0,
         0.0,
-        0.75,
-        0.67,
+        -0.008,
+        0.999,
     ),
     _CUPBOARD_NAME: Pose().from_xyz_quaternion(
-        3.85,
-        4.69,
+        1.199,
+        3.273,
         0.0,
         0.0,
         0.0,
-        0.02,
-        0.99,
+        -0.999,
+        0.027,
     ),
 }
 
-_torso_thresholds = {"high": 2.0, "mid": 1.5}
+_torso_thresholds = {"high": 1.5, "mid": 0.8}
 
 tts = TtsPublisher()
 

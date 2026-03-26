@@ -8,6 +8,8 @@ import semantic_digital_twin
 from pycram.external_interfaces import nav2_move
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
+from pycram.external_interfaces.nlp_interface import TalkingNode
+
 from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
 from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
 from pycram.external_interfaces.robokudo import shutdown_robokudo_interface, send_query
@@ -89,22 +91,22 @@ def print_result(result, text_pub, tts):
     for r in result:
         print(r.type)
         text_pub.publish_text(f"Seen {r.type}.")
-        tts.publish(f"Seen {r.type}")
+        tts.pub(f"Seen {r.type}")
         sleep(2)
 
 
 def main():
     with real_robot:
         text_pub = TextToImagePublisher()
-        tts = TtsPublisher()
+        tts = TalkingNode()
         start_pose = get_robot_pose()
 
         # Driving to shelf (Koordinaten anpassen!)
         text_pub.publish_text("Driving to shelf.")
-        tts.publish("Driving to shelf")
+        tts.pub("Driving to shelf")
         shelf_pose = PoseStamped.from_list(
-            position=[3.572, 5.334, 0.0],
-            orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
+            position=[1.4, 3.4, 0.0],
+            orientation=[0.0, 0.0, -1, 0.0],
             frame=world.root,
         )
         park_arms()
@@ -113,11 +115,11 @@ def main():
 
         # Looking at shelf
         text_pub.publish_text("Looking at shelf.")
-        tts.publish("Looking at shelf")
+        tts.pub("Looking at shelf")
         move_torso_low1.perform()
         look_in_direction(Direction.FRONT_DOWN)
         text_pub.publish_text("Looking at low shelf.")
-        tts.publish("Looking at low shelf")
+        tts.pub("Looking at low shelf")
         o_test = send_query(obj_type="object")
         print(f"Low test: {o_test}")
         sleep(1)
@@ -126,7 +128,7 @@ def main():
         print("Looking at shelf FRONT.")
         move_torso_mid(Direction.FRONT)
         text_pub.publish_text("Looking at high shelf.")
-        tts.publish("Looking at high shelf")
+        tts.pub("Looking at high shelf")
         o_test2 = send_query(obj_type="object")
         print(f"High test: {o_test2}")
         sleep(1)
@@ -136,21 +138,21 @@ def main():
 
         # Driving back
         text_pub.publish_text("Driving back to person.")
-        tts.publish("Driving back to person")
+        tts.pub("Driving back to person")
         final_move = start_pose.ros_message()
         nav2_move.start_nav_to_pose(final_move)
 
         # Reporting what is on the shelf
         if result_low is None and result_high is None:
             text_pub.publish_text("No objects seen.")
-            tts.publish("No objects seen")
+            tts.pub("No objects seen")
         elif len(result_low.res) == 0 and len(result_high.res) == 0:
             text_pub.publish_text("No objects seen.")
-            tts.publish("No objects seen")
+            tts.pub("No objects seen")
         elif result_low is None or len(result_low.res) == 0:
-            print_result(result_high.res)
+            print_result(result_high.res, text_pub, tts)
         elif result_high is None or len(result_high.res) == 0:
-            print_result(result_low.res)
+            print_result(result_low.res, text_pub, tts)
         else:
             print(result_low.res)
             print(result_high.res)

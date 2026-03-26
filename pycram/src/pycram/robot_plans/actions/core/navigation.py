@@ -7,6 +7,8 @@ import numpy as np
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from pycram.datastructures.dataclasses import Context
+
+# from pycram_suturo_demos.pycram_advanced_hsr_demos.bring_object_from_table_to_shelf_demo import pose_to_ros
 from semantic_digital_twin.robots.abstract_robot import Camera
 from pycram.robot_plans.actions.base import ActionDescription
 from pycram.robot_plans.motions.robot_body import LookingMotion
@@ -65,6 +67,7 @@ class NavigateAction(ActionDescription):
             keep_joint_states=keep_joint_states,
         )
 
+
 @dataclass
 class nav2NavigateAction(ActionDescription):
     """
@@ -75,10 +78,11 @@ class nav2NavigateAction(ActionDescription):
     """
     Location to which the robot should be navigated
     """
-    simulated : bool = False
+    simulated: bool = False
     """
     variable to indcate we are in sim
     """
+
     def execute(self) -> None:
         from pycram.external_interfaces import nav2_move
 

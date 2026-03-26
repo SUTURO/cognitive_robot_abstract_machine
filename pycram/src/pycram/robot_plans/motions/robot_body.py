@@ -82,6 +82,6 @@ class LookingMotion(BaseMotion):
         return Pointing(
             root_link=self.robot_view.torso.root,
             tip_link=self.camera.root,
-            goal_point=self.target.to_spatial_type().to_position(),
+            goal_point=self.target.to_position(),
             pointing_axis=self.camera.forward_facing_axis,
         )

@@ -59,8 +59,8 @@ def setup_ros_node(node_name: str = "pycram_node"):
     thread.start()
 
     hsrb_world: World = fetch_world_from_service(node)
-    model_sync = ModelSynchronizer(world=hsrb_world, node=node)
-    state_sync = StateSynchronizer(world=hsrb_world, node=node)
+    model_sync = ModelSynchronizer(_world=hsrb_world, node=node)
+    state_sync = StateSynchronizer(_world=hsrb_world, node=node)
 
     env_world = load_environment()
     with hsrb_world.modify_world():

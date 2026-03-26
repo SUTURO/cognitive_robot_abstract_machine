@@ -1,10 +1,16 @@
 from copy import deepcopy
 from dataclasses import dataclass
+from time import sleep
 
 import numpy as np
 import pytest
 from numpy.testing import assert_raises
+from suturo_resources.suturo_map import load_environment
 
+from semantic_digital_twin.adapters.ros.world_synchronizer import (
+    ModelSynchronizer,
+    StateSynchronizer,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     DuplicateWorldEntityError,
@@ -1133,3 +1139,30 @@ def test_reset_state_context(pr2_world_state_reset):
             10, 10, 0
         )
     assert np.allclose(state_copy, pr2_world_state_reset.state.data)
+
+
+def test_suturo_world(rclpy_node):
+    world = World()
+    w2 = World()
+
+    # Synchronizers
+    model_sync = ModelSynchronizer(_world=world, node=rclpy_node)
+    state_sync = StateSynchronizer(_world=world, node=rclpy_node)
+
+    model_sync2 = ModelSynchronizer(_world=w2, node=rclpy_node)
+    state_sync2 = StateSynchronizer(_world=w2, node=rclpy_node)
+
+    root = Body(name=PrefixedName("root"))
+
+    with w2.modify_world():
+        w2.add_body(root)
+
+    sleep(2)
+    # Optional TF publisher
+    # TFPublisher(world=world, node=rclpy_node)
+
+    env_world = load_environment()
+    with world.modify_world():
+        world.merge_world(env_world)
+
+    sleep(1000)

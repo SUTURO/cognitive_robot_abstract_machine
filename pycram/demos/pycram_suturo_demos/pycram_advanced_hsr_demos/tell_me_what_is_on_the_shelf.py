@@ -106,7 +106,7 @@ with real_robot:
     text_pub.publish_text("Driving to shelf.")
     tts.publish("Driving to shelf")
     shelf_pose = PoseStamped.from_list(
-        position=[3.572, 5.334, 0.0],
+        position=[1.36, 3.38, 0.0],
         orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
         frame=world.root,
     )

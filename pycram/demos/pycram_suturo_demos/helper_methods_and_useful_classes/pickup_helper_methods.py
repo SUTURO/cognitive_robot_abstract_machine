@@ -41,7 +41,6 @@ def initialization(simulation: bool, with_simulated_objects: bool = False):
     result = robot_setup(
         simulation=simulation,
         with_simulated_objects=with_simulated_objects,
-        with_viz=False,
     )
     logger.info("initialization done")
     return (
@@ -250,6 +249,7 @@ def parse_color(color_str: str) -> Color:
     }
     return color_map.get(color_str.strip().lower(), Color.WHITE())
 
+
 def get_pickup_mode() -> tuple[PickUpType, str, Color]:
     """
     Prompts the user to select a pickup mode and any required parameters.
@@ -312,11 +312,12 @@ def object_to_pickup_by_mode(
             logger.info(f"object_to_pickup by nearest: {object_to_pickup}")
     return object_to_pickup
 
+
 def item_between_fingertips(
-        fingertip_distance: float,
-        closed_value: float = -0.1007,
-        open_value: float = 0.0538,
-        threshhold: float = 0.05,
+    fingertip_distance: float,
+    closed_value: float = -0.1007,
+    open_value: float = 0.0538,
+    threshhold: float = 0.05,
 ) -> bool:
     """
     Returns True if the gripper is not fully closed and not fully open,
@@ -342,10 +343,13 @@ def item_between_fingertips(
     # Object likely present if it is neither clearly open nor clearly closed
     return not is_closed and not is_open
 
+
 def validate_grasped() -> bool:
     node = rclpy.create_node("gripper_distance_subscriber")
 
-    msg = wait_for_message(msg_type=float, node=node, topic_name="/gripper_command/fingertip_distance")
+    msg = wait_for_message(
+        msg_type=float, node=node, topic_name="/gripper_command/fingertip_distance"
+    )
     success = msg is not None
     if success:
         logger.info(f"Gripper fingertip distance: {msg.data}")
@@ -356,12 +360,14 @@ def validate_grasped() -> bool:
     is_object_between_fingertips = item_between_fingertips(fingertip_distance=msg)
     return is_object_between_fingertips
 
+
 @dataclass
 class PickupDeadzone:
-    min_distance: float = 0.3   # too close, robot can't reach down
-    max_distance: float = 0.8   # too far to reach
-    max_angle_deg: float = 45.0 # cone in front of robot (±45°)
-    max_height_diff: float = 0.2 # object must be near floor level
+    min_distance: float = 0.3  # too close, robot can't reach down
+    max_distance: float = 0.8  # too far to reach
+    max_angle_deg: float = 45.0  # cone in front of robot (±45°)
+    max_height_diff: float = 0.2  # object must be near floor level
+
 
 def is_in_pickup_zone(self, object_position: tuple[float, float, float]) -> bool:
     """
@@ -371,7 +377,7 @@ def is_in_pickup_zone(self, object_position: tuple[float, float, float]) -> bool
     ox, oy, oz = object_position
 
     # Horizontal distance from robot base
-    distance = math.sqrt(ox ** 2 + oy ** 2)
+    distance = math.sqrt(ox**2 + oy**2)
 
     # Too close or too far
     if distance < self.deadzone.min_distance:
@@ -394,7 +400,14 @@ def is_in_pickup_zone(self, object_position: tuple[float, float, float]) -> bool
 
     return True
 
-def try_percieve_and_retrieve(simulated: bool = False, context : Context = None, angle: int = 1, talking_node : Any = None, object_name: str = None) -> Body | None :
+
+def try_percieve_and_retrieve(
+    simulated: bool = False,
+    context: Context = None,
+    angle: int = 1,
+    talking_node: Any = None,
+    object_name: str = None,
+) -> Body | None:
     from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
 
     world = context.world
@@ -430,9 +443,11 @@ def try_percieve_and_retrieve(simulated: bool = False, context : Context = None,
         time.sleep(2)
         return object_to_pickup
 
+
 # Stolen from ansgar
 def look_at_point(context: Context, point: Point3):
     from pycram.robot_plans import LookAtActionDescription
+
     with simulated_robot:
         SequentialPlan(
             context,

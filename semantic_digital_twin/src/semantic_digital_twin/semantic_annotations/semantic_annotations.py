@@ -1277,7 +1277,7 @@ class Hammer(HasRootBody, IsPerceivable):
 
 
 @dataclass(eq=False)
-class IceTea(Drink, IsPerceivable):
+class IcedTea(Drink, IsPerceivable):
     """
     A can or bottle of iced tea.
     """

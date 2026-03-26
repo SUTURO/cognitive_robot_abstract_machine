@@ -165,7 +165,7 @@ def query_current_human_position_in_continues():
 
 @init_robokudo_interface
 def query_all_objects() -> dict:
-    return send_query()
+    return send_query(obj_type="object")
 
 
 @init_robokudo_interface
