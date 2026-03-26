@@ -65,7 +65,7 @@ class UnitreeG1(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
             Path(files("semantic_digital_twin")).parent.parent,
             "resources",
             "collision_configs",
-            "pr2.srdf",
+            "unitree_g1.srdf",
         )
         self._world.collision_manager.add_ignore_collision_rule(
             SelfCollisionMatrixRule.from_collision_srdf(srdf_path, self._world)
@@ -104,12 +104,12 @@ class UnitreeG1(AbstractRobot, SpecifiesLeftRightArm, HasNeck):
                     4,
                     bodies=set(
                         self._world.get_direct_child_bodies_with_collision(
-                            self._world.get_body_by_name("r_wrist_roll_link")
+                            self._world.get_body_by_name("left_wrist_yaw_link")
                         )
                     )
                     | set(
                         self._world.get_direct_child_bodies_with_collision(
-                            self._world.get_body_by_name("l_wrist_roll_link")
+                            self._world.get_body_by_name("right_wrist_yaw_link")
                         )
                     ),
                 ),

@@ -16,7 +16,7 @@ kernelspec:
 
 ## Step 0 - Verification of the Data You want to Integrate
 
-> Safe yourself and your colleges and
+> Safe yourself and your colleges time and effort and:
 > 1. Verify assumptions we have about the URDF
 > 	1.  Please make sure the robot has a properly defined tool center point or tool frame at each of the manipulators
 > 	2. Velocities should always be positive if set

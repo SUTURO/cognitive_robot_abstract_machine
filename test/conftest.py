@@ -332,6 +332,7 @@ def world_with_urdf_factory(
     drive_connection_type: Type[OmniDrive | DiffDrive],
     robot_starting_pose: HomogeneousTransformationMatrix | None = None,
     urdf_path_resolver: PathResolver | None = None,
+    robot_localization_pose: HomogeneousTransformationMatrix | None = None,
 ):
     """
     Builds this tree:
@@ -360,8 +361,11 @@ def world_with_urdf_factory(
         )
         world_with_urdf.add_connection(c_root_bf)
         c_root_bf.has_hardware_interface = True
-        if robot_starting_pose is not None:
-            c_root_bf.origin = robot_starting_pose
+    if robot_localization_pose is not None:
+        map_C_localization.origin = robot_localization_pose
+
+    if robot_starting_pose is not None:
+        c_root_bf.origin = robot_starting_pose
 
     return world_with_urdf
 
