@@ -11,7 +11,7 @@ from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods
     attach_object_to_hsrb,
 )
 from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
-from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo_marc import (
+from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo import (
     pickup_demo,
 )
 from pycram_suturo_demos.pycram_basic_hsr_demos.place_demo import place_demo

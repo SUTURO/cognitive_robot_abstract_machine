@@ -18,14 +18,15 @@ from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods
     initialization,
     object_to_pickup_by_mode,
     get_pickup_mode,
-    perceive_and_spawn_all_objects,
+    perceive_and_spawn_all_objects, look_at_point, try_percieve_and_retrieve,
 )
 from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
-from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo_marc import (
+from pycram_suturo_demos.pycram_basic_hsr_demos.pickup_demo import (
     pickup_demo,
 )
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.spatial_types import Point3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
@@ -50,67 +51,22 @@ Full sequence constains:
 
 
 def pickup_main(
-    # world: World,
     context: Context,
-    # robot_view: HSRB,
     object_name: str,
-    # object_color: Optional[str],
 ):
     rclpy.init()
-    table = ""
     simulated = False
-    with_simulated_objects = False
+    table = ""
+
     talking_node = TalkingNode()
     standard_delay = 2
 
     world = context.world
     robot_view = context.robot
-    # please leave inside for testing purposes
-    # rclpy_node, world, robot_view, context, manipulator = initialization(
-    #     simulation=simulated, with_simulated_objects=with_simulated_objects
-    # )
 
-    def try_percieve_and_retrieve(angle: int = 1):
-        table = world.get_body_by_name("table")
+    table = world.get_body_by_name("cooking_table")
 
-        talking_node.pub(
-            text=f"Trying to position, to perceive object.", delay=standard_delay
-        )
-        time.sleep(2)
-        move_demo(
-            simulated=simulated,
-            world=world,
-            context=context,
-            target_pose="PERCEPTION_ANGLE_" + str(angle),
-        )
-        SequentialPlan(
-            context,
-            MoveTorsoActionDescription(TorsoState.MID),
-            LookAtActionDescription(
-                PoseStamped=Look_At_Pose, camera=robot_view.get_default_camera()
-            ),
-        ).perform()
-        perceive_and_spawn_all_objects(world)
-        SequentialPlan(
-            context,
-            MoveTorsoActionDescription(TorsoState.LOW),
-        )
-        try:
-            object_to_pickup: Body | None = world.get_body_by_name(object_name)
-            talking_node.pub(
-                text=f"Found object {object_to_pickup.name}.", delay=standard_delay
-            )
-            return object_to_pickup
-        except Exception:
-            object_to_pickup: Body | None = None
-            talking_node.pub(
-                text=f"Could not find object {object_name}, in try {i + 1} of 3.",
-                delay=standard_delay,
-            )
-            time.sleep(2)
-            return object_to_pickup
 
-    logger.info("Generating basic movements")
     # Move to table, on which the object is to be expected.
     move_to_table = move_demo(
         simulated=simulated,
@@ -129,10 +85,10 @@ def pickup_main(
     move_to_table()
 
     # three attempts to perceive the object, and retrieve it from the world.
-    # for i in range(3):
-    #     object_to_pickup = try_percieve_and_retrieve()
-    #     if object_to_pickup is not None:
-    #         break
+    for i in range(3):
+        object_to_pickup = try_percieve_and_retrieve(world=world)
+        if object_to_pickup is not None:
+            break
 
     perceive_and_spawn_all_objects(world)
     object_to_pickup = world.get_body_by_name(object_name)

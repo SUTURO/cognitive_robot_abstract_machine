@@ -19,8 +19,13 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
         orientation=[0.0, 0.0, 0.04904329912700753, 0.9987966533838301],
         frame=world.root,
     )
-    # TODO edit on robocup to new table pose
     POPCORN_TABLE = PoseStamped.from_list(
+        position=[1.3, 5.3, 0.0],
+        orientation=[0.0, 0.0, 0.72, 0.64],
+        frame=world.root,
+    )
+    # TODO edit on robocup to new table pose
+    TABLE = PoseStamped.from_list(
         position=[1.3, 5.3, 0.0],
         orientation=[0.0, 0.0, 0.72, 0.64],
         frame=world.root,
@@ -81,6 +86,9 @@ def move_demo(simulated: bool, target_pose: str, world: World, context: Context)
             nav2_move.start_nav_to_pose(goal)
 
     match target_pose:
+        case "TABLE":
+            logger.info("Moving to table")
+            robot_move(target_pose_method=TABLE)
         case "ROBOT_START_POSE":
             logger.info("Moving to robot start pose")
             robot_move(target_pose_method=ROBOT_PRE_START_POSE)

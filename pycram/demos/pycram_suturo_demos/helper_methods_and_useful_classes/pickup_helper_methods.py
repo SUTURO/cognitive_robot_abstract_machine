@@ -1,10 +1,13 @@
 import math
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import rclpy
-from dulwich.porcelain import switch
-
+from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.pose import PoseStamped
+from pycram.language import SequentialPlan
+from pycram.motion_executor import simulated_robot
 from pycram.ros.ros2.ros_tools import wait_for_message
 from pycram_suturo_demos.helper_methods_and_useful_classes.A_robot_setup import (
     robot_setup,
@@ -13,18 +16,12 @@ from pycram.datastructures.enums import PickUpType
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.geometry import Box, Scale, Color
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
-# from suturo_resources.queries import (
-#     query_semantic_annotations_on_surfaces,
-#     # query_annotations_by_color,
-#     query_get_next_object_euclidean_x_y,
-# )
 from suturo_resources.suturo_map import load_environment
 
 import semantic_digital_twin
@@ -166,7 +163,6 @@ def detach_object_from_hsrb(world: World, object_designator: Body):
     :param world: The world in which to detach the object.
     :param object_designator: The body to detach from the gripper.
     """
-    manipulator = world.get_semantic_annotations_by_type(ParallelGripper)[0]
     with world.modify_world():
         world.move_branch_with_fixed_connection(object_designator, world.root)
 
@@ -398,3 +394,57 @@ def is_in_pickup_zone(self, object_position: tuple[float, float, float]) -> bool
 
     return True
 
+def try_percieve_and_retrieve(simulated: bool = False, context : Context = None, angle: int = 1, talking_node : Any = None, object_name: str = None) -> bool :
+    from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
+    from pycram.robot_plans import MoveTorsoActionDescription, LookAtActionDescription
+    from semantic_digital_twin.datastructures.definitions import TorsoState
+
+    world = context.world
+    robot_view = context.robot
+    table = world.get_body_by_name("table")
+    standard_delay = 2
+
+    talking_node.pub(
+        text=f"Trying to position, to perceive object.", delay=standard_delay
+    )
+    time.sleep(2)
+    move_demo(
+        simulated=simulated,
+        world=world,
+        context=context,
+        target_pose="PERCEPTION_ANGLE_" + str(angle),
+    )
+    table = world.get_body_by_name("cooking_table")
+    HomogeneousTransformationMatrix.to_position(table.global_pose)
+    look_at = Point3(1, 1, 1, world.root)
+    look_at_point(context, look_at)
+    perceive_and_spawn_all_objects(world)
+    try:
+        object_to_pickup: Body | None = world.get_body_by_name(object_name)
+        talking_node.pub(
+            text=f"Found object {object_to_pickup.name}.", delay=standard_delay
+        )
+        return object_to_pickup
+    except Exception:
+        object_to_pickup: Body | None = None
+        talking_node.pub(
+            text=f"Could not find object {object_name}, in try {i + 1} of 3.",
+            delay=standard_delay,
+        )
+        time.sleep(2)
+        return object_to_pickup
+
+# Stolen from ansgar
+def look_at_point(context: Context, point: Point3):
+    from pycram.robot_plans import LookAtActionDescription
+    with simulated_robot:
+        SequentialPlan(
+            context,
+            LookAtActionDescription(
+                PoseStamped.from_spatial_type(
+                    HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                        point=point, reference_frame=point.reference_frame
+                    )
+                )
+            ),
+        ).perform()
