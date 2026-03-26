@@ -17,13 +17,14 @@ from pycram_suturo_demos.pycram_basic_hsr_demos.dialog_with_human_demo import ma
 from pycram_suturo_demos.pycram_advanced_hsr_demos.Tell_waving_person_where_to_sit import main as tell_waving_person_where_to_sit_demo
 from pycram_suturo_demos.pycram_advanced_hsr_demos.bring_object_from_table_to_shelf_demo import main as bring_object_from_table_to_shelf_demo
 from pycram_suturo_demos.pycram_advanced_hsr_demos.tell_me_what_is_on_the_shelf_with_main import main as tell_me_what_is_on_the_shelf_with_main
+from pycram_suturo_demos.pycram_advanced_hsr_demos.open_the_door import main as open_the_door_demo_main
 
 from pycram.external_interfaces.nav2_move import start_nav_to_pose
 
 rclpy_node, world, robot_view, context = setup_hsrb_context()
 
 
-start_point = PoseStamped.from_list(position=[1.8, 3.26, 0], orientation=[0, 0, 0.0829799, 0.9965595])
+start_point = PoseStamped.from_list(position=[2.6392645835876465, 2.489683151245117, 0], orientation=[0, 0, 0.6737598475830269, 0.7389503824918805])
 
 
 class NlpInterfaceDemoStartM3(NlpInterface):
@@ -115,16 +116,19 @@ def main():
                     if len(re) == 1:
                         print(f"Start Challenge 'Bring me object {item[0]} from the {re[0]}.'")
                         talk.pub(f"I will drive to the {re[0]} now and get the object {item[0]}.")
+                        bring_item_from_table_to_human_demo(context=context,object_name=item[0])
+
                     elif len(re) == 2:
                         print(f"Start Challenge 'Bring object {item[0]} from the {re[0]} to the {re[1]}.'")
                         talk.pub(f"I will drive to the {re[0]} now and get the object {item[0]} and bring it to the {re[1]}.", delay=5)
-                        bring_item_from_table_to_human_demo(context=context,object_name=item[0])
                         bring_object_from_table_to_shelf_demo(context=context, object_to_pick=item[0])
                     else:
                         print("Oh no")
                 case 'open':
                     print("Start Challenge 'Open the door.'")
-                    talk.pub(f"I will go and open the door now.")
+                    talk.pub(f"I will go and open the door now.", delay=5)
+                    open_the_door_demo_main()
+
         except Exception as e:
             print(e)
             talk.pub(f"I am a failure.", delay=5)
