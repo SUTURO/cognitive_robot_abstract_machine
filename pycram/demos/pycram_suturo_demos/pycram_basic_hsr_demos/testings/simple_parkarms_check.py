@@ -5,7 +5,7 @@ from pycram.datastructures.pose import PoseStamped
 from pycram.language import SequentialPlan
 from pycram.robot_plans import (
     GiskardPickUpActionDescription,
-    GiskardPlaceAndDetachActionDescription, GiskardPlaceActionDescription,
+    GiskardPlaceAndDetachActionDescription,
 )
 from pycram_suturo_demos.helper_methods_and_useful_classes.A_robot_setup import (
     robot_setup,
