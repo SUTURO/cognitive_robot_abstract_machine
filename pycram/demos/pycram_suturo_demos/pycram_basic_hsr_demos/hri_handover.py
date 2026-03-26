@@ -79,6 +79,7 @@ def give_object_to_human():
     grippy.send_goal(effort=gripper_open)
     sleep(3)
 
+
 # human has object and robot takes object from human
 def handover_human_robot():
     with_giskard = True
@@ -111,6 +112,7 @@ def handover_human_robot():
         # give_object_to_human()
     sleep(5)
 
+
 # robot has object and human takes object from robot
 def handover_robot_human():
     with_giskard = True
@@ -141,8 +143,10 @@ def handover_robot_human():
         give_object_to_human()
     sleep(5)
 
-def handover_robot_human_no_init(*, simulated : bool = False, context: Context = None):
+
+def handover_robot_human_no_init(*, simulated: bool = False, context: Context = None):
     from pycram.datastructures.dataclasses import Context
+
     SIMULATED = simulated
     robot_type: ExecutionEnvironment = simulated_robot if SIMULATED else real_robot
 
@@ -162,8 +166,38 @@ def handover_robot_human_no_init(*, simulated : bool = False, context: Context =
         print("Done")
     sleep(5)
 
+
+# human has object and robot takes object from human
+def handover_human_robot_no_init(*, simulated: bool = False, context: Context = None):
+    with_giskard = True
+    rclpy.init()
+    world = context.world
+
+    SIMULATED = simulated
+    robot_type: ExecutionEnvironment = simulated_robot if SIMULATED else real_robot
+
+    with robot_type:
+
+        SequentialPlan(
+            context,
+            HandoverActionDescription(world=world),
+        ).perform()
+
+        take_object_from_human()
+
+        print("Parking arms")
+        SequentialPlan(
+            context,
+            ParkArmsActionDescription(Arms.LEFT),
+        ).perform()
+        print("Done")
+
+    sleep(5)
+
+
 def main():
     handover_human_robot()
+
 
 if __name__ == "__main__":
     main()
