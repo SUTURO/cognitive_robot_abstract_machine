@@ -564,9 +564,11 @@ class PullUp(Goal):
     manipulator: ParallelGripper = field(kw_only=True)
     object_geometry: Body = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
+    pull_up_distance: float = field(kw_only=True, default=0.2)
 
     def expand(self, context: MotionStatechartContext) -> None:
         super().expand(context)
+        robot = self.manipulator._robot
         if self.ft:
             self._ft = ForceImpactMonitor(threshold=50, topic_name="ft_irgendwas")
             self._cm = CancelMotion(exception=ForceTorqueSaysNoException("No"))
@@ -575,7 +577,7 @@ class PullUp(Goal):
             self.add_node(self._cm)
 
         point = self.object_geometry.global_pose.to_position() + Vector3(
-            0, 0, 0.2, reference_frame=context.world.root
+            0, 0, self.pull_up_distance, reference_frame=context.world.root
         )
         self._cart_position = CartesianPosition(
             root_link=context.world.root,
@@ -589,6 +591,18 @@ class PullUp(Goal):
         )
         self.add_node(self._cart_position)
         self.add_node(self._keep_orientation)
+        arm_buffer = 0.01
+        self.add_node(
+            UpdateTemporaryCollisionRules(
+                temporary_rules=[
+                    *make_external_collision_rules(robot=robot, arm_buffer_zone=arm_buffer),
+                    _AllowObjectCollisions(
+                        _object_body=self.object_geometry
+                    ),
+                ]
+            )
+        )
+        self.add_node(ExternalCollisionAvoidance(robot=robot))
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
