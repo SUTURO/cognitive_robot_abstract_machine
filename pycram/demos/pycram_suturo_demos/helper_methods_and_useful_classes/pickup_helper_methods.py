@@ -394,31 +394,27 @@ def is_in_pickup_zone(self, object_position: tuple[float, float, float]) -> bool
 
     return True
 
-def try_percieve_and_retrieve(simulated: bool = False, context : Context = None, angle: int = 1, talking_node : Any = None, object_name: str = None) -> bool :
+def try_percieve_and_retrieve(simulated: bool = False, context : Context = None, angle: int = 1, talking_node : Any = None, object_name: str = None) -> Body | None :
     from pycram_suturo_demos.pycram_basic_hsr_demos.move_demo import move_demo
-    from pycram.robot_plans import MoveTorsoActionDescription, LookAtActionDescription
-    from semantic_digital_twin.datastructures.definitions import TorsoState
 
     world = context.world
     robot_view = context.robot
-    table = world.get_body_by_name("table")
     standard_delay = 2
+    table = world.get_body_by_name("cooking_table")
+    look_at = HomogeneousTransformationMatrix.to_position(table.global_pose)
 
     talking_node.pub(
         text=f"Trying to position, to perceive object.", delay=standard_delay
     )
-    time.sleep(2)
     move_demo(
         simulated=simulated,
         world=world,
         context=context,
         target_pose="PERCEPTION_ANGLE_" + str(angle),
     )
-    table = world.get_body_by_name("cooking_table")
-    HomogeneousTransformationMatrix.to_position(table.global_pose)
-    look_at = Point3(1, 1, 1, world.root)
     look_at_point(context, look_at)
     perceive_and_spawn_all_objects(world)
+
     try:
         object_to_pickup: Body | None = world.get_body_by_name(object_name)
         talking_node.pub(
@@ -428,7 +424,7 @@ def try_percieve_and_retrieve(simulated: bool = False, context : Context = None,
     except Exception:
         object_to_pickup: Body | None = None
         talking_node.pub(
-            text=f"Could not find object {object_name}, in try {i + 1} of 3.",
+            text=f"Could not find object {object_name}.",
             delay=standard_delay,
         )
         time.sleep(2)
