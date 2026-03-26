@@ -33,16 +33,25 @@ from semantic_digital_twin.exceptions import (
     MissingSemanticAnnotationError,
 )
 from semantic_digital_twin.reasoning.predicates import InsideOf
-from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.spatial_types import (
+    Point3,
+    HomogeneousTransformationMatrix,
+    Vector3,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
     PrismaticConnection,
     FixedConnection,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedomLimits
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedomLimits,
+)
 from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh
-from semantic_digital_twin.world_description.shape_collection import BoundingBoxCollection, ShapeCollection
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+    ShapeCollection,
+)
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
@@ -655,6 +664,10 @@ class Food(HasRootBody): ...
 
 
 @dataclass(eq=False)
+class Snack(Food): ...
+
+
+@dataclass(eq=False)
 class TunaCan(Food):
     """
     A tuna can.
@@ -695,6 +708,10 @@ class TomatoSoup(Food):
     """
     Tomato soup.
     """
+
+
+@dataclass(eq=False)
+class TomatoSauce(Food, IsPerceivable): ...
 
 
 @dataclass(eq=False)
@@ -1049,10 +1066,18 @@ class Beer(Drink): ...
 
 # Food Items (with HasRootBody)
 @dataclass(eq=False)
-class Chips(Food, IsPerceivable):
+class Chips(Snack, IsPerceivable):
     """
     A bag or can of chips.
     """
+
+
+@dataclass(eq=False)
+class ChocolateWaffles(Snack, IsPerceivable): ...
+
+
+@dataclass(eq=False)
+class Corny(Snack, IsPerceivable): ...
 
 
 @dataclass(eq=False)
@@ -1252,14 +1277,18 @@ class Hammer(HasRootBody, IsPerceivable):
 
 
 @dataclass(eq=False)
-class IcedTea(Food, IsPerceivable):
+class IceTea(Drink, IsPerceivable):
     """
     A can or bottle of iced tea.
     """
 
 
 @dataclass(eq=False)
-class Juice(Food, IsPerceivable):
+class Lemonade(Drink, IsPerceivable): ...
+
+
+@dataclass(eq=False)
+class Juice(Drink, IsPerceivable):
     """
     A carton or bottle of juice.
     """
