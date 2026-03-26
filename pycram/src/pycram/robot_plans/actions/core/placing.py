@@ -23,7 +23,7 @@ from ....datastructures.grasp import GraspDescription
 from ....datastructures.partial_designator import PartialDesignator
 from ....datastructures.pose import PoseStamped
 from ....failures import ObjectNotPlacedAtTargetLocation, ObjectStillInContact
-from ....language import SequentialPlan
+from ....language import SequentialPlan, CodePlan
 from ....view_manager import ViewManager
 from ....robot_plans.actions.base import ActionDescription
 from ....validation.error_checkers import PoseErrorChecker
@@ -309,6 +309,9 @@ class GiskardPlaceAndDetachAction(ActionDescription):
         super().__post_init__()
 
     def execute(self) -> None:
+        from ... import ParkArmsActionDescription
+
+        robot_pre_action_pose = PoseStamped.from_spatial_type(self.robot_view.root.global_pose)
         SequentialPlan(
             self.context,
             GiskardPlaceActionDescription(
@@ -318,8 +321,18 @@ class GiskardPlaceAndDetachAction(ActionDescription):
                 target_location=self.target_location,
             ),
         ).perform()
+
         with self.world.modify_world():
             self.world.move_branch_with_fixed_connection(self.object_designator, self.world.root)
+
+        SequentialPlan(
+            self.context,
+            GiskardRetractActionDescription(
+            simulated=self.simulated,
+            arm=self.arm,
+            back_off_pose=robot_pre_action_pose,),
+            ParkArmsActionDescription(Arms.BOTH)
+        ).perform()
 
     @classmethod
     def description(
@@ -343,11 +356,6 @@ class GiskardPlaceAndDetachAction(ActionDescription):
 class GiskardRetractAction(ActionDescription):
     """
     Places an Object at a position using an arm. By directly called GiskardMotion
-    """
-
-    object_designator: Body
-    """
-    Object designator_description describing the object that should be place
     """
 
     arm: Arms
