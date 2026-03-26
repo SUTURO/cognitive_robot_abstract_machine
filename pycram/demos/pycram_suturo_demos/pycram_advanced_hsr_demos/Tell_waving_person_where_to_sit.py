@@ -8,6 +8,7 @@ import semantic_digital_twin
 from demos.pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
     ContinuousWavingDetector,
 )
+
 from pycram.external_interfaces import nav2_move
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
@@ -20,16 +21,11 @@ from pycram.motion_executor import real_robot
 from pycram.robot_plans import ParkArmsActionDescription, LookAtActionDescription
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from nlp_interface import NlpNode
 
-# --- TtsPublisher class inlined from talking_demo.py ---
-try:
-    import rclpy
-    from rclpy.node import Node
-    from std_msgs.msg import String
-except ImportError as e:
-    raise ImportError(
-        "ROS2 Python environment not found. Please source ROS2 and install rclpy and std_msgs."
-    ) from e
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
 
 
 class TtsPublisher:
@@ -49,8 +45,6 @@ class TtsPublisher:
         self.node.destroy_node()
         rclpy.shutdown()
 
-
-# --- End TtsPublisher class ---
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
@@ -129,21 +123,13 @@ def look_in_direction(direction: Direction):
 
 
 def drive_to_pose(target_pose: PoseStamped):
-
-    # nav_target = buffer_in_front_of(
-    #     target_pose,
-    #     min_distance=MIN_DISTANCE_M,
-    # )
-    # nav_target = target_pose
     park_arms()
     nav2_move.start_nav_to_pose(target_pose)
 
 
 def scan_for_waving_human() -> Optional[PoseStamped]:
     detector = ContinuousWavingDetector(retry_interval=1.0)
-
     s_human = detector.wait_for_waving_human(timeout=WAVING_TIMEOUT_PER_DIRECTION)
-
     for direction in [
         Direction.FRONT,
         Direction.RIGHT,
@@ -163,41 +149,101 @@ def find_free_seat() -> str:
     return pycram.external_interfaces.robokudo.query_specific_region("sofa")
 
 
+def confirm_free_seat_detection(
+    nlp_node: NlpNode,
+    tts: TtsPublisher,
+    text_pub: TextToImagePublisher,
+    max_tries: int = 3,
+) -> bool:
+    """
+    Fragt den Menschen per Sprache, ob der Roboter freie Plätze am Sofa
+    erkennen soll. Wartet auf "affirm" oder "deny" via NLP.
+
+    Returns:
+        True  -> Bestätigt, Roboter fährt zum Sofa
+        False -> Abgelehnt oder kein Input, Roboter bricht ab
+    """
+    for attempt in range(max_tries):
+        tts.publish("Should I check the sofa for free seats? Please say yes or no.")
+        text_pub.publish_text("Should I check for free seats?\n(Say yes or no)")
+
+        result = nlp_node.talk_nlp(timeout=15)
+
+        if result is None:
+            tts.publish("Sorry, I couldn't understand. Please try again.")
+            text_pub.publish_text(
+                f"No answer received. Retrying ({attempt + 1}/{max_tries})..."
+            )
+            continue
+
+        response, _ = result
+        intent = response[1] if response else None
+
+        if intent == "affirm":
+            tts.publish("Alright, I will go check for free seats at the sofa.")
+            text_pub.publish_text("Confirmed! Heading to sofa...")
+            return True
+        elif intent == "deny":
+            tts.publish("Understood, I will not check for free seats.")
+            text_pub.publish_text("Seat detection cancelled.")
+            return False
+        else:
+            tts.publish("I did not catch that. Please say yes or no.")
+
+    # Kein gültiger Input nach max_tries → abbrechen
+    tts.publish("No confirmation received. Aborting seat detection.")
+    text_pub.publish_text("No confirmation. Aborting.")
+    return False
+
+
 def main():
     with real_robot:
         start_position = get_robot_pose()
         print(
             f"Robot Position-> X:{get_robot_pose().position.x} Y:{get_robot_pose().position.y}"
         )
+
         os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
         text_pub = TextToImagePublisher()
         tts = TtsPublisher()
+        nlp_node = NlpNode()
+
         # 1. Scan for a waving human
         text_pub.publish_text("Looking for a waving human...")
         tts.publish("Looking for a waving human")
         look_in_direction(Direction.LEFT)
         human = scan_for_waving_human()
+
         if human is None:
             text_pub.publish_text("No waving human found, giving up.")
             tts.publish("No waving human found, giving up.")
             shutdown_robokudo_interface()
             tts.shutdown()
             exit(1)
+
         human_pose = transform_perception_to_map(human)
         text_pub.publish_text(
             f"Found human:\n X:{human_pose.pose.position.x} \n Y:{human_pose.pose.position.y}"
         )
         tts.publish("Found Human")
+
         # 2. Drive to the human
         human_goal = human_pose.ros_message()
         text_pub.publish_text(
-            f"Driving to human:\n X:{human_goal.pose.position.x } \n Y:{human_goal.pose.position.y}"
+            f"Driving to human:\n X:{human_goal.pose.position.x} \n Y:{human_goal.pose.position.y}"
         )
         tts.publish("Driving to human")
         drive_to_pose(human_goal)
-        text_pub.publish_text(f"Hello, I will now look for a free seat...")
+        text_pub.publish_text("Hello, I will now look for a free seat...")
         tts.publish("Hello, I will see if I can find a free seat for you")
         sleep(6)
+
+        confirmed = confirm_free_seat_detection(nlp_node, tts, text_pub)
+        if not confirmed:
+            nav2_move.start_nav_to_pose(start_position.ros_message())
+            shutdown_robokudo_interface()
+            tts.shutdown()
+            return
 
         # 3. Drive to sofa
         sofa_pose = PoseStamped.from_list(
@@ -213,22 +259,23 @@ def main():
         print(
             f"Robot Position-> X:{get_robot_pose().position.x} Y:{get_robot_pose().position.y}"
         )
+
         # 4. Find a free seat
         result = find_free_seat()
-        text_pub.publish_text(f"Got Data")
+        text_pub.publish_text("Got Data")
         tts.publish("I got Data")
 
         # 5. Drive back to the human
         text_pub.publish_text(
-            f"Driving back to human:\n X:{human_goal.pose.position.x } \n Y:{human_goal.pose.position.y}"
+            f"Driving back to human:\n X:{human_goal.pose.position.x} \n Y:{human_goal.pose.position.y}"
         )
         drive_to_pose(human_goal)
 
         # 6. Tell the human where to sit
         if len(result.res) == 0:
-            text_pub.publish_text(f"Something went wrong while finding seats.")
+            text_pub.publish_text("Something went wrong while finding seats.")
             tts.publish("Something went wrong while finding seats")
-            print(f"Aborted")
+            print("Aborted")
         else:
             right_seat = result.res[0].attribute[0]
             list_right = right_seat.split(",")
@@ -236,82 +283,70 @@ def main():
             list_left = left_seat.split(",")
             chair = result.res[0].attribute[2]
             list_chair = chair.split(",")
-            print(list_right)
-            print(list_left)
-            print(list_chair)
+
             if (
                 list_right[1] == " False"
                 and list_left[1] == " False"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Sofa is free and also chair")
+                text_pub.publish_text("Sofa is free and also chair")
                 tts.publish("All seats are free")
-                print(f"all seats are free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " True"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"No seats free")
+                text_pub.publish_text("No seats free")
                 tts.publish("No seats free")
-                print(f"No seats free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " True"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Right seats free")
+                text_pub.publish_text("Right seats free")
                 tts.publish("Right seats free")
-                print(f"Right seat free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " False"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Left seats free")
+                text_pub.publish_text("Left seats free")
                 tts.publish("Left seats free")
-                print(f"Left seat free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " True"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Chair is free")
+                text_pub.publish_text("Chair is free")
                 tts.publish("Chair is free")
-                print(f"Chair seat free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " False"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Right and left seats are free")
+                text_pub.publish_text("Right and left seats are free")
                 tts.publish("Right and left seats are free")
-                print(f"Right and left seat free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " True"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Right seat and chair are free")
+                text_pub.publish_text("Right seat and chair are free")
                 tts.publish("Right seat and chair are free")
-                print(f"Right seat and chair free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " False"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Left seat and chair are free")
+                text_pub.publish_text("Left seat and chair are free")
                 tts.publish("Left seat and chair are free")
-                print(f"Left seat and chair free")
             else:
                 text_pub.publish_text(
-                    f"Something went wrong while interpreting the data."
+                    "Something went wrong while interpreting the data."
                 )
                 tts.publish("Something went wrong while interpreting the data")
-                print(f"Something went wrong while interpreting the data")
 
         nav2_move.start_nav_to_pose(start_position.ros_message())
-
         shutdown_robokudo_interface()
         tts.shutdown()
 
