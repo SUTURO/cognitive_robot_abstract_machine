@@ -420,20 +420,30 @@ class GiskardPickUpAction(ActionDescription):
         return not is_closed and not is_open
 
     def validate_grasped(self):
-        node : Any= rclpy.create_node("gripper_distance_subscriber")
+        rclpy.init()
+        node = rclpy.create_node('fingertip_distance_subscriber')
+        msg = None
 
-        msg : Any= wait_for_message(
-            msg_type=float, node=node, topic_name="/gripper_command/fingertip_distance"
+        def callback(data: None):
+            nonlocal msg
+            msg = data
+
+        # TODO change msg time, idk what msg type it is
+        subscription = node.create_subscription(
+            msg_type=None,
+            topic='/gripper_command/fingertip_distance',
+            callback=callback,
+            qos_profile=10
         )
-        success = msg is not None
-        if success:
-            logger.info(f"Gripper fingertip distance: {msg.data}")
-        else:
-            logger.warning("Timed out waiting for gripper fingertip distance")
+
+        while msg is None:
+            rclpy.spin_once(node, timeout_sec=0.1)
+
+        logger.info(f"Gripper fingertip distance: {msg.data}")
         node.destroy_node()
 
         is_object_between_fingertips : bool = self.item_between_fingertips(
-            fingertip_distance=msg
+            fingertip_distance=msg.smth
         )
         if not is_object_between_fingertips:
             raise ObjectNotGraspedError(obj=self.object_designator, robot=self.context.robot, arm=self.arm)
