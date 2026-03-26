@@ -13,6 +13,7 @@ from giskardpy.motion_statechart.goals.collision_avoidance import (
 from giskardpy.motion_statechart.goals.pick_up import CloseHand, OpenHand, _AllowObjectCollisions
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import Goal, NodeArtifacts, CancelMotion
+from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
 )
@@ -21,7 +22,7 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
     CartesianPose,
 )
-from krrood.symbolic_math.symbolic_math import trinary_logic_or
+from krrood.symbolic_math.symbolic_math import trinary_logic_or, trinary_logic_and, trinary_logic_not
 from semantic_digital_twin.robots.abstract_robot import AbstractRobot, Manipulator
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -32,6 +33,10 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     KinematicStructureEntity,
 )
+
+
+class PlacementNotReachableException(Exception):
+    pass
 
 
 @dataclass(repr=False, eq=False)
@@ -46,6 +51,7 @@ class Place(Goal):
     goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
     simulated: bool = field(default=True, kw_only=True)
+    pre_place_distance: float = field(default=0.15, kw_only=True)
     _motion_sequence: Sequence = field(init=False)
 
     def expand(self, context: MotionStatechartContext) -> None:
@@ -58,11 +64,12 @@ class Place(Goal):
                 object_geometry=self.object_geometry,
                 goal=self.goal,
                 ft=self.ft,
+                pre_place_distance=self.pre_place_distance,
             ),
             OpenHand(simulated_execution=self.simulated),
         ])
         self.add_node(self._motion_sequence)
-        arm_buffer = 0.01 # min(0.05, max(self.object_geometry.collision.scale.z / 2 - 0.01, 0.01))
+        arm_buffer = 0.025 # min(0.05, max(self.object_geometry.collision.scale.z / 2 - 0.01, 0.01))
         self.add_node(
             UpdateTemporaryCollisionRules(
                 temporary_rules=[
@@ -87,6 +94,7 @@ class ApproachPlacement(Goal):
     object_geometry: Body = field(kw_only=True)
     goal: Union[HomogeneousTransformationMatrix, Point3] = field(kw_only=True)
     ft: bool = field(kw_only=True, default=False)
+    pre_place_distance: float = field(default=0.1, kw_only=True)
 
     def expand(self, context: MotionStatechartContext) -> None:
         super().expand(context)
@@ -104,7 +112,7 @@ class ApproachPlacement(Goal):
 
             pre_tool_pose = HomogeneousTransformationMatrix.from_point_rotation_matrix(
                 point=goal_pose.to_position()
-                + Vector3(0, 0, 0.15, reference_frame=context.world.root),
+                + Vector3(0, 0, self.pre_place_distance, reference_frame=context.world.root),
                 rotation_matrix=self.object_geometry.global_pose.to_rotation_matrix(),  # goal_pose.to_rotation_matrix(),
                 reference_frame=context.world.root,
             )
@@ -125,7 +133,7 @@ class ApproachPlacement(Goal):
                 spatial_object=self.goal, target_frame=context.world.root
             )
             pre_point = goal_point + Vector3(
-                0, 0, 0.1, reference_frame=context.world.root
+                0, 0, self.pre_place_distance, reference_frame=context.world.root
             )
             pre_point.reference_frame = context.world.root
 
@@ -153,6 +161,15 @@ class ApproachPlacement(Goal):
             raise TypeError(
                 f"goal must be HomogeneousTransformationMatrix or Point3, got {type(self.goal)}"
             )
+
+        # stuck = LocalMinimumReached()
+        # self.add_node(stuck)
+        # cancel = CancelMotion(exception=PlacementNotReachableException("Placement position is not reachable"))
+        # cancel.start_condition = trinary_logic_and(
+        #     stuck.observation_variable,
+        #     trinary_logic_not(self.object_goal.observation_variable),
+        # )
+        # self.add_node(cancel)
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)

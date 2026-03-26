@@ -355,6 +355,7 @@ class GraspMagic(ABC):
                 tip_link=tool_frame,
                 goal_orientation=goal_orientation,
                 weight=weight,
+                threshold=0.3,
                 name="grasp_orientation",
             )
         ]
@@ -383,6 +384,7 @@ class BoxGraspMagic(GraspMagic):
             root_link=context.world.root,
             tip_link=tool_frame,
             goal_point=pre_grasp_point,
+            threshold=0.025,
             name="pre_grasp_position",
         )
         pre_align = Parallel(
