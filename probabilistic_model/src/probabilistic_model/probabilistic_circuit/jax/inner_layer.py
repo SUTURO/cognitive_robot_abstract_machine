@@ -732,7 +732,7 @@ class ProductLayer(InnerLayer):
             )  # shape: #child_nodes
 
             # gather the ll at the indices of the nodes that are required for the edges
-            ll = ll[edges._data]  # shape: #len(edges.values())
+            ll = ll[edges.data]  # shape: #len(edges.values())
 
             # add the gathered values to the result where the edges define the indices
             result = result.at[edges.indices[:, 0]].add(ll)

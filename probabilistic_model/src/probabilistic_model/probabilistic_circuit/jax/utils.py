@@ -1,12 +1,11 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.experimental.sparse import BCOO, BCSR, CSC, CSR
-from random_events.interval import SimpleInterval, Bound
-import jax
-from scipy.sparse import csr_matrix, csr_array, csc_array
+from jax.experimental.sparse import BCOO, BCSR
+from scipy.sparse import csr_array, csc_array
 from typing_extensions import Tuple
 
-from probabilistic_model.utils import timeit_print
+from random_events.interval import SimpleInterval, Bound
 
 
 def copy_bcoo(x: BCOO) -> BCOO:
@@ -171,7 +170,7 @@ def sample_from_sparse_probabilities_csc(
     """
     all_samples = np.concatenate(
         [
-            np.random.multinomial(amount_.item(), pvals=probability_row._data)
+            np.random.multinomial(amount_.item(), pvals=probability_row.data)
             for amount_, probability_row in zip(amount, probabilities)
         ],
         axis=0,

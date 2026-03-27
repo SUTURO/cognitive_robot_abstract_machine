@@ -42,9 +42,9 @@ def load_cached_dataset(cache_file):
 def save_dataset_to_cache(dataset, cache_file):
     """Saves only essential parts of the dataset to cache."""
     dataset_to_cache = {
-        "features": dataset._data.features,
-        "targets": dataset._data.targets,
-        "ids": dataset._data.ids,
+        "features": dataset.data.features,
+        "targets": dataset.data.targets,
+        "ids": dataset.data.ids,
     }
 
     for key, value in dataset_to_cache.items():
@@ -72,9 +72,9 @@ def get_dataset(dataset_id, cache_file: Optional[str] = None):
             save_dataset_to_cache(dataset, cache_file)
 
         dataset = {
-            "features": dataset._data.features,
-            "targets": dataset._data.targets,
-            "ids": dataset._data.ids,
+            "features": dataset.data.features,
+            "targets": dataset.data.targets,
+            "ids": dataset.data.ids,
         }
 
     return dataset

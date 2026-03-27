@@ -42,8 +42,8 @@ class Species(str, Enum):
 zoo = fetch_ucirepo(id=111)
 
 # data (as pandas dataframes)
-X = zoo._data.features
-y = zoo._data.targets
+X = zoo.data.features
+y = zoo.data.targets
 
 # This is a utility that allows each row to be a Case instance,
 # which simplifies access to column values using dot notation.

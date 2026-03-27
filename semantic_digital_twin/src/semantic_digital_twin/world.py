@@ -47,6 +47,7 @@ from semantic_digital_twin.exceptions import (
     MismatchingPublishChangesAttribute,
 )
 from semantic_digital_twin.mixin import HasSimulatorProperties
+from semantic_digital_twin.robots.abstract_robot import SemanticRobotAnnotation
 from semantic_digital_twin.spatial_computations.forward_kinematics import (
     ForwardKinematicsManager,
 )
@@ -1853,9 +1854,6 @@ class World(HasSimulatorProperties):
             for connection in self.connections:
                 new_connection = connection.copy_for_world(new_world)
                 new_world.add_connection(new_connection)
-            for semantic_annotation in self.semantic_annotations:
-                new_semantic_annotation = semantic_annotation.copy_for_world(new_world)
-                new_world.add_semantic_annotation(new_semantic_annotation)
         return new_world
 
     def visualize_world_structure(self) -> Image:

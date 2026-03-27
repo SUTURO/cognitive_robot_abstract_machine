@@ -108,13 +108,13 @@ def plot_rustworkx_interactive(
     # from_networkx created a CDS with 'index' only; merge our attrs
     cds = g_renderer.node_renderer.data_source
     # Extract param_texts and labels in the same order as 'index'
-    index_list = list(cds._data.get("index", []))
+    index_list = list(cds.data.get("index", []))
     labels = [nx_g.nodes[i].get("label", str(i)) for i in index_list]
     params_html = [nx_g.nodes[i].get("param_text", "") for i in index_list]
 
     # Update CDS with fields used by JS callback and hover
-    cds._data["label"] = labels
-    cds._data["param_text"] = params_html
+    cds.data["label"] = labels
+    cds.data["param_text"] = params_html
 
     # JS callback to update the Div when selection changes
     callback = CustomJS(

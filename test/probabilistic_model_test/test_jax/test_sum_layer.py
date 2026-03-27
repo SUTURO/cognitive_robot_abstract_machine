@@ -37,16 +37,16 @@ class DiracSumUnitTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         weights_p1 = BCOO.fromdense(jnp.array([[0, 0.1], [0.4, 0]])) * 2
-        weights_p1._data = jnp.log(weights_p1._data)
+        weights_p1.data = jnp.log(weights_p1.data)
 
         weights_p2 = BCOO.fromdense(jnp.array([[0.2], [0.3]])) * 2
-        weights_p2._data = jnp.log(weights_p2._data)
+        weights_p2.data = jnp.log(weights_p2.data)
 
         weights_p3 = BCOO.fromdense(jnp.array([[0.3, 0, 0.4], [0.0, 0.1, 0.2]])) * 2
-        weights_p3._data = jnp.log(weights_p3._data)
+        weights_p3.data = jnp.log(weights_p3.data)
 
         weights_p4 = BCOO.fromdense(jnp.array([[0], [0]])) * 2
-        weights_p4._data = jnp.log(weights_p4._data)
+        weights_p4.data = jnp.log(weights_p4.data)
 
         cls.sum_layer = SparseSumLayer(
             [cls.p1_x, cls.p2_x, cls.p3_x, cls.p4_x],

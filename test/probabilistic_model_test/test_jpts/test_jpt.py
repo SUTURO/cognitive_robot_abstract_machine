@@ -267,7 +267,7 @@ class BreastCancerTestCase(unittest.TestCase):
     def setUpClass(cls):
         data = sklearn.datasets.load_breast_cancer(as_frame=True)
 
-        df = data._data
+        df = data.data
         target = data.target.astype(str)
         target[target == "1"] = "malignant"
         target[target == "0"] = "friendly"
@@ -343,7 +343,7 @@ class MNISTTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         mnist = sklearn.datasets.load_digits(as_frame=True)
-        df = mnist._data
+        df = mnist.data
         target = mnist.target
         df["digit"] = target
         df["digit"] = df["digit"].astype(str)
