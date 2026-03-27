@@ -86,11 +86,11 @@ class nav2NavigateAction(ActionDescription):
     def execute(self) -> None:
         from pycram.external_interfaces import nav2_move
 
-        if Pose:
+        if isinstance(self.target_location, Pose):
             self.target_location = self.pose_to_ros(self.target_location)
         if self.simulated:
             SequentialPlan(
-                self.context, MoveMotion(self.target_location, self.keep_joint_states)
+                self.context, MoveMotion(self.target_location, True)
             ).perform()
         else:
             nav2_move.start_nav_to_pose(self.target_location)
@@ -112,10 +112,10 @@ class nav2NavigateAction(ActionDescription):
         cls,
         target_location: Union[Iterable[PoseStamped], PoseStamped],
         simulated: bool = False,
-    ) -> PartialDesignator[NavigateAction]:
-        return PartialDesignator[NavigateAction](
-            NavigateAction,
-            simlated=simulated,
+    ) -> PartialDesignator[nav2NavigateAction]:
+        return PartialDesignator[nav2NavigateAction](
+            nav2NavigateAction,
+            simulated=simulated,
             target_location=target_location,
         )
 
