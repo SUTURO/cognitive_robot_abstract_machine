@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Tuple, Optional, Dict, Any
 
@@ -7,7 +6,7 @@ import numpy as np
 from numpy._typing import NDArray
 from typing_extensions import Self, TypeVar
 
-from random_events.utils import SubclassJSONSerializer
+from krrood.adapters.json_serializer import SubclassJSONSerializer
 from semantic_digital_twin.spatial_types import Point3, RotationMatrix
 
 
