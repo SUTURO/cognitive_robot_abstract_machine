@@ -5,7 +5,8 @@ from std_msgs.msg import String
 
 class TtsPublisher:
     def __init__(self, node_name="tts_text_publisher", topic_name="/tts_text"):
-        rclpy.init()
+        if not rclpy.ok():
+            rclpy.init()
         self.node = Node(node_name)
         self.publisher = self.node.create_publisher(String, topic_name, 10)
 
@@ -22,7 +23,7 @@ class TtsPublisher:
         rclpy.shutdown()
 
 
-# importiere die Klasse oder speichere im gleichen Skript
-tts = TtsPublisher()
-tts.publish("Hallo i am toya")
-tts.shutdown()
+if __name__ == "__main__":
+    tts = TtsPublisher()
+    tts.publish("Hallo i am toya")
+    tts.shutdown()
