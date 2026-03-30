@@ -6,11 +6,7 @@ from typing import Tuple
 
 import numpy as np
 import trimesh
-from polytope import bounding_box
-from probabilistic_model.distributions.helper import make_dirac
 from random_events.product_algebra import Event
-from random_events.set import Set
-from random_events.variable import Symbolic
 from typing_extensions import (
     TYPE_CHECKING,
     List,
@@ -19,11 +15,11 @@ from typing_extensions import (
     Iterable,
     Type,
     TypeVar,
+    ClassVar,
 )
 
 from krrood.ormatic.utils import classproperty
 from probabilistic_model.distributions import GaussianDistribution
-from probabilistic_model.distributions.helper import make_dirac
 from probabilistic_model.probabilistic_circuit.rx.helper import (
     uniform_measure_of_event,
 )
@@ -38,22 +34,14 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     MismatchingWorld,
 )
-from semantic_digital_twin.spatial_types import (
-    Point3,
-    HomogeneousTransformationMatrix,
-    Vector3,
-)
+from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import (
-    DegreeOfFreedomLimits,
-)
+from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedomLimits
 from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.shape_collection import (
-    BoundingBoxCollection,
-)
+from semantic_digital_twin.world_description.shape_collection import BoundingBoxCollection
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
@@ -61,9 +49,7 @@ from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
     Connection,
 )
-from semantic_digital_twin.world_description.world_modification import (
-    synchronized_attribute_modification,
-)
+from semantic_digital_twin.world_description.world_modification import synchronized_attribute_modification
 
 if TYPE_CHECKING:
     from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -73,7 +59,6 @@ if TYPE_CHECKING:
         Hinge,
         Slider,
         Aperture,
-        ShelfLayer,
     )
 
 
@@ -574,32 +559,6 @@ class HasDoors(HasRootKinematicStructureEntity, ABC):
 
 
 @dataclass(eq=False)
-class HasShelfLayers(HasRootBody, ABC):
-    """
-    A mixin class for semantic annotations that have shelf layers.
-    """
-
-    shelf_layers: List[ShelfLayer] = field(default_factory=list, hash=False, kw_only=True)
-    """
-    The shelf layers of the semantic annotation.
-    """
-
-    @synchronized_attribute_modification
-    def add_shelf_layer(
-        self,
-        shelf_layer: ShelfLayer,
-    ):
-        """
-        Add a shelf layer to the semantic annotation.
-
-        :param shelf_layer: The shelf layer to add.
-        """
-
-        self._attach_child_entity_in_kinematic_structure(shelf_layer.root)
-        self.shelf_layers.append(shelf_layer)
-
-
-@dataclass(eq=False)
 class HasHandle(HasRootBody, ABC):
     """
     A mixin class for semantic annotations that have a handle.
@@ -751,14 +710,8 @@ class HasSupportingSurface(HasStorageSpace, ABC):
             ),
             points_3d=points_3d,
         )
-
-        supporting_surface_z_position = self.root.collision.scale.z / 2
         self_C_supporting_surface = FixedConnection(
-            parent=self.root,
-            child=supporting_surface,
-            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                z=supporting_surface_z_position, reference_frame=self.root
-            ),
+            parent=self.root, child=supporting_surface
         )
         self._world.add_region(supporting_surface)
         self._world.add_connection(self_C_supporting_surface)
@@ -821,24 +774,21 @@ class HasSupportingSurface(HasStorageSpace, ABC):
         samples = surface_circuit.sample(amount)
         samples = samples[np.argsort(surface_circuit.log_likelihood(samples))[::-1]]
         samples = np.concatenate((samples, z_coordinate), axis=1)
-
-        if category_of_interest:
-            return [
-                Point3(*s[1:], reference_frame=self.supporting_surface) for s in samples
-            ]
-        return [Point3(*s, reference_frame=self.supporting_surface) for s in samples]
+        return [Point3(*s, reference_frame=self.root) for s in samples]
 
     def _build_surface_sampler(
         self,
         category_of_interest: Optional[Type[SemanticAnnotation]] = None,
         object_bloat: float = 0.1,
+        variance: float = 0.1,
     ):
         """
         Build a probabilistic circuit representing the supporting surface, truncated by the objects on the surface,
         and with Gaussian mixtures around the objects of interest.
 
         :param category_of_interest: The type of object sample points around.
-        :param object_bloat: The amount of bloat to apply to the object event.
+        :param object_bloat: The amount of bloat to apply to the object events.
+        :param variance: The variance to use for the Gaussian mixtures.
         """
         truncated_event_2d = self._2d_surface_sample_space_excluding_objects(
             object_bloat
@@ -851,9 +801,10 @@ class HasSupportingSurface(HasStorageSpace, ABC):
         )
         if objects_of_interest:
             return self._2d_gaussian_sampler_from_2d_sample_space(
-                objects_of_interest=objects_of_interest,
-                # using values too low makes sampling from truncated gaussians very unstable
-                variance=1,
+                world_P_obj_list=[
+                    obj.root.global_pose.to_position() for obj in objects_of_interest
+                ],
+                variance=variance,
                 sample_space=truncated_event_2d,
             )
         else:
@@ -871,8 +822,8 @@ class HasSupportingSurface(HasStorageSpace, ABC):
 
         event_2d = event.marginal(SpatialVariables.xy)
         for obj in self.objects:
-            bounding_box = obj.root.collision.as_bounding_box_collection_in_frame(
-                self.supporting_surface
+            bounding_box = BoundingBoxCollection.from_shapes(
+                obj.root.collision
             ).bounding_box()
             bounding_box.enlarge_all(object_bloat)
             object_event = bounding_box.simple_event.as_composite_set()
@@ -882,73 +833,42 @@ class HasSupportingSurface(HasStorageSpace, ABC):
 
     def _2d_gaussian_sampler_from_2d_sample_space(
         self,
-        objects_of_interest: List[HasRootBody],
+        world_P_obj_list: List[Point3],
         variance: float,
         sample_space: Event,
     ) -> Optional[ProbabilisticCircuit]:
         """
         Create a Gaussian mixture model from a list of points, truncated by an event.
 
-        :param objects_of_interest: Objects of interest to sample around. The Gaussian mixtures will be centered around
-           the positions of these objects on the surface.
+        :param world_P_obj_list: A list of points representing the positions of the objects to sample around, in the world frame.
         :param variance: The standard deviation to use for the Gaussian mixtures.
         :param sample_space: The event to truncate the Gaussian mixture model with.
 
         :return: A probabilistic circuit representing the Gaussian mixture model truncated by the event, or None if the event has zero measure.
         """
 
-        surface_circuit = self._untruncated_2d_gaussian_sampler(
-            objects_of_interest=objects_of_interest,
-            variance=variance,
-        )
-        sample_space.fill_missing_variables(surface_circuit.variables)
-        surface_circuit.log_truncated_in_place(sample_space)
-
-        return surface_circuit
-
-    def _untruncated_2d_gaussian_sampler(
-        self,
-        objects_of_interest: List[HasRootBody],
-        variance: float,
-    ) -> ProbabilisticCircuit:
-        """
-        Create a Gaussian mixture model from a list of points, without truncation.
-        This method is extracted from the `_2d_gaussian_sampler_from_2d_sample_space` method so that the generated
-        distribution can be tested properly, which cannot be done after truncation.
-        """
         surface_circuit = ProbabilisticCircuit()
         surface_circuit_root = SumUnit(probabilistic_circuit=surface_circuit)
 
-        objects_of_interest_variable = Symbolic(
-            "objects_of_interest", Set.from_iterable(objects_of_interest)
-        )
-
-        for object_of_interest in objects_of_interest:
-            surface_P_obj = self._world.transform(
-                object_of_interest.root.global_pose, self.supporting_surface
-            )
+        for world_P_obj in world_P_obj_list:
 
             p_object_root = ProductUnit(probabilistic_circuit=surface_circuit)
             surface_circuit_root.add_subcircuit(p_object_root, 1.0)
 
-            object_of_interest_p = make_dirac(
-                objects_of_interest_variable, object_of_interest
-            )
-
             x_p = GaussianDistribution(
                 SpatialVariables.x.value,
-                float(surface_P_obj.x),
+                float(world_P_obj[0]),
                 variance,
             )
             y_p = GaussianDistribution(
                 SpatialVariables.y.value,
-                float(surface_P_obj.y),
+                float(world_P_obj[1]),
                 variance,
             )
-
-            p_object_root.add_subcircuit(leaf(object_of_interest_p, surface_circuit))
             p_object_root.add_subcircuit(leaf(x_p, surface_circuit))
             p_object_root.add_subcircuit(leaf(y_p, surface_circuit))
+
+        surface_circuit.log_truncated_in_place(sample_space)
 
         return surface_circuit
 
@@ -1037,3 +957,24 @@ class HasCaseAsRootBody(HasSupportingSurface, ABC):
         container_event = outer_box.as_composite_set() - inner_box.as_composite_set()
 
         return container_event
+
+@dataclass(eq=False)
+class HasDestination(ABC):
+    """
+    A mixin class for semantic annotations that can have one or multiple preferred destinations.
+
+    Destinations are expressed as semantic annotation class types (Type[SemanticAnnotation]), e.g.:
+    [Fridge, GarbageBin].
+
+    This is used by Knowledge queries to answer:
+    "Where should this object be brought?"
+    """
+
+    @classproperty
+    @abstractmethod
+    def destination_class_names(cls) -> List[Type[SemanticAnnotation]]:
+        """
+        List of semantic annotation types representing suitable destinations.
+        If empty, no destination is known.
+        """
+        pass

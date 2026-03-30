@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Self, Tuple
 
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
-from typing_extensions import List, Type
+from typing_extensions import ClassVar, List, Type
 
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
@@ -15,7 +15,6 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootRegion,
     HasDrawers,
     HasDoors,
-    HasShelfLayers,
     HasHandle,
     HasCaseAsRootBody,
     HasHinge,
@@ -24,6 +23,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
     HasStorageSpace,
+    HasDestination,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.variables import SpatialVariables
@@ -123,11 +123,6 @@ class Handle(HasRootBody):
             }
         )
 
-@dataclass(eq=False)
-class Dishwasher(HasCaseAsRootBody, HasDoors, HasDrawers):
-    """
-    A dishwasher is a kitchen appliance used for cleaning dishes, utensils, and cookware. It typically has a front door that opens to reveal racks for loading dirty items and a control panel for selecting wash cycles.
-    """
 
 @dataclass(eq=False)
 class Aperture(HasRootRegion):
@@ -173,7 +168,8 @@ class Aperture(HasRootRegion):
         parent_T_self: Optional[HomogeneousTransformationMatrix] = None,
     ) -> Self:
 
-        world.update_forward_kinematics()
+        world._forward_kinematic_manager.recompile()
+        world._forward_kinematic_manager.recompute()
         body_scale = (
             body.collision.as_bounding_box_collection_in_frame(body)
             .bounding_box()
@@ -357,22 +353,9 @@ class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace
 
 
 @dataclass(eq=False)
-class ShelfLayer(HasSupportingSurface):
-    """
-    A horizontal surface used for storing objects, typically found inside cabinets or on walls.
-    """
-
-
-@dataclass(eq=False)
 class Table(Furniture, HasSupportingSurface):
     """
     A semantic annotation that represents a table.
-    """
-
-@dataclass(eq=False)
-class Counter_Top(Furniture, HasSupportingSurface):
-    """
-    A semantic annotation that represents a counter top.
     """
 
 
@@ -392,7 +375,7 @@ class Dresser(Cabinet, HasDrawers, HasDoors): ...
 
 
 @dataclass(eq=False)
-class Cupboard(Cabinet, HasDoors, HasShelfLayers): ...
+class Cupboard(Cabinet, HasDoors): ...
 
 
 @dataclass(eq=False)
@@ -401,7 +384,7 @@ class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
 @dataclass(eq=False)
 class Sink(HasRootBody):
     """
-    A bowl-shaped plumbing fixture used for washing hands, dishware, and other small objects.
+    A sink.
     """
 
 @dataclass(eq=False)
@@ -546,10 +529,13 @@ class Wall(HasApertures):
 
 
 @dataclass(eq=False)
-class Bottle(HasRootBody):
+class Bottle(HasRootBody, HasDestination):
     """
     Abstract class for bottles.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard]
+
+
 
 
 @dataclass(eq=False)
@@ -582,10 +568,11 @@ class DrinkingContainer(HasRootBody): ...
 
 
 @dataclass(eq=False)
-class Cup(DrinkingContainer, IsPerceivable):
+class Cup(DrinkingContainer, IsPerceivable, HasDestination):
     """
     A cup.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Cupboard, Table, Sink]
 
 
 @dataclass(eq=False)
@@ -721,10 +708,11 @@ class Cereal(Food, IsPerceivable):
 
 
 @dataclass(eq=False)
-class Milk(Food, IsPerceivable):
+class Milk(Food, IsPerceivable, HasDestination):
     """
     A container of milk.
     """
+    destination_class_names: ClassVar[List[Type[SemanticAnnotation]]] = [Fridge]
 
 
 
@@ -979,10 +967,13 @@ class Potato(Produce): ...
 
 
 @dataclass(eq=False)
-class GarbageBin(HasRootBody):
+class GarbageBin(HasRootBody, HasDestination):
     """
     A garbage bin.
     """
+    @classproperty
+    def destination_class_names(cls) -> List[Type[SemanticAnnotation]]:
+        return [cls]
 
 @dataclass(eq=False)
 class Drone(HasRootBody): ...

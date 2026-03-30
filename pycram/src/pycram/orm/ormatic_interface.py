@@ -530,6 +530,26 @@ class HasDrawersDAO_drawers_association(Base, AssociationDataAccessObject):
     )
 
 
+class BottleDAO_simulator_additional_properties_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_43096456534800896102188207962223886935336715362096675239227645"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_bottledao_id: Mapped[int] = mapped_column(
+        ForeignKey("BottleDAO.database_id")
+    )
+    target_simulatoradditionalpropertydao_id: Mapped[int] = mapped_column(
+        ForeignKey("SimulatorAdditionalPropertyDAO.database_id")
+    )
+
+    target: Mapped[SimulatorAdditionalPropertyDAO] = relationship(
+        "SimulatorAdditionalPropertyDAO",
+        foreign_keys=[target_simulatoradditionalpropertydao_id],
+    )
+
+
 class SpoonDAO_simulator_additional_properties_association(
     Base, AssociationDataAccessObject
 ):
@@ -1376,6 +1396,26 @@ class WaferDAO_simulator_additional_properties_association(
     )
 
 
+class GarbageBinDAO_simulator_additional_properties_association(
+    Base, AssociationDataAccessObject
+):
+
+    __tablename__ = "_52527557416278516307257596978418672500581051323291876099847336"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_garbagebindao_id: Mapped[int] = mapped_column(
+        ForeignKey("GarbageBinDAO.database_id")
+    )
+    target_simulatoradditionalpropertydao_id: Mapped[int] = mapped_column(
+        ForeignKey("SimulatorAdditionalPropertyDAO.database_id")
+    )
+
+    target: Mapped[SimulatorAdditionalPropertyDAO] = relationship(
+        "SimulatorAdditionalPropertyDAO",
+        foreign_keys=[target_simulatoradditionalpropertydao_id],
+    )
+
+
 class HammerDAO_simulator_additional_properties_association(
     Base, AssociationDataAccessObject
 ):
@@ -1410,23 +1450,6 @@ class HasAperturesDAO_apertures_association(Base, AssociationDataAccessObject):
 
     target: Mapped[ApertureDAO] = relationship(
         "ApertureDAO", foreign_keys=[target_aperturedao_id]
-    )
-
-
-class HasShelfLayersDAO_shelf_layers_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_54703373473658244154819138253524161660384356065723532229307845"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_hasshelflayersdao_id: Mapped[int] = mapped_column(
-        ForeignKey("HasShelfLayersDAO.database_id")
-    )
-    target_shelflayerdao_id: Mapped[int] = mapped_column(
-        ForeignKey("ShelfLayerDAO.database_id")
-    )
-
-    target: Mapped[ShelfLayerDAO] = relationship(
-        "ShelfLayerDAO", foreign_keys=[target_shelflayerdao_id]
     )
 
 
@@ -1478,19 +1501,6 @@ class BowlDAO_objects_association(Base, AssociationDataAccessObject):
     target: Mapped[HasRootBodyDAO] = relationship(
         "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
     )
-
-
-class CupboardDAO_doors_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_74616698996037202449113822676674559397511001886440435857180955"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_cupboarddao_id: Mapped[int] = mapped_column(
-        ForeignKey("CupboardDAO.database_id")
-    )
-    target_doordao_id: Mapped[int] = mapped_column(ForeignKey("DoorDAO.database_id"))
-
-    target: Mapped[DoorDAO] = relationship("DoorDAO", foreign_keys=[target_doordao_id])
 
 
 class CupboardDAO_objects_association(Base, AssociationDataAccessObject):
@@ -1598,36 +1608,6 @@ class WardrobeDAO_objects_association(Base, AssociationDataAccessObject):
     database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_wardrobedao_id: Mapped[int] = mapped_column(
         ForeignKey("WardrobeDAO.database_id")
-    )
-    target_hasrootbodydao_id: Mapped[int] = mapped_column(
-        ForeignKey("HasRootBodyDAO.database_id")
-    )
-
-    target: Mapped[HasRootBodyDAO] = relationship(
-        "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
-    )
-
-
-class DishwasherDAO_doors_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_72799654902329927565100249975226146805185530810383799467878664"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_dishwasherdao_id: Mapped[int] = mapped_column(
-        ForeignKey("DishwasherDAO.database_id")
-    )
-    target_doordao_id: Mapped[int] = mapped_column(ForeignKey("DoorDAO.database_id"))
-
-    target: Mapped[DoorDAO] = relationship("DoorDAO", foreign_keys=[target_doordao_id])
-
-
-class DishwasherDAO_objects_association(Base, AssociationDataAccessObject):
-
-    __tablename__ = "_21734560857039024413503051880431864548503575276491563513459179"
-
-    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    source_dishwasherdao_id: Mapped[int] = mapped_column(
-        ForeignKey("DishwasherDAO.database_id")
     )
     target_hasrootbodydao_id: Mapped[int] = mapped_column(
         ForeignKey("HasRootBodyDAO.database_id")
@@ -3499,6 +3479,27 @@ class GraspingActionDAO(
     __mapper_args__ = {
         "polymorphic_identity": "GraspingActionDAO",
         "inherit_condition": database_id == ActionDescriptionDAO.database_id,
+    }
+
+
+class HasDestinationDAO(
+    Base,
+    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasDestination],
+):
+
+    __tablename__ = "HasDestinationDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        Integer, primary_key=True, use_existing_column=True
+    )
+
+    polymorphic_type: Mapped[str] = mapped_column(
+        String(255), nullable=False, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_on": "polymorphic_type",
+        "polymorphic_identity": "HasDestinationDAO",
     }
 
 
@@ -7581,7 +7582,7 @@ class BookFrontDAO(
 
 
 class BottleDAO(
-    HasRootBodyDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Bottle
     ],
@@ -7590,14 +7591,44 @@ class BottleDAO(
     __tablename__ = "BottleDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasRootBodyDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
     )
 
+    id: Mapped[uuid.UUID] = mapped_column(
+        sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
+    )
+
+    name_id: Mapped[int] = mapped_column(
+        ForeignKey("PrefixedNameDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    root_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    simulator_additional_properties: Mapped[
+        builtins.list[BottleDAO_simulator_additional_properties_association]
+    ] = relationship(
+        "BottleDAO_simulator_additional_properties_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[BottleDAO_simulator_additional_properties_association.source_bottledao_id]",
+    )
+    name: Mapped[PrefixedNameDAO] = relationship(
+        "PrefixedNameDAO", uselist=False, foreign_keys=[name_id], post_update=True
+    )
+    root: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "BottleDAO",
-        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -7954,7 +7985,7 @@ class DrinkingContainerDAO(
 
 
 class CupDAO(
-    IsPerceivableDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Cup
     ],
@@ -7963,9 +7994,13 @@ class CupDAO(
     __tablename__ = "CupDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(IsPerceivableDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        String(255), use_existing_column=True
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -8000,7 +8035,7 @@ class CupDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "CupDAO",
-        "inherit_condition": database_id == IsPerceivableDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -8820,7 +8855,7 @@ class MayonnaiseDAO(
 
 
 class MilkDAO(
-    IsPerceivableDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Milk
     ],
@@ -8829,9 +8864,13 @@ class MilkDAO(
     __tablename__ = "MilkDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(IsPerceivableDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        String(255), use_existing_column=True
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -8866,7 +8905,7 @@ class MilkDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "MilkDAO",
-        "inherit_condition": database_id == IsPerceivableDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -10476,7 +10515,7 @@ class WaferDAO(
 
 
 class GarbageBinDAO(
-    HasRootBodyDAO,
+    HasDestinationDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.GarbageBin
     ],
@@ -10485,14 +10524,44 @@ class GarbageBinDAO(
     __tablename__ = "GarbageBinDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasRootBodyDAO.database_id),
+        ForeignKey(HasDestinationDAO.database_id),
         primary_key=True,
         use_existing_column=True,
     )
 
+    id: Mapped[uuid.UUID] = mapped_column(
+        sqlalchemy.sql.sqltypes.UUID, nullable=False, use_existing_column=True
+    )
+
+    name_id: Mapped[int] = mapped_column(
+        ForeignKey("PrefixedNameDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+    root_id: Mapped[int] = mapped_column(
+        ForeignKey("BodyDAO.database_id", use_alter=True),
+        nullable=True,
+        use_existing_column=True,
+    )
+
+    simulator_additional_properties: Mapped[
+        builtins.list[GarbageBinDAO_simulator_additional_properties_association]
+    ] = relationship(
+        "GarbageBinDAO_simulator_additional_properties_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[GarbageBinDAO_simulator_additional_properties_association.source_garbagebindao_id]",
+    )
+    name: Mapped[PrefixedNameDAO] = relationship(
+        "PrefixedNameDAO", uselist=False, foreign_keys=[name_id], post_update=True
+    )
+    root: Mapped[BodyDAO] = relationship(
+        "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
+    )
+
     __mapper_args__ = {
         "polymorphic_identity": "GarbageBinDAO",
-        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+        "inherit_condition": database_id == HasDestinationDAO.database_id,
     }
 
 
@@ -10712,34 +10781,6 @@ class DoorDAO(
     }
 
 
-class HasShelfLayersDAO(
-    HasRootBodyDAO,
-    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasShelfLayers],
-):
-
-    __tablename__ = "HasShelfLayersDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasRootBodyDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    shelf_layers: Mapped[builtins.list[HasShelfLayersDAO_shelf_layers_association]] = (
-        relationship(
-            "HasShelfLayersDAO_shelf_layers_association",
-            collection_class=builtins.list,
-            cascade="all, delete-orphan",
-            foreign_keys="[HasShelfLayersDAO_shelf_layers_association.source_hasshelflayersdao_id]",
-        )
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "HasShelfLayersDAO",
-        "inherit_condition": database_id == HasRootBodyDAO.database_id,
-    }
-
-
 class HasStorageSpaceDAO(
     HasRootBodyDAO,
     DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasStorageSpace],
@@ -10870,27 +10911,6 @@ class BowlDAO(
     }
 
 
-class Counter_TopDAO(
-    HasSupportingSurfaceDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Counter_Top
-    ],
-):
-
-    __tablename__ = "Counter_TopDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasSupportingSurfaceDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "Counter_TopDAO",
-        "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
-    }
-
-
 class FloorDAO(
     HasSupportingSurfaceDAO,
     DataAccessObject[
@@ -10955,7 +10975,7 @@ class CabinetDAO(
 
 
 class CupboardDAO(
-    HasShelfLayersDAO,
+    HasDoorsDAO,
     DataAccessObject[
         semantic_digital_twin.semantic_annotations.semantic_annotations.Cupboard
     ],
@@ -10964,9 +10984,7 @@ class CupboardDAO(
     __tablename__ = "CupboardDAO"
 
     database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasShelfLayersDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
+        ForeignKey(HasDoorsDAO.database_id), primary_key=True, use_existing_column=True
     )
 
     supporting_surface_id: Mapped[int] = mapped_column(
@@ -10975,12 +10993,6 @@ class CupboardDAO(
         use_existing_column=True,
     )
 
-    doors: Mapped[builtins.list[CupboardDAO_doors_association]] = relationship(
-        "CupboardDAO_doors_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[CupboardDAO_doors_association.source_cupboarddao_id]",
-    )
     objects: Mapped[builtins.list[CupboardDAO_objects_association]] = relationship(
         "CupboardDAO_objects_association",
         collection_class=builtins.list,
@@ -10996,7 +11008,7 @@ class CupboardDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "CupboardDAO",
-        "inherit_condition": database_id == HasShelfLayersDAO.database_id,
+        "inherit_condition": database_id == HasDoorsDAO.database_id,
     }
 
 
@@ -11134,52 +11146,6 @@ class WardrobeDAO(
     }
 
 
-class DishwasherDAO(
-    HasDrawersDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Dishwasher
-    ],
-):
-
-    __tablename__ = "DishwasherDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasDrawersDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    supporting_surface_id: Mapped[int] = mapped_column(
-        ForeignKey("RegionDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    doors: Mapped[builtins.list[DishwasherDAO_doors_association]] = relationship(
-        "DishwasherDAO_doors_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[DishwasherDAO_doors_association.source_dishwasherdao_id]",
-    )
-    objects: Mapped[builtins.list[DishwasherDAO_objects_association]] = relationship(
-        "DishwasherDAO_objects_association",
-        collection_class=builtins.list,
-        cascade="all, delete-orphan",
-        foreign_keys="[DishwasherDAO_objects_association.source_dishwasherdao_id]",
-    )
-    supporting_surface: Mapped[RegionDAO] = relationship(
-        "RegionDAO",
-        uselist=False,
-        foreign_keys=[supporting_surface_id],
-        post_update=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "DishwasherDAO",
-        "inherit_condition": database_id == HasDrawersDAO.database_id,
-    }
-
-
 class PlateDAO(
     HasSupportingSurfaceDAO,
     DataAccessObject[
@@ -11197,27 +11163,6 @@ class PlateDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "PlateDAO",
-        "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
-    }
-
-
-class ShelfLayerDAO(
-    HasSupportingSurfaceDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.ShelfLayer
-    ],
-):
-
-    __tablename__ = "ShelfLayerDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(HasSupportingSurfaceDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ShelfLayerDAO",
         "inherit_condition": database_id == HasSupportingSurfaceDAO.database_id,
     }
 
