@@ -41,7 +41,7 @@ from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedomLimits
-from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh
+from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh, Color, Box
 from semantic_digital_twin.world_description.shape_collection import BoundingBoxCollection, ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
@@ -863,6 +863,71 @@ class Sofa(Furniture, HasSupportingSurface):
     """
     A sofa.
     """
+    @classmethod
+    def create_with_new_body_in_world(
+        cls,
+        name: PrefixedName,
+        world: World,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Optional[Vector3] = None,
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
+        scale: Scale = Scale(0.9, 2.0, 0.85), # Default: x=depth, y=width, z=height
+        *,
+        color: Color = Color(0.5, 0.5, 0.5), # Grey default
+        **kwargs,
+    ) -> Self:
+        """
+        Creates a sofa as a single body by subtracting the sitting area from the outer bounding box.
+        """
+        # Dimensions based on scale: x=depth, y=width, z=height
+        seat_height = scale.z * 0.45
+        backrest_depth = scale.x * 0.20
+        armrest_width = scale.y * 0.10
+
+        # 1. Create the outer bounding box event
+        outer_event = scale.to_simple_event()
+
+        # 2. Create the cutout event (the empty space where you sit)
+        # We extend the cutout slightly in the "open" directions (Top and Front)
+        # to ensure the subtraction cleanly breaks the surface.
+        # X (Depth): Opening at -X (front), backrest at +X
+        # Y (Width): Between armrests
+        # Z (Height): Above the seat
+        cutout_event = SimpleEvent({
+            SpatialVariables.x.value: closed(-scale.x / 2 - 0.001, scale.x / 2 - backrest_depth),
+            SpatialVariables.y.value: closed(-scale.y / 2 + armrest_width, scale.y / 2 - armrest_width),
+            SpatialVariables.z.value: closed(-scale.z / 2 + seat_height, scale.z / 2 + 0.001)
+        })
+
+        # 3. Subtract cutout from outer box
+        sofa_event = outer_event.as_composite_set() - cutout_event.as_composite_set()
+
+        sofa_body = Body(name=name)
+        shapes = BoundingBoxCollection.from_event(sofa_body, sofa_event).as_shapes()
+
+        # Apply color to the generated shapes
+        for shape in shapes:
+            shape.color = color
+
+        sofa_body.collision = shapes
+        sofa_body.visual = shapes
+
+        sofa = cls._create_with_connection_in_world(
+            name=name,
+            world=world,
+            kinematic_structure_entity=sofa_body,
+            world_root_T_self=world_root_T_self,
+            connection_limits=connection_limits,
+            active_axis=active_axis,
+            connection_multiplier=connection_multiplier,
+            connection_offset=connection_offset,
+        )
+
+        world.update_forward_kinematics()
+        sofa.calculate_supporting_surface()
+        return sofa
 
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
