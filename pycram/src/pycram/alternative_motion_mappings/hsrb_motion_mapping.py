@@ -32,6 +32,6 @@ class HSRBMoveMotion(MoveMotion, AlternativeMotion[HSRB]):
         return NavigateActionServerTask(
             target_pose=self.target.to_spatial_type(),
             base_link=self.robot_view.root,
-            action_topic="/hsrb/move_base",
+            action_topic="/navigate_to_pose",
             message_type=NavigateToPose,
         )
