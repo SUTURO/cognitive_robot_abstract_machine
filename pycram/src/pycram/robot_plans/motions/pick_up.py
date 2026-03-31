@@ -90,7 +90,7 @@ class PullUpMotion(BaseMotion):
         The motion framework queries this property to insert the task
         into the MotionStatechart.
         """
-        print(f"Creating PickUp motion with {self.object_geometry}")
+        print(f"Creating PullUp motion with {self.object_geometry}")
         pickup = PullUp(
             manipulator=self.manipulator, object_geometry=self.object_geometry
         )
