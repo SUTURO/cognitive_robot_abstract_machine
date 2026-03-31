@@ -10,7 +10,7 @@ from random_events.variable import Variable
 from sortedcontainers import SortedSet
 from typing_extensions import Type, Tuple, Self
 
-from probabilistic_model.probabilistic_circuit.jax.inner_layer import NXConverterLayer
+from probabilistic_model.probabilistic_circuit.jax.inner_layer import RustworkxLayerConverter
 from probabilistic_model.probabilistic_circuit.jax.input_layer import ContinuousLayer
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     Unit,
@@ -94,9 +94,9 @@ class GaussianLayer(ContinuousLayer):
     def create_layer_from_nodes_with_same_type_and_scope(
         cls,
         nodes: List[UnivariateContinuousLeaf],
-        child_layers: List[NXConverterLayer],
+        child_layers: List[RustworkxLayerConverter],
         progress_bar: bool = True,
-    ) -> NXConverterLayer:
+    ) -> RustworkxLayerConverter:
         """
         Create a GaussianLayer from a list of UnivariateContinuousLeaf nodes that have the same variable and scope.
         """
@@ -124,7 +124,7 @@ class GaussianLayer(ContinuousLayer):
             jnp.log(parameters[:, 1]),
             parameters[:, 2],
         )
-        return NXConverterLayer(result, nodes, hash_remap)
+        return RustworkxLayerConverter(result, nodes, hash_remap)
 
     def to_json(self) -> Dict[str, Any]:
         return {

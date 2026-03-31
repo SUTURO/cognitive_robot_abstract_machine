@@ -18,7 +18,7 @@ from probabilistic_model.probabilistic_circuit.jax.inner_layer import (
     InputLayer,
     InnerLayer,
     Layer,
-    NXConverterLayer,
+    RustworkxLayerConverter,
 )
 from probabilistic_model.probabilistic_circuit.jax.discrete_layer import DiscreteLayer
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
@@ -26,7 +26,6 @@ from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
 )
 import jax
 import tqdm
-import networkx as nx
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -34,8 +33,6 @@ import equinox as eqx
 @dataclass
 class ProbabilisticCircuit(SubclassJSONSerializer):
     """
-    :noindex:
-
     A probabilistic circuit as wrapper for a layered probabilistic model.
     """
 
@@ -70,7 +67,7 @@ class ProbabilisticCircuit(SubclassJSONSerializer):
         reversed_layers_to_nodes_map = dict(reversed(layer_to_nodes_map.items()))
 
         # create layers from nodes
-        child_layers: List[NXConverterLayer] = []
+        child_layers: List[RustworkxLayerConverter] = []
         for layer_index, nodes in (
             tqdm.tqdm(reversed_layers_to_nodes_map.items(), desc="Creating Layers")
             if progress_bar
@@ -229,7 +226,7 @@ class ClassificationCircuit(ProbabilisticCircuit):
 
     def to_rustworkx(self, progress_bar: bool = True) -> NXProbabilisticCircuit:
         raise NotImplementedError(
-            "ClassificationCircuit does not support to_nx. "
+            "ClassificationCircuit does not support to_rustworkx. "
             "Call 'to_probabilistic_circuit' first."
         )
 

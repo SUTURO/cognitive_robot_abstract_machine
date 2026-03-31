@@ -15,7 +15,7 @@ from typing_extensions import Tuple, Type, Self, Optional
 
 from probabilistic_model.probabilistic_circuit.jax.inner_layer import (
     InputLayer,
-    NXConverterLayer,
+    RustworkxLayerConverter,
 )
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     Unit,
@@ -138,9 +138,9 @@ class DiracDeltaLayer(ContinuousLayer):
     def create_layer_from_nodes_with_same_type_and_scope(
         cls,
         nodes: List[UnivariateContinuousLeaf],
-        child_layers: List[NXConverterLayer],
+        child_layers: List[RustworkxLayerConverter],
         progress_bar: bool = True,
-    ) -> NXConverterLayer:
+    ) -> RustworkxLayerConverter:
         """
         Create a DiracDeltaLayer from a list of UnivariateContinuousLeaf nodes that all represent Dirac delta distributions over the same variable.
         """
@@ -156,7 +156,7 @@ class DiracDeltaLayer(ContinuousLayer):
             locations,
             density_caps,
         )
-        return NXConverterLayer(result, nodes, hash_remap)
+        return RustworkxLayerConverter(result, nodes, hash_remap)
 
     def to_json(self) -> Dict[str, Any]:
         result = super().to_json()

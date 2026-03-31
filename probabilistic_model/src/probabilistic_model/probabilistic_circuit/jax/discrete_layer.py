@@ -10,7 +10,7 @@ from typing_extensions import Self, Optional
 import jax
 from probabilistic_model.probabilistic_circuit.jax.inner_layer import (
     InputLayer,
-    NXConverterLayer,
+    RustworkxLayerConverter,
 )
 import jax.numpy as jnp
 
@@ -68,9 +68,9 @@ class DiscreteLayer(InputLayer):
     def create_layer_from_nodes_with_same_type_and_scope(
         cls,
         nodes: List[UnivariateDiscreteLeaf],
-        child_layers: List[NXConverterLayer],
+        child_layers: List[RustworkxLayerConverter],
         progress_bar: bool = True,
-    ) -> NXConverterLayer:
+    ) -> RustworkxLayerConverter:
         hash_remap = {hash(node): index for index, node in enumerate(nodes)}
 
         variable: Symbolic = nodes[0].variable
@@ -91,7 +91,7 @@ class DiscreteLayer(InputLayer):
             nodes[0].probabilistic_circuit.variables.index(variable),
             jnp.log(parameters),
         )
-        return NXConverterLayer(result, nodes, hash_remap)
+        return RustworkxLayerConverter(result, nodes, hash_remap)
 
     def to_json(self) -> Dict[str, Any]:
         return {

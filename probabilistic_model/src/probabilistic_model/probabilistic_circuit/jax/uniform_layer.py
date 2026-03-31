@@ -11,7 +11,7 @@ from random_events.variable import Variable
 from sortedcontainers import SortedSet
 from typing_extensions import Type, Tuple, Self
 
-from probabilistic_model.probabilistic_circuit.jax.inner_layer import NXConverterLayer
+from probabilistic_model.probabilistic_circuit.jax.inner_layer import RustworkxLayerConverter
 from probabilistic_model.probabilistic_circuit.jax.input_layer import (
     ContinuousLayerWithFiniteSupport,
 )
@@ -59,9 +59,9 @@ class UniformLayer(ContinuousLayerWithFiniteSupport):
     def create_layer_from_nodes_with_same_type_and_scope(
         cls,
         nodes: List[UnivariateContinuousLeaf],
-        child_layers: List[NXConverterLayer],
+        child_layers: List[RustworkxLayerConverter],
         progress_bar: bool = True,
-    ) -> NXConverterLayer:
+    ) -> RustworkxLayerConverter:
         hash_remap = {hash(node): index for index, node in enumerate(nodes)}
 
         variable = nodes[0].variable
@@ -83,7 +83,7 @@ class UniformLayer(ContinuousLayerWithFiniteSupport):
         result = cls(
             nodes[0].probabilistic_circuit.variables.index(variable), intervals
         )
-        return NXConverterLayer(result, nodes, hash_remap)
+        return RustworkxLayerConverter(result, nodes, hash_remap)
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
