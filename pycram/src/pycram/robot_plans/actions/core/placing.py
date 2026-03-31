@@ -195,11 +195,13 @@ class GiskardPlaceAction(ActionDescription):
     def execute(self) -> None:
         arm = ViewManager.get_arm_view(self.arm, self.robot_view)
         manipulator = arm.manipulator
+        print("Transformer")
         if self.ignore_orientation:
             goal = self.target_location.pose.to_spatial_type().to_position()
         else:
             goal = self.target_location.pose.to_spatial_type()
         goal.reference_frame = self.target_location.frame_id
+        print("PlaceMotion")
         SequentialPlan(
             self.context,
             PlaceMotion(
@@ -269,6 +271,7 @@ class GiskardPlaceAction(ActionDescription):
             ignore_orientation=ignore_orientation,
         )
 
+
 @dataclass
 class GiskardPlaceAndDetachAction(ActionDescription):
     """
@@ -311,7 +314,10 @@ class GiskardPlaceAndDetachAction(ActionDescription):
     def execute(self) -> None:
         from ... import ParkArmsActionDescription
 
-        robot_pre_action_pose = PoseStamped.from_spatial_type(self.robot_view.root.global_pose)
+        robot_pre_action_pose = PoseStamped.from_spatial_type(
+            self.robot_view.root.global_pose
+        )
+        print("Performing PlaceAction")
         SequentialPlan(
             self.context,
             GiskardPlaceActionDescription(
@@ -322,18 +328,26 @@ class GiskardPlaceAndDetachAction(ActionDescription):
                 ignore_orientation=self.ignore_orientation,
             ),
         ).perform()
+        print("Placed object")
 
+        print("Detach object")
         with self.world.modify_world():
-            self.world.move_branch_with_fixed_connection(self.object_designator, self.world.root)
+            self.world.move_branch_with_fixed_connection(
+                self.object_designator, self.world.root
+            )
+        print("Detached object")
 
+        print("Retracting")
         SequentialPlan(
             self.context,
             GiskardRetractActionDescription(
-            simulated=self.simulated,
-            arm=self.arm,
-            back_off_pose=robot_pre_action_pose,),
-            ParkArmsActionDescription(Arms.BOTH)
+                simulated=self.simulated,
+                arm=self.arm,
+                back_off_pose=robot_pre_action_pose,
+            ),
+            ParkArmsActionDescription(Arms.BOTH),
         ).perform()
+        print("Retracted")
 
     @classmethod
     def description(
@@ -352,6 +366,7 @@ class GiskardPlaceAndDetachAction(ActionDescription):
             simulated=simulated,
             ignore_orientation=ignore_orientation,
         )
+
 
 @dataclass
 class GiskardRetractAction(ActionDescription):
@@ -381,8 +396,7 @@ class GiskardRetractAction(ActionDescription):
 
     def execute(self) -> None:
         from ... import RetractMotion, GiskardMoveGripperMotion
-        from ... import NavigateActionDescription
-        from pycram.robot_plans.motions.navigation import MoveMotion
+        from pycram.robot_plans import nav2NavigateActionDescription
 
         arm = ViewManager.get_arm_view(self.arm, self.robot_view)
         manipulator = arm.manipulator
@@ -393,19 +407,10 @@ class GiskardRetractAction(ActionDescription):
                 simulated=self.simulated,
                 gripper=manipulator,
             ),
+            nav2NavigateActionDescription(
+                simulated=self.simulated, target_location=self.back_off_pose
+            ),
         ).perform()
-
-        if self.simulated:
-            SequentialPlan(
-                self.context, MoveMotion(self.back_off_pose, True)
-            ).perform()
-        else:
-            from pycram.external_interfaces import nav2_move
-
-            os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
-            goal = self. back_off_pose.ros_message()
-            print(f"Moving to {self.back_off_pose}'")
-            nav2_move.start_nav_to_pose(self.back_off_pose)
 
     def validate(
         self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None

@@ -351,6 +351,12 @@ class GiskardPickUpAction(ActionDescription):
                     gripper_vertical=self.gripper_vertical,
                 ),
             ).perform()
+            #
+            # if not self.validate_grasped():
+            #     print("object has not been grasped")
+            #     raise ObjectNotGraspedError(
+            #         obj=self.object_designator, robot=self.context.robot, arm=self.arm
+            #     )
             grasped = True
         except Exception as e:
             SequentialPlan(
@@ -375,18 +381,12 @@ class GiskardPickUpAction(ActionDescription):
             ),
         ).perform()
 
-        if self.simulated:
-            SequentialPlan(
-                self.context,
-                nav2NavigateActionDescription(robot_pose_pre_manipulation, True),
-            ).perform()
-        else:
-            from pycram.external_interfaces import nav2_move
+        from pycram.external_interfaces import nav2_move
 
-            os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
-            goal = robot_pose_pre_manipulation.ros_message()
-            print(f"Moving to {robot_pose_pre_manipulation}'")
-            nav2_move.start_nav_to_pose(robot_pose_pre_manipulation)
+        os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
+        goal = robot_pose_pre_manipulation.ros_message()
+        print(f"Moving to {robot_pose_pre_manipulation}'")
+        nav2_move.start_nav_to_pose(goal)
 
         SequentialPlan(self.context, ParkArmsActionDescription(Arms.BOTH)).perform()
 
@@ -397,7 +397,7 @@ class GiskardPickUpAction(ActionDescription):
         self,
         fingertip_distance: float,
         closed_value: float = -0.1007,
-        open_value: float = 0.0538,
+        open_value: float = 0.1338,
         threshhold: float = 0.05,
     ) -> bool:
         """
@@ -425,7 +425,6 @@ class GiskardPickUpAction(ActionDescription):
         return not is_closed and not is_open
 
     def validate_grasped(self):
-        rclpy.init()
         node = rclpy.create_node("fingertip_distance_subscriber")
         msg = None
 
