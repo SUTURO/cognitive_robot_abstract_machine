@@ -7,7 +7,7 @@ from rclpy.executors import SingleThreadedExecutor
 from suturo_resources.suturo_map import load_environment
 
 from pycram.datastructures.dataclasses import Context
-from pycram.motion_executor import simulated_robot, ExecutionEnvironment
+from pycram.motion_executor import simulated_robot, ExecutionEnvironment, real_robot
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
 )
@@ -18,6 +18,7 @@ from semantic_digital_twin.adapters.ros.world_synchronizer import (
 )
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.exceptions import WorldEntityNotFoundError
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world import World
@@ -34,7 +35,8 @@ def _real_setup(node_name: str) -> Context:
     """
 
     # Initialize ROS 2
-    rclpy.init()
+    if not rclpy.ok():
+        rclpy.init()
 
     # Create node
     rclpy_node = rclpy.create_node(node_name)
@@ -53,15 +55,17 @@ def _real_setup(node_name: str) -> Context:
 
     # Fetch world
     world: World = fetch_world_from_service(rclpy_node)
-    print(world.root)
 
     # Synchronizers
     model_sync = ModelSynchronizer(_world=world, node=rclpy_node, synchronous=True)
     state_sync = StateSynchronizer(_world=world, node=rclpy_node, synchronous=True)
 
-    env_world = load_environment()
-    with world.modify_world():
-        world.merge_world(env_world)
+    try:
+        world.get_kinematic_structure_entity_by_name("root")
+    except WorldEntityNotFoundError:
+        env_world = load_environment()
+        with world.modify_world():
+            world.merge_world(env_world)
 
     # Robot semantic view
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]
@@ -141,6 +145,6 @@ def setup_context(
         execution_type = simulated_robot
     else:
         context = _real_setup(node_name=node_name)
-        execution_type = simulated_robot
+        execution_type = real_robot
 
     return context, execution_type
