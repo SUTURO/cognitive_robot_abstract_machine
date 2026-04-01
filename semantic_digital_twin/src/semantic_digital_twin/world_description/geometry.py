@@ -357,10 +357,12 @@ class Mesh(Shape):
     def to_json(self) -> Dict[str, Any]:
         # Serialize the raw (unscaled, unprocessed) mesh geometry and the scale separately
         base_mesh = trimesh.load_mesh(self.filename, process=False)
+        file_type = self.filename.split(".")[-1]
         return {
             **super().to_json(),
             "mesh": base_mesh.to_dict(),
             "scale": to_json(self.scale),
+            "file_type": file_type,
         }
 
     @classmethod
@@ -373,7 +375,10 @@ class Mesh(Shape):
         )
         origin = from_json(data["origin"], **kwargs)
         scale = from_json(data["scale"], **kwargs)
-        return cls.from_trimesh(mesh=mesh, origin=origin, scale=scale)
+        file_type = data["file_type"]
+        return cls.from_trimesh(
+            mesh=mesh, origin=origin, scale=scale, file_type=file_type
+        )
 
     @classmethod
     def add_uv(cls, mesh: trimesh.Trimesh, uv: np.ndarray) -> trimesh.Trimesh:

@@ -1031,6 +1031,7 @@ class KevinDAO_arms_association(Base, AssociationDataAccessObject):
 
     target: Mapped[ArmDAO] = relationship("ArmDAO", foreign_keys=[target_armdao_id])
 
+
 class MinimalRobotDAO_bodies_of_branch_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_93313390411884787792845487212249312599933457989172665658987594"
@@ -8513,6 +8514,7 @@ class KevinDAO(
         "polymorphic_identity": "KevinDAO",
         "inherit_condition": database_id == AbstractRobotDAO.database_id,
     }
+
 
 class MinimalRobotDAO(
     AbstractRobotDAO,
