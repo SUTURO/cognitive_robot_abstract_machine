@@ -10,9 +10,7 @@ def test_loader(rclpy_node):
     loader = Sage10kDatasetLoader(
         scene_url="https://huggingface.co/datasets/nvidia/SAGE-10k/resolve/main/scenes/20251213_020526_layout_84b703fb.zip",
     )
-    target_path = loader._download_scene()
-    unzipped = loader._unzip_scene(target_path)
-    scene = loader._parse_json(unzipped)
+    scene = loader.create_scene()
 
     world = scene.create_world()
     pub = VizMarkerPublisher(

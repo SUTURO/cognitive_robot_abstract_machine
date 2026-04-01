@@ -25,7 +25,11 @@ from semantic_digital_twin.world_description.connections import (
 )
 from semantic_digital_twin.world_description.geometry import Mesh, Scale, Box
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import (
+    Body,
+    WorldEntity,
+    KinematicStructureEntity,
+)
 
 
 @dataclass
@@ -50,6 +54,24 @@ class Sage10kWithID(Sage10kBase):
     Unique identifier used to reference this object in many-to-one like relationships.
     """
 
+    def create_in_world(
+        self,
+        world: World,
+        directory_path: Path,
+        parent: KinematicStructureEntity,
+        **kwargs,
+    ) -> WorldEntity:
+        """
+        Create the object in the world by getting its geometry from the provided information.
+        Spawn bodies, regions, connections, and semantic annotations.
+
+        :param world: The world to create the instances in.
+        :param directory_path: The directory where the `layout*.json` and all its referenced files are found.
+        :param parent: The parent of the newly created entities
+
+        :return: The relevant created body
+        """
+
 
 @dataclass
 class HasXYZ(Sage10kBase):
@@ -62,9 +84,6 @@ class HasXYZ(Sage10kBase):
     z: float
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "x": self.x,
@@ -74,9 +93,6 @@ class HasXYZ(Sage10kBase):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        """
-        Deserialize from JSON.
-        """
         return cls(x=data["x"], y=data["y"], z=data["z"])
 
 
@@ -139,9 +155,6 @@ class Sage10kSize(Sage10kBase):
         return self.height
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "height": self.height,
@@ -151,25 +164,21 @@ class Sage10kSize(Sage10kBase):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
-        """
-        Deserialize from JSON.
-        """
         return cls(height=data["height"], length=data["length"], width=data["width"])
 
 
 @dataclass
 class Sage10kPhysicallyBasedRendering(SubclassJSONSerializer):
     """
-    I don't really know what this is, but it appears consistently in the data.
+    Parameters for super realistic renderers.
+    Currently, we have no use of this in CRAM, but the information is provided by the dataset anyway.
+    This data is ignored when `Sage10kScene.create_world` is called but parsed from the JSON information.
     """
 
     metallic: float
     roughness: float
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "metallic": self.metallic,
@@ -180,9 +189,6 @@ class Sage10kPhysicallyBasedRendering(SubclassJSONSerializer):
     def _from_json(
         cls, data: Dict[str, Any], **kwargs
     ) -> Sage10kPhysicallyBasedRendering:
-        """
-        Deserialize from JSON.
-        """
         return cls(metallic=data["metallic"], roughness=data["roughness"])
 
 
@@ -220,9 +226,6 @@ class Sage10kWall(Sage10kWithID):
     """
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "id": self.id,
@@ -235,9 +238,6 @@ class Sage10kWall(Sage10kWithID):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Sage10kWall:
-        """
-        Deserialize from JSON.
-        """
         return cls(
             id=data["id"],
             start_point=Sage10kPosition._from_json(data["start_point"], **kwargs),
@@ -247,9 +247,12 @@ class Sage10kWall(Sage10kWithID):
             thickness=data["thickness"],
         )
 
-    def create_in_world(self, world: World, directory_path: Path, parent: Body) -> Wall:
-        wall_name = PrefixedName(name=self.id)
-
+    @property
+    def wall_length_and_yaw(self) -> Tuple[float, float]:
+        """
+        :return: The length of the wall and the yaw that can be used for creating it with
+        `Wall.create_with_new_body_in_world`.
+        """
         # the wall length is given by x
         if self.start_point.x != self.end_point.x:
             wall_length = self.end_point.x - self.start_point.x
@@ -260,6 +263,12 @@ class Sage10kWall(Sage10kWithID):
             yaw = 0
         else:
             assert_never(self)
+        return wall_length, yaw
+
+    def create_in_world(self, world: World, directory_path: Path, parent: Body) -> Wall:
+        wall_name = PrefixedName(name=self.id)
+
+        wall_length, yaw = self.wall_length_and_yaw
 
         wall_scale = Scale(x=self.thickness, y=wall_length, z=self.height)
 
@@ -403,9 +412,6 @@ class Sage10kObject(Sage10kWithID):
         return body
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "id": self.id,
@@ -425,9 +431,6 @@ class Sage10kObject(Sage10kWithID):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Sage10kObject:
-        """
-        Deserialize from JSON.
-        """
         return cls(
             id=data["id"],
             room_id=data["room_id"],
@@ -449,6 +452,9 @@ class Sage10kObject(Sage10kWithID):
 
 @dataclass
 class Sage10kDoor(Sage10kWithID):
+    """
+    A door of a wall in Sage10k.
+    """
 
     wall_id: str
     """
@@ -491,9 +497,6 @@ class Sage10kDoor(Sage10kWithID):
     """
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "id": self.id,
@@ -509,9 +512,6 @@ class Sage10kDoor(Sage10kWithID):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Sage10kDoor:
-        """
-        Deserialize from JSON.
-        """
         return cls(
             id=data["id"],
             wall_id=data["wall_id"],
@@ -533,24 +533,30 @@ class Sage10kDoor(Sage10kWithID):
         wall_annotation: Wall,
     ) -> Door:
         """
-        The parent is the wall body always.
+        The parent is always the wall body.
+
+        :param sage_10k_wall: The sage 10k wall that is referenced by `self.wall_id`.
+        :param wall_annotation: The wall annotation created in `world` before this call.
         """
         name = PrefixedName(name=self.id, prefix=sage_10k_wall.id)
 
-        scale = Scale(x=sage_10k_wall.thickness, y=self.width, z=self.height * 2)
+        scale = Scale(x=sage_10k_wall.thickness, y=self.width, z=self.height)
+
+        wall_length, _ = sage_10k_wall.wall_length_and_yaw
 
         parent_T_body = HomogeneousTransformationMatrix.from_xyz_rpy(
-            y=self.position_on_wall,
+            y=-self.position_on_wall,
             z=self.height / 2,
             reference_frame=parent,
         )
+        world_root_T_self = world.transform(parent_T_body, world.root)
 
         with world.modify_world():
             annotation = Door.create_with_new_body_in_world(
                 name=name,
                 scale=scale,
                 world=world,
-                world_root_T_self=parent_T_body,
+                world_root_T_self=world_root_T_self,
             )
         assert annotation.entry_way is not None
         body = annotation.root
@@ -580,6 +586,9 @@ class Sage10kDoor(Sage10kWithID):
 
 @dataclass
 class Sage10kRoom(Sage10kWithID):
+    """
+    A room of the Sage10k dataset.
+    """
 
     room_type: str
     """
@@ -684,9 +693,6 @@ class Sage10kRoom(Sage10kWithID):
         return world.root
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             JSON_TYPE_NAME: get_full_class_name(self.__class__),
             "id": self.id,
@@ -701,9 +707,6 @@ class Sage10kRoom(Sage10kWithID):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Sage10kRoom:
-        """
-        Deserialize from JSON.
-        """
         return cls(
             id=data["id"],
             room_type=data["room_type"],
@@ -718,6 +721,9 @@ class Sage10kRoom(Sage10kWithID):
 
 @dataclass
 class Sage10kScene(Sage10kWithID):
+    """
+    An entire scene from Sage10k.
+    """
 
     building_style: str
     """
@@ -731,6 +737,7 @@ class Sage10kScene(Sage10kWithID):
 
     created_from_text: str
     """
+    No idea.
     """
 
     total_area: float
@@ -750,9 +757,6 @@ class Sage10kScene(Sage10kWithID):
     """
 
     def to_json(self) -> Dict[str, Any]:
-        """
-        Serialize to JSON.
-        """
         return {
             **super().to_json(),
             "id": self.id,
@@ -765,9 +769,6 @@ class Sage10kScene(Sage10kWithID):
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Sage10kScene:
-        """
-        Deserialize from JSON.
-        """
         return cls(
             id=data["id"],
             building_style=data["building_style"],
