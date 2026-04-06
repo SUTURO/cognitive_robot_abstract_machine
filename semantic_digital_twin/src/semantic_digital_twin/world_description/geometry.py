@@ -646,6 +646,39 @@ class Mesh(Shape):
             origin=HomogeneousTransformationMatrix(reference_frame=reference_frame),
         )
 
+    @classmethod
+    def project_uv(
+        cls,
+        mesh: trimesh.Trimesh,
+        projection_axis: np.ndarray,
+        scale: np.ndarray,
+    ) -> trimesh.Trimesh:
+        """
+        Generate UV coordinates by projecting vertices along an axis and normalizing by scale.
+
+        :param mesh: The mesh to apply UVs to.
+        :param projection_axis: A (3,) array representing the axis to project along (e.g., [0, 0, 1] for Z).
+        :param scale: A (3,) array for normalizing the UV coordinates (e.g., dimensions of the box).
+        :return: A new mesh with UV coordinates and expanded vertices.
+        """
+        # Expand vertices for each face corner
+        faces = mesh.faces.reshape(-1)
+        vertices = mesh.vertices[faces]
+
+        # Identify the two axes perpendicular to the projection axis
+        # This is a simplified version for axis-aligned projections (X, Y, or Z)
+        axes = np.where(projection_axis == 0)[0]
+        if len(axes) != 2:
+            # Fallback or more complex logic for non-axis-aligned projections could go here
+            axes = [0, 1] if projection_axis[2] != 0 else [0, 2]
+
+        # Calculate UVs by projecting and normalizing
+        uv = np.zeros((len(vertices), 2))
+        uv[:, 0] = (vertices[:, axes[0]] / scale[axes[0]]) + 0.5
+        uv[:, 1] = (vertices[:, axes[1]] / scale[axes[1]]) + 0.5
+
+        return cls.add_uv(mesh=mesh, uv=uv)
+
 
 @dataclass(eq=False)
 class Sphere(Shape):

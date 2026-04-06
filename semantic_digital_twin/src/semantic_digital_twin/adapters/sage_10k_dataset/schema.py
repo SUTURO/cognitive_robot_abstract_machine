@@ -5,6 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict, Any, Self
 
+import numpy as np
+import trimesh
+import trimesh.repair
 from typing_extensions import Optional, Tuple, assert_never
 
 from krrood.adapters.exceptions import JSON_TYPE_NAME
@@ -294,11 +297,21 @@ class Sage10kWall(Sage10kWithID):
 
         body = annotation.root
 
+        wall_mesh = body.collision.combined_mesh
+
+        wall_mesh = Mesh.project_uv(
+            mesh=wall_mesh,
+            projection_axis=np.array([1, 0, 0]),
+            scale=np.array([self.thickness, wall_length, self.height]),
+        )
+
+        wall_length, _ = self.wall_length_and_yaw
+
         geometry_with_texture = ShapeCollection(
             [
                 Mesh.from_trimesh(
                     origin=HomogeneousTransformationMatrix(reference_frame=body),
-                    mesh=body.collision.combined_mesh,
+                    mesh=wall_mesh,
                     texture_file_path=str(
                         directory / "materials" / f"{self.material}.png"
                     ),
@@ -583,12 +596,19 @@ class Sage10kDoor(Sage10kWithID):
             )
 
         body = annotation.root
+        door_mesh = body.collision.combined_mesh
+
+        door_mesh = Mesh.project_uv(
+            mesh=door_mesh,
+            projection_axis=np.array([1, 0, 0]),
+            scale=np.array([sage_10k_wall.thickness, self.width, self.height]),
+        )
 
         geometry_with_texture = ShapeCollection(
             [
                 Mesh.from_trimesh(
                     origin=HomogeneousTransformationMatrix(reference_frame=body),
-                    mesh=body.collision.combined_mesh,
+                    mesh=door_mesh,
                     texture_file_path=str(
                         directory / "materials" / f"{self.door_material}_texture.png"
                     ),
@@ -709,6 +729,12 @@ class Sage10kRoom(Sage10kWithID):
         floor_mesh = Box(
             scale=Scale(x=self.dimensions.x, y=self.dimensions.y, z=0.01)
         ).mesh
+
+        floor_mesh = Mesh.project_uv(
+            mesh=floor_mesh,
+            projection_axis=np.array([0, 0, 1]),
+            scale=np.array([self.dimensions.x, self.dimensions.y, 0.01]),
+        )
 
         # convert position from lower left to center point
         x_center = self.position.x + (self.dimensions.x / 2)
