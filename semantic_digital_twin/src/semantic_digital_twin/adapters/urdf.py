@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 from typing_extensions import Optional, Tuple, Union, List
@@ -35,7 +36,7 @@ from semantic_digital_twin.world_description.geometry import (
     Box,
     Sphere,
     Cylinder,
-    FileMesh,
+    Mesh,
     Scale,
     Color,
 )
@@ -149,10 +150,11 @@ class URDFParser:
     @classmethod
     def from_file(
         cls,
-        file_path: str,
+        file_path: str | os.PathLike[str],
         prefix: Optional[str] = None,
         path_resolver: Optional[PathResolver] = None,
     ) -> URDFParser:
+        file_path = os.fspath(file_path)
         if file_path.endswith(".xacro"):
             return cls.from_xacro(file_path, prefix)
 
@@ -356,7 +358,7 @@ class URDFParser:
                 if geom.geometry.filename is None:
                     raise ValueError("Mesh geometry must have a filename.")
                 res.append(
-                    FileMesh(
+                    Mesh(
                         origin=origin_transform,
                         filename=self.path_resolver.resolve(geom.geometry.filename),
                         scale=Scale(*(geom.geometry.scale or (1, 1, 1))),
