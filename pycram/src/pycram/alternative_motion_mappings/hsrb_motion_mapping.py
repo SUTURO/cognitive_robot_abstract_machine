@@ -1,10 +1,14 @@
+from giskardpy.motion_statechart.tasks.pointing import Pointing
+
 try:
     from nav2_msgs.action import NavigateToPose
 except ModuleNotFoundError:
     NavigateToPose = None
+from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import (
     NavigateActionServerTask,
 )
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from pycram.datastructures.enums import ExecutionType
 from pycram.view_manager import ViewManager
@@ -28,6 +32,6 @@ class HSRBMoveMotion(MoveMotion, AlternativeMotion[HSRB]):
         return NavigateActionServerTask(
             target_pose=self.target,
             base_link=self.robot.root,
-            action_topic="/hsrb/move_base",
+            action_topic="/navigate_to_pose",
             message_type=NavigateToPose,
         )

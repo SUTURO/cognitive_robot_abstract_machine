@@ -89,6 +89,7 @@ class TaskStatus(int, Enum):
     INTERRUPTED = 4
     PAUSE = 5
 
+
 class JointType(Enum):
     """
     Enum for readable joint types.
@@ -273,4 +274,25 @@ class MonitorBehavior(Enum):
     RESUME = auto()
     """
     Resume the task when the condition is met.
+    """
+
+
+class PickUpType(Enum):
+    """
+    Enum for the different pick up types.
+    """
+
+    PICK_UP_OBJECT_SEARCH = auto()
+    """
+    Pick up the object by searching for it, via input name.
+    """
+
+    PICK_UP_OBJECT_BY_NEAREST = auto()
+    """
+    Pick up the object by finding the nearest object.
+    """
+
+    PICK_UP_OBJECT_BY_COLOR = auto()
+    """
+    Pick up the object by finding the object with the specified color.
     """
