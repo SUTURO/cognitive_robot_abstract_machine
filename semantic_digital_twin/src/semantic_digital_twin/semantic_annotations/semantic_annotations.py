@@ -550,7 +550,7 @@ class Wall(HasApertures):
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(0, scale.z)
 
-        return SimpleEvent(
+        return SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: x_interval,
                 SpatialVariables.y.value: y_interval,
@@ -920,7 +920,7 @@ class Sofa(Furniture, HasSupportingSurface):
         # X (Depth): Opening at -X (front), backrest at +X
         # Y (Width): Between armrests
         # Z (Height): Above the seat
-        cutout_event = SimpleEvent(
+        cutout_event = SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: closed(
                     -scale.x / 2 - 0.001, scale.x / 2 - backrest_depth
