@@ -50,7 +50,11 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import (
+from semantic_digital_twin.exceptions import ReferenceFrameMismatchError
+
+if TYPE_CHECKING:
+    from ..semantic_annotations.semantic_annotations import Drink
+from ..exceptions import (
     ReferenceFrameMismatchError,
     SemanticAnnotationNotInWorldError,
 )
@@ -758,6 +762,8 @@ class Human(Agent):
     This class exists primarily for semantic distinction, so that algorithms
     can treat human agents differently from robots if needed.
     """
+
+    favourite_drink: Optional[Type[Drink]] = field(default=None, kw_only=True)
 
 
 @dataclass(eq=False)

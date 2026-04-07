@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock PyQt5 and ROS 2 before importing the tool
-sys.modules["giskardpy.middleware.ros2"] = MagicMock()
-sys.modules["giskardpy.middleware.ros2.rospy"] = MagicMock()
+# Mock PyQt5 and ROS 2
+mock_ros2 = MagicMock()
+mock_rospy = MagicMock()
 
 # Mock PyQt5
 QtWidgets = MagicMock()
@@ -50,19 +50,25 @@ QtWidgets.QLabel = MockQWidget
 QtWidgets.QFrame = MockQWidget
 QtWidgets.QScrollArea = MockQWidget
 
-sys.modules["PyQt5"] = MagicMock()
-sys.modules["PyQt5.QtCore"] = MagicMock()
-sys.modules["PyQt5.QtCore"].Qt = MagicMock()
-sys.modules["PyQt5.QtGui"] = MagicMock()
-sys.modules["PyQt5.QtWidgets"] = QtWidgets
-
 
 # Import the tool
 def import_tool(path):
     spec = importlib.util.spec_from_file_location("collision_matrix_tool", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["collision_matrix_tool"] = module
-    spec.loader.exec_module(module)
+    with patch.dict(
+        sys.modules,
+        {
+            "giskardpy.middleware.ros2": mock_ros2,
+            "giskardpy.middleware.ros2.rospy": mock_rospy,
+            "PyQt5": MagicMock(),
+            "PyQt5.QtCore": MagicMock(),
+            "PyQt5.QtCore.Qt": MagicMock(),
+            "PyQt5.QtGui": MagicMock(),
+            "PyQt5.QtWidgets": QtWidgets,
+        },
+    ):
+        spec.loader.exec_module(module)
     return module
 
 

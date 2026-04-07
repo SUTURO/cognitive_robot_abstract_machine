@@ -120,44 +120,48 @@ class Color:
         return cls(*rgba)
 
     @classmethod
-    def PINK(cls) -> Self:
-        return cls(1, 0, 1, 1)
+    def RED(self):
+        return Color(1, 0, 0)
 
     @classmethod
-    def BLACK(cls) -> Self:
-        return cls(0, 0, 0, 1)
+    def YELLOW(self):
+        return Color(1, 1, 0)
 
     @classmethod
-    def WHITE(cls) -> Self:
-        return cls(1, 1, 1, 1)
+    def GREEN(self):
+        return Color(0, 1, 0)
 
     @classmethod
-    def RED(cls) -> Self:
-        return cls(1, 0, 0, 1)
+    def CYAN(self):
+        return Color(0, 1, 1)
 
     @classmethod
-    def GREEN(cls) -> Self:
-        return cls(0, 1, 0, 1)
+    def BLUE(self):
+        return Color(0, 0, 1)
 
     @classmethod
-    def BLUE(cls) -> Self:
-        return cls(0, 0, 1, 1)
+    def MAGENTA(self):
+        return Color(1, 0, 1)
 
     @classmethod
-    def YELLOW(cls) -> Self:
-        return cls(1, 1, 0, 1)
+    def WHITE(self):
+        return Color(1, 1, 1)
 
     @classmethod
-    def CYAN(cls) -> Self:
-        return cls(0, 1, 1, 1)
+    def BLACK(self):
+        return Color(0, 0, 0)
 
     @classmethod
-    def MAGENTA(cls) -> Self:
-        return cls(1, 0, 1, 1)
+    def GRAY(self):
+        return Color(0.498, 0.498, 0.498)
 
     @classmethod
-    def GREY(cls) -> Self:
-        return cls(0.5, 0.5, 0.5, 1)
+    def BEIGE(self):
+        return Color(1, 0.827, 0.6078)
+
+    @classmethod
+    def ORANGE(self):
+        return Color(1, 0.647, 0)
 
 
 @dataclass

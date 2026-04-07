@@ -39,6 +39,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     Milk,
     Cereal,
+    Sofa,
 )
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -768,6 +769,23 @@ class TestFactories(unittest.TestCase):
             )
         self.assertEqual(len(world.get_semantic_annotations_by_type(Floor)), 1)
         self.assertTrue(len(floor.root.collision) > 0)
+
+    def test_sofa_factory(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        with world.modify_world():
+            sofa = Sofa.create_with_new_body_in_world(
+                name=PrefixedName("sofa"), world=world, scale=Scale(0.9, 2.0, 0.85)
+            )
+
+        self.assertIsNotNone(sofa)
+        # Check if supporting surface was calculated automatically
+        self.assertIsNotNone(sofa.supporting_surface)
+        # Check connections: Sofa (root) should be parent to SupportingSurface (Total 1)
+        children = [c.child for c in world.connections if c.parent == sofa.root]
+        self.assertEqual(len(children), 1)
 
     def test_wall_doors(self):
         world = World()

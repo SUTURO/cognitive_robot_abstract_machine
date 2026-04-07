@@ -18,6 +18,7 @@ from typing_extensions import (
     Self,
     Iterable,
     Type,
+    TypeVar,
 )
 
 from krrood.ormatic.utils import classproperty
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
         Hinge,
         Slider,
         Aperture,
+        ShelfLayer,
     )
 
 
@@ -338,6 +340,12 @@ class HasRootBody(HasRootKinematicStructureEntity, ABC):
         :return: The created semantic annotation instance.
         """
         body = Body(name=name)
+        if scale is not None:
+            collision_shapes = BoundingBoxCollection.from_event(
+                body, scale.to_simple_event().as_composite_set()
+            ).as_shapes()
+            body.collision = collision_shapes
+            body.visual = collision_shapes
 
         if scale is not None:
             collision_shapes = BoundingBoxCollection.from_event(
@@ -564,6 +572,34 @@ class HasDoors(HasRootKinematicStructureEntity, ABC):
 
         self._attach_child_entity_in_kinematic_structure(door.root)
         self.doors.append(door)
+
+
+@dataclass(eq=False)
+class HasShelfLayers(HasRootBody, ABC):
+    """
+    A mixin class for semantic annotations that have shelf layers.
+    """
+
+    shelf_layers: List[ShelfLayer] = field(
+        default_factory=list, hash=False, kw_only=True
+    )
+    """
+    The shelf layers of the semantic annotation.
+    """
+
+    @synchronized_attribute_modification
+    def add_shelf_layer(
+        self,
+        shelf_layer: ShelfLayer,
+    ):
+        """
+        Add a shelf layer to the semantic annotation.
+
+        :param shelf_layer: The shelf layer to add.
+        """
+
+        self._attach_child_entity_in_kinematic_structure(shelf_layer.root)
+        self.shelf_layers.append(shelf_layer)
 
 
 @dataclass(eq=False)

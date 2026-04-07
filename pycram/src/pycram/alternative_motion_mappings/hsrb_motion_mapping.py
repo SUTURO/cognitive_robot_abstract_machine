@@ -5,6 +5,7 @@ except ModuleNotFoundError:
 from giskardpy.motion_statechart.ros2_nodes.ros_tasks import (
     NavigateActionServerTask,
 )
+from semantic_digital_twin.robots.abstract_robot import ParallelGripper
 from semantic_digital_twin.robots.hsrb import HSRB
 from pycram.datastructures.enums import ExecutionType
 from pycram.view_manager import ViewManager

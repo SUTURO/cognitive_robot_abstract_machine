@@ -321,6 +321,16 @@ class MissingWorldModificationContextError(UsageError):
         self.message = f"World function '{self.function.__name__}' was called without a 'with world.modify_world():' context manager."
 
 
+class IncorrectScaleError(ValueError):
+    """
+    An exception raised when the scale of a DoorFactory is incorrect.
+    """
+
+    def __init__(self, scale):
+        self.scale = scale
+        super().__init__(f"Scale {scale} is invalid: x must be smaller than y and z.")
+
+
 @dataclass
 class MismatchingPublishChangesAttribute(UsageError):
     """
@@ -466,6 +476,7 @@ class AmbiguousNameError(ValueError):
 class UnresolvedNameError(ValueError):
     """Raised when no semantic annotation class matches a given name."""
 
+
 @dataclass
 class RootNodeNotFoundError(DataclassException):
     """
@@ -476,7 +487,10 @@ class RootNodeNotFoundError(DataclassException):
     """The candidate node names that were considered as potential roots."""
 
     def __post_init__(self):
-        self.message = f"Could not determine unique root node. Candidates: {self.candidates}"
+        self.message = (
+            f"Could not determine unique root node. Candidates: {self.candidates}"
+        )
+
 
 @dataclass
 class CollisionCheckingError(DataclassException):

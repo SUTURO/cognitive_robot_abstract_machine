@@ -377,6 +377,65 @@ def test_model_synchronization_merge_full_world_stress_test(rclpy_node):
         synchronizer_2.close()
 
 
+# todo this was from suturo:
+#
+# def wait_for_sync(timeout=5.0, interval=0.05):
+#     start = time.time()
+#     while time.time() - start < timeout:
+#         body_hash_1 = {hash(body) for body in w1.kinematic_structure_entities}
+#         body_hash_2 = {hash(body) for body in w2.kinematic_structure_entities}
+#
+#         connection_hash_1 = {hash(conn) for conn in w1.connections}
+#         connection_hash_2 = {hash(conn) for conn in w2.connections}
+#
+#         dof_hash_1 = {hash(dof) for dof in w1.degrees_of_freedom}
+#         dof_hash_2 = {hash(dof) for dof in w2.degrees_of_freedom}
+#
+#         semantic_annotation_hash_1 = {
+#             hash(sa) for sa in w1.semantic_annotations
+#         }
+#         semantic_annotation_hash_2 = {
+#             hash(sa) for sa in w2.semantic_annotations
+#         }
+#
+#         if (
+#                 body_hash_1 == body_hash_2
+#                 and connection_hash_1 == connection_hash_2
+#                 and dof_hash_1 == dof_hash_2
+#                 and semantic_annotation_hash_1 == semantic_annotation_hash_2
+#         ):
+#             return
+#         time.sleep(interval)
+#
+# with w1.modify_world():
+#     new_body = Body(name=PrefixedName("b3"))
+#     w1.add_kinematic_structure_entity(new_body)
+#
+# fixed_connection = FixedConnection(child=new_body, parent=pr2_world.root)
+# w1.merge_world(pr2_world, fixed_connection)
+#
+# wait_for_sync()
+#
+# assert {body.id for body in w1.kinematic_structure_entities} == {
+#     body.id for body in w2.kinematic_structure_entities
+# }
+# assert len(w1.kinematic_structure_entities) == len(
+#     w2.kinematic_structure_entities
+# )
+#
+# w1_connection_hashes = [hash(c) for c in w1.connections]
+# w2_connection_hashes = [hash(c) for c in w2.connections]
+# assert (
+#         w1_connection_hashes == w2_connection_hashes
+# ), f"w1: {[c.name for c in w1.connections]}, w2: {[c.name for c in w2.connections]}, If this feels flaky, contact @LucaKro"
+# assert [d.id for d in w1.degrees_of_freedom] == [
+#     d.id for d in w2.degrees_of_freedom
+# ], f"w1: {[d.name for d in w1.degrees_of_freedom]}, w2: {[d.name for d in w2.degrees_of_freedom]}, If this feels flaky, contact @LucaKro"
+#
+# synchronizer_1.close()
+# synchronizer_2.close()
+
+
 def test_callback_pausing(rclpy_node):
 
     w1 = World(name="w1")
