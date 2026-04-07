@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from semantic_digital_twin.datastructures.definitions import GripperState
 from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import Connection6DoF
 from semantic_digital_twin.world_description.world_entity import Body
 from typing_extensions import Union, Optional, Type, Any, Iterable
@@ -111,153 +112,143 @@ class PlaceAction(ActionDescription):
         self.validate_loss_of_contact()
         self.validate_placement_location()
 
-    def validate_loss_of_contact(self):
-        """
-        Check if the object is still in contact with the robot after placing it.
-        """
-        contact_links = self.object_designator.get_contact_points_with_body(
-            World.robot
-        ).get_all_bodies()
-        if contact_links:
-            raise ObjectStillInContact(
-                self.object_designator,
-                contact_links,
-                self.target_location,
-                World.robot,
-                self.arm,
+    # def validate_loss_of_contact(self):
+    #     """
+    #     Check if the object is still in contact with the robot after placing it.
+    #     """
+    #     contact_links = self.object_designator.get_contact_points_with_body(
+    #         World.robot
+    #     ).get_all_bodies()
+    #     if contact_links:
+    #         raise ObjectStillInContact(
+    #             self.object_designator,
+    #             contact_links,
+    #             self.target_location,
+    #             World.robot,
+    #             self.arm,
+    #         )
+
+    # def validate_placement_location(self):
+    #     """
+    #     Check if the object is placed at the target location.
+    #     """
+    #     pose_error_checker = PoseErrorChecker(World.conf.get_pose_tolerance())
+    #     if not pose_error_checker.is_error_acceptable(
+    #         self.object_designator.pose, self.target_location
+    #     ):
+    #         raise ObjectNotPlacedAtTargetLocation(
+    #             self.object_designator, self.target_location, World.robot, self.arm
+    #         )
+
+
+# todo why is giskard handling simulationa dn real differently? this is also done due the motion executonier
+@dataclass
+class GiskardPlaceAction(ActionDescription):
+    """
+    Places an Object at a position using an arm. By directly called GiskardMotion
+    """
+
+    object_designator: Body
+    """
+    Object designator_description describing the object that should be place
+    """
+
+    target_location: Pose
+    """
+    Pose in the world at which the object should be placed
+    """
+
+    arm: Arms
+    """
+    Arm that is currently holding the object
+    """
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+    ignore_orientation: bool = field(default=False, kw_only=True)
+    """
+    If True, the orientation of the object will be ignored.
+    """
+
+    _pre_perform_callbacks = []
+    """
+    List to save the callbacks which should be called before performing the action.
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def execute(self) -> None:
+        # todo giskardpy_ros will be in the monorepo soon
+        try:
+            from ...motions.pick_up import PickupMotion
+        except ImportError:
+            raise ImportError(
+                "The GiskardPickUpAction requires Giskardpy_ros, not only giskardpy."
             )
 
-    def validate_placement_location(self):
-        """
-        Check if the object is placed at the target location.
-        """
-        pose_error_checker = PoseErrorChecker(World.conf.get_pose_tolerance())
-        if not pose_error_checker.is_error_acceptable(
-            self.object_designator.pose, self.target_location
-        ):
-            raise ObjectNotPlacedAtTargetLocation(
-                self.object_designator, self.target_location, World.robot, self.arm
-            )
+        manipulator = ViewManager.get_end_effector_view(self.arm, self.robot)
+        # todo what is this about?
+        # if self.ignore_orientation:
+        #     goal = self.target_location.pose.to_spatial_type().to_position()
+        # else:
+        #     goal = self.target_location.pose.to_spatial_type()
+        # goal.reference_frame = self.target_location.frame_id
+        execute_single(
+            PlaceMotion(
+                object_designator=self.object_designator,
+                simulated=self.simulated,
+                goal_pose=self.target_location,
+                gripper=manipulator,
+                allow_gripper_collision=False,
+            ),
+        ).perform()
+
+    # def validate(
+    #     self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None
+    # ):
+    #     """
+    #     Check if the object is placed at the target location.
+    #     """
+    #     self.validate_loss_of_contact()
+    #     self.validate_placement_location()
+    #
+    # def validate_loss_of_contact(self):
+    #     """
+    #     Check if the object is still in contact with the robot after placing it.
+    #     """
+    #     manipulator = ViewManager.get_arm_view(
+    #         self.arm, self.robot_view
+    #     ).manipulator.tool_frame
+    #     contact_links = self.object_designator.get_contact_points_with_body(
+    #         self.robot_view
+    #     ).get_all_bodies()
+    #     if contact_links:
+    #         raise ObjectStillInContact(
+    #             self.object_designator,
+    #             contact_links,
+    #             self.target_location,
+    #             World.robot,
+    #             self.arm,
+    #         )
+    #
+    # def validate_placement_location(self):
+    #     """
+    #     Check if the object is placed at the target location.
+    #     """
+    #     pose_error_checker = PoseErrorChecker(World.conf.get_pose_tolerance())
+    #     if not pose_error_checker.is_error_acceptable(
+    #         self.object_designator.pose, self.target_location
+    #     ):
+    #         raise ObjectNotPlacedAtTargetLocation(
+    #             self.object_designator, self.target_location, World.robot, self.arm
+    #         )
 
 
-# /todo
-# @dataclass
-# class GiskardPlaceAction(ActionDescription):
-#     """
-#     Places an Object at a position using an arm. By directly called GiskardMotion
-#     """
-#
-#     object_designator: Body
-#     """
-#     Object designator_description describing the object that should be place
-#     """
-#
-#     target_location: PoseStamped
-#     """
-#     Pose in the world at which the object should be placed
-#     """
-#
-#     arm: Arms
-#     """
-#     Arm that is currently holding the object
-#     """
-#
-#     simulated: bool = field(default=True, kw_only=True)
-#     """
-#     Parsing simulation argument
-#     """
-#
-#     ignore_orientation: bool = field(default=False, kw_only=True)
-#     """
-#     If True, the orientation of the object will be ignored.
-#     """
-#
-#     _pre_perform_callbacks = []
-#     """
-#     List to save the callbacks which should be called before performing the action.
-#     """
-#
-#     def __post_init__(self):
-#         super().__post_init__()
-#
-#     def execute(self) -> None:
-#         arm = ViewManager.get_arm_view(self.arm, self.robot_view)
-#         manipulator = arm.manipulator
-#         print("Transformer")
-#         if self.ignore_orientation:
-#             goal = self.target_location.pose.to_spatial_type().to_position()
-#         else:
-#             goal = self.target_location.pose.to_spatial_type()
-#         goal.reference_frame = self.target_location.frame_id
-#         print("PlaceMotion")
-#         SequentialPlan(
-#             self.context,
-#             PlaceMotion(
-#                 object_designator=self.object_designator,
-#                 simulated=self.simulated,
-#                 goal_pose=goal,
-#                 gripper=manipulator,
-#                 allow_gripper_collision=False,
-#             ),
-#         ).perform()
-#
-#     def validate(
-#         self, result: Optional[Any] = None, max_wait_time: Optional[timedelta] = None
-#     ):
-#         """
-#         Check if the object is placed at the target location.
-#         """
-#         self.validate_loss_of_contact()
-#         self.validate_placement_location()
-#
-#     def validate_loss_of_contact(self):
-#         """
-#         Check if the object is still in contact with the robot after placing it.
-#         """
-#         manipulator = ViewManager.get_arm_view(
-#             self.arm, self.robot_view
-#         ).manipulator.tool_frame
-#         contact_links = self.object_designator.get_contact_points_with_body(
-#             self.robot_view
-#         ).get_all_bodies()
-#         if contact_links:
-#             raise ObjectStillInContact(
-#                 self.object_designator,
-#                 contact_links,
-#                 self.target_location,
-#                 World.robot,
-#                 self.arm,
-#             )
-#
-#     def validate_placement_location(self):
-#         """
-#         Check if the object is placed at the target location.
-#         """
-#         pose_error_checker = PoseErrorChecker(World.conf.get_pose_tolerance())
-#         if not pose_error_checker.is_error_acceptable(
-#             self.object_designator.pose, self.target_location
-#         ):
-#             raise ObjectNotPlacedAtTargetLocation(
-#                 self.object_designator, self.target_location, World.robot, self.arm
-#             )
-#
-#     @classmethod
-#     def description(
-#         cls,
-#         object_designator: Union[Iterable[Body], Body],
-#         target_location: Union[Iterable[PoseStamped], PoseStamped],
-#         arm: Union[Iterable[Arms], Arms],
-#         simulated: bool = True,
-#         ignore_orientation: bool = False,
-#     ) -> PartialDesignator[GiskardPlaceAction]:
-#         return PartialDesignator[GiskardPlaceAction](
-#             GiskardPlaceAction,
-#             object_designator=object_designator,
-#             target_location=target_location,
-#             arm=arm,
-#             simulated=simulated,
-#             ignore_orientation=ignore_orientation,
-#         )
+# todo why do we need all of this? if giskard is doing the whole process it should also connect and disconnect the objects.
 #
 #
 # @dataclass

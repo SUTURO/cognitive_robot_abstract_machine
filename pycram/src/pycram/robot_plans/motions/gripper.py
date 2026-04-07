@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List
 
+from giskardpy.motion_statechart.goals.pick_up import PullUp
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -8,6 +9,8 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 )
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from semantic_digital_twin.datastructures.definitions import GripperState
+from semantic_digital_twin.robots.abstract_robot import Manipulator
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 from pycram.robot_plans.motions.base import BaseMotion
 from pycram.datastructures.enums import (
@@ -211,6 +214,48 @@ class MoveTCPWaypointsMotion(BaseMotion):
             for pose in self.waypoints
         ]
         return Sequence(nodes=nodes)
+
+
+# todo docs and parameter description and why do u have the simulation param?
+@dataclass
+class PullUpMotion(BaseMotion):
+    """
+    High-level motion for pulling up an object with a parallel gripper.
+
+    This motion wraps the Giskard PullUp goal and exposes it to the
+    motion framework via the `_motion_chart` property.
+    """
+
+    # The gripper that will execute the pullUp (must be a ParallelGripper)
+    manipulator: Manipulator = field(default=None, kw_only=True)
+
+    # The world object that should be pulledUp
+    object_geometry: Body = field(default=None, kw_only=True)
+
+    simulated: bool = field(default=True, kw_only=True)
+    """
+    Parsing simulation argument
+    """
+
+    # If True, the gripper is kept vertically aligned during the grasp
+    # kw_only=True forces this to be passed as a keyword argument
+    gripper_vertical: Optional[bool] = field(default=True, kw_only=True)
+
+    def perform(self):
+        return
+
+    @property
+    def _motion_chart(self):
+        """
+        Creates and returns the underlying Giskard PickUp goal.
+
+        The motion framework queries this property to insert the task
+        into the MotionStatechart.
+        """
+        pickup = PullUp(
+            manipulator=self.manipulator, object_geometry=self.object_geometry
+        )
+        return pickup
 
 
 #
