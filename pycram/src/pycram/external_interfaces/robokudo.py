@@ -1,3 +1,4 @@
+import sys
 import logging
 import threading
 from threading import Thread
@@ -8,13 +9,13 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from pycram.ros import create_action_client
 from robokudo_msgs.action import Query
-from robokudo_msgs.msg import ObjectDesignator as RobokudoObjectDesignator
 from typing_extensions import List, Callable, Optional
 from typing import Any
 from ..datastructures.pose import PoseStamped
 from ..designator import ObjectDesignatorDescription
 from geometry_msgs.msg import PointStamped
 from time import sleep
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ is_init = False
 goal_handle: ClientGoalHandle | None = None
 executor: MultiThreadedExecutor | None = None
 executor_thread: Thread | None = None
+continues_lock = False
 
 
 def create_robokudo_action_client():
@@ -55,6 +57,7 @@ def create_robokudo_action_client():
         logger.error("robokudo_query action server not available")
         return None
 
+    logger.info("Action server is available")
     return client
 
 
@@ -64,21 +67,36 @@ def init_robokudo_interface(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         global is_init, robokudo_action_client
 
-        if is_init:
+        if (
+            is_init
+            and robokudo_action_client is not None
+            and robokudo_action_client.wait_for_server(timeout_sec=10.0)
+        ):
             return func(*args, **kwargs)
-        try:
-            robokudo_action_client = create_robokudo_action_client()
-
-            if robokudo_action_client is None:
-                logger.warning("Could not create robokudo action client")
-                return None
-
-            logger.info("Successfully initialized robokudo interface")
-            is_init = True
-
-        except Exception as e:
-            logger.error(f"Failed to initialize robokudo interface: {e}")
+        elif (
+            is_init
+            and robokudo_action_client is not None
+            and robokudo_action_client.wait_for_server(timeout_sec=10.0) == False
+        ):
+            logger.warning(
+                "Robokudo node is not available anymore, could not initialize robokudo interface"
+            )
+            is_init = False
             return None
+
+        if "robokudo_msgs" not in sys.modules:
+            logger.warning(
+                "Could not initialize the Robokudo interface since the robokudo_msgs are not imported"
+            )
+            return None
+
+        robokudo_action_client = create_robokudo_action_client()
+        if robokudo_action_client is None:
+            logger.warning("Could not create robokudo action client")
+            is_init = False
+            return None
+        logger.info("Successfully initialized Robokudo interface")
+        is_init = True
 
         return func(*args, **kwargs)
 
@@ -90,49 +108,56 @@ def send_query(
     obj_type: Optional[str] = None,
     region: Optional[str] = None,
     attributes: Optional[List[str]] = None,
-    continues: Optional[bool] = False,
 ) -> Any:
     """Generic function to send a query to RoboKudo."""
-
-    global robokudo_action_client
-    goal = Query.Goal()
-
-    if obj_type:
-        goal.obj.type = obj_type
-    if region:
-        goal.obj.location = region
-    if attributes:
-        goal.obj.attribute = attributes
-
-    result: Query.Result | None = None
-    result_event = threading.Event()
-
-    def goal_response_callback(future):
-        global goal_handle
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            logger.info("Goal rejected")
-            return
-        logger.info("Goal accepted")
-        get_result_future = goal_handle.get_result_async()
-        get_result_future.add_done_callback(get_result_callback)
-
-    def get_result_callback(future):
-        nonlocal result
-        result = future.result().result
-        logger.info("Finished ")
-        result_event.set()
-
-    logger.info("Send Query")
-    if continues:
-        send_goal_future = robokudo_action_client.send_goal_async(goal)
-        send_goal_future.add_done_callback(goal_response_callback)
+    if continues_lock:
+        logger.warning("Can not send query while continuous query is running")
+        return None
     else:
-        send_goal_future = robokudo_action_client.send_goal_async(goal)
-        send_goal_future.add_done_callback(goal_response_callback)
-        result_event.wait()
+        global robokudo_action_client, goal_handle
+        goal = Query.Goal()
+        continues = False
 
-    return result
+        if obj_type:
+            goal.obj.type = obj_type
+        if region:
+            goal.obj.location = region
+        if attributes:
+            goal.obj.attribute = attributes
+            for a in attributes:
+                if a == "continues":
+                    continues = True
+
+        result: Query.Result | None = None
+        result_event = threading.Event()
+
+        def goal_response_callback(future):
+            global goal_handle
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                logger.info("Goal rejected")
+                return
+            logger.info("Goal accepted")
+            get_result_future = goal_handle.get_result_async()
+            get_result_future.add_done_callback(get_result_callback)
+
+        def get_result_callback(future):
+            nonlocal result
+            result = future.result().result
+            logger.info("Finished ")
+            result_event.set()
+
+        logger.info("Send Query")
+        if continues:
+            send_goal_future = robokudo_action_client.send_goal_async(goal)
+            send_goal_future.add_done_callback(goal_response_callback)
+        else:
+            send_goal_future = robokudo_action_client.send_goal_async(goal)
+            send_goal_future.add_done_callback(goal_response_callback)
+            result_event.wait()
+            goal_handle = None
+
+        return result
 
 
 @init_robokudo_interface
@@ -154,12 +179,14 @@ def query_human() -> "PointStamped":
 
 @init_robokudo_interface
 def query_current_human_position_in_continues():
-    global current_human_position
+    global current_human_position, continues_lock
     if not goal_handle:
         # Send goal
-        send_query(obj_type="human", continues=True)
-        # Needs to change!
-        sleep(4)
+        send_query(obj_type="human", attributes=["continues"])
+        continues_lock = True
+        timeout = time.time() + 5
+        while current_human_position is None and time.time() < timeout:
+            sleep(0.1)
     return current_human_position
 
 
@@ -231,7 +258,7 @@ def query_waving_human() -> Optional[PoseStamped]:
 @init_robokudo_interface
 def cancel_goal():
     """Sends a cancel request for the active goal."""
-    if not goal_handle:
+    if goal_handle is None:
         logger.error("No active goal to cancel.")
         return
 
@@ -242,12 +269,13 @@ def cancel_goal():
 
 def cancel_done_callback(future):
     """Handles the response from the action server regarding goal cancellation."""
-    global goal_handle, current_human_position
+    global goal_handle, current_human_position, continues_lock
     cancel_response = future.result()
     if len(cancel_response.goals_canceling) > 0:
         logger.info("Goal cancellation accepted by the server.")
         goal_handle = None
         current_human_position = None
+        continues_lock = False
     else:
         logger.warning("Goal cancellation was not successful.")
     logger.info("Shutting down after cancellation is accepted.")
@@ -273,7 +301,7 @@ def shutdown_robokudo_interface():
         chd.destroy_node()
 
     is_init = False
-    logger.info("Navigation interface shut down")
+    logger.info("Robokudo interface shut down")
 
 
 class CONTINUOUS_HUMAN_DETECTION(Node):
@@ -287,12 +315,5 @@ class CONTINUOUS_HUMAN_DETECTION(Node):
 
     def data_callback(self, data):
         global current_human_position
-        if data is not None and current_human_position is not None:
-            if (
-                round(current_human_position.point.x, 2) != round(data.point.x, 2)
-                and round(current_human_position.point.y, 2) != round(data.point.y, 2)
-                and round(current_human_position.point.z, 2) != round(data.point.z, 2)
-            ):
-                current_human_position = data
-        elif data is not None:
+        if data is not None:
             current_human_position = data
