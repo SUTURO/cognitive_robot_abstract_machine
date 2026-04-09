@@ -9,6 +9,7 @@ from typing import Callable
 
 import rclpy
 from rclpy import create_node
+from std_msgs.msg import Float32
 from typing_extensions import Union, Optional, Type, Any, Iterable
 
 from pycram_suturo_demos.helper_methods_and_useful_classes.pickup_helper_methods import (
@@ -396,9 +397,9 @@ class GiskardPickUpAction(ActionDescription):
     def item_between_fingertips(
         self,
         fingertip_distance: float,
-        closed_value: float = -0.1007,
-        open_value: float = 0.1338,
-        threshhold: float = 0.05,
+        closed_value: float = -0.0607,
+        open_value: float = 0.1342,
+        threshhold: float = 0.005,
     ) -> bool:
         """
         Returns True if the gripper is not fully closed and not fully open,
@@ -434,7 +435,7 @@ class GiskardPickUpAction(ActionDescription):
 
         # TODO change msg time, idk what msg type it is
         subscription = node.create_subscription(
-            msg_type=None,
+            msg_type=Float32,
             topic="/gripper_command/fingertip_distance",
             callback=callback,
             qos_profile=10,
@@ -447,7 +448,7 @@ class GiskardPickUpAction(ActionDescription):
         node.destroy_node()
 
         is_object_between_fingertips: bool = self.item_between_fingertips(
-            fingertip_distance=msg.smth
+            fingertip_distance=msg.data
         )
         if not is_object_between_fingertips:
             raise ObjectNotGraspedError(
