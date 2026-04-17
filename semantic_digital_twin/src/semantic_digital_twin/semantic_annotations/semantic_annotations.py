@@ -47,7 +47,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh
+from semantic_digital_twin.world_description.geometry import Scale, Mesh
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
     ShapeCollection,
@@ -262,7 +262,7 @@ class Door(HasHandle, HasHinge):
         )
         entry_way_region = Region(
             name=entry_way_region_name,
-            area=ShapeCollection([TriangleMesh(mesh=door_body.combined_mesh)]),
+            area=ShapeCollection([Mesh.from_trimesh(mesh=door_body.combined_mesh)]),
         )
         entry_way = EntryWay(name=entry_way_name, root=entry_way_region)
         world.add_region(entry_way.root)
