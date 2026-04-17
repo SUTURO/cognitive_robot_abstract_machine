@@ -106,7 +106,3 @@ class LookAtAction(ActionDescription):
         creating a ray from the camera and checking if it intersects with the object.
         """
         return
-
-
-NavigateActionDescription = NavigateAction.description
-LookAtActionDescription = LookAtAction.description
