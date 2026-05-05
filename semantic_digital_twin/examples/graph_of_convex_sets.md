@@ -102,12 +102,11 @@ This minimal example demonstrates a concept that can be applied to the entire be
 
 ```{code-cell} ipython3
 import os
-from pkg_resources import resource_filename
 from pathlib import Path
 import semantic_digital_twin
 from semantic_digital_twin.adapters.urdf import URDFParser
 
-apartment = os.path.realpath(os.path.join(resource_filename("semantic_digital_twin", "../../"), "resources", "urdf", "kitchen.urdf"))
+apartment = Path(semantic_digital_twin.__file__).resolve().parents[2] / "resources" / "urdf" / "kitchen.urdf"
 
 apartment_parser = URDFParser.from_file(apartment)
 world = apartment_parser.parse()
