@@ -755,6 +755,19 @@ class HasDrawersDAO_drawers_association(Base, AssociationDataAccessObject):
     )
 
 
+class HasLegsDAO_legs_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_93184027564042720508623552238029976658215971953774990349182199"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_haslegsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("HasLegsDAO.database_id")
+    )
+    target_legdao_id: Mapped[int] = mapped_column(ForeignKey("LegDAO.database_id"))
+
+    target: Mapped[LegDAO] = relationship("LegDAO", foreign_keys=[target_legdao_id])
+
+
 class HasAperturesDAO_apertures_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_20807349603043271587286625033281799047722033893758740561822060"
@@ -1003,6 +1016,17 @@ class SofaDAO_objects_association(Base, AssociationDataAccessObject):
     target: Mapped[HasRootBodyDAO] = relationship(
         "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
     )
+
+
+class TableDAO_legs_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_71256982599188676809632984764672354445519855604058752071019270"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_tabledao_id: Mapped[int] = mapped_column(ForeignKey("TableDAO.database_id"))
+    target_legdao_id: Mapped[int] = mapped_column(ForeignKey("LegDAO.database_id"))
+
+    target: Mapped[LegDAO] = relationship("LegDAO", foreign_keys=[target_legdao_id])
 
 
 class TableDAO_objects_association(Base, AssociationDataAccessObject):
@@ -6886,6 +6910,33 @@ class HasDrawersDAO(
     }
 
 
+class HasLegsDAO(
+    HasRootKinematicStructureEntityDAO,
+    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasLegs],
+):
+
+    __tablename__ = "HasLegsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootKinematicStructureEntityDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    legs: Mapped[builtins.list[HasLegsDAO_legs_association]] = relationship(
+        "HasLegsDAO_legs_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[HasLegsDAO_legs_association.source_haslegsdao_id]",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "HasLegsDAO",
+        "inherit_condition": database_id
+        == HasRootKinematicStructureEntityDAO.database_id,
+    }
+
+
 class HasRootBodyDAO(
     HasRootKinematicStructureEntityDAO,
     DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasRootBody],
@@ -9383,6 +9434,12 @@ class TableDAO(
     root: Mapped[BodyDAO] = relationship(
         "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
     )
+    legs: Mapped[builtins.list[TableDAO_legs_association]] = relationship(
+        "TableDAO_legs_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[TableDAO_legs_association.source_tabledao_id]",
+    )
     objects: Mapped[builtins.list[TableDAO_objects_association]] = relationship(
         "TableDAO_objects_association",
         collection_class=builtins.list,
@@ -9516,6 +9573,27 @@ class HouseplantDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HouseplantDAO",
+        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+    }
+
+
+class LegDAO(
+    HasRootBodyDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Leg
+    ],
+):
+
+    __tablename__ = "LegDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootBodyDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "LegDAO",
         "inherit_condition": database_id == HasRootBodyDAO.database_id,
     }
 
