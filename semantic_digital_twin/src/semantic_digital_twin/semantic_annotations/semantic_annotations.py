@@ -48,7 +48,7 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh, Mesh, Color
+from semantic_digital_twin.world_description.geometry import Scale, Mesh, Color
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
     ShapeCollection,
