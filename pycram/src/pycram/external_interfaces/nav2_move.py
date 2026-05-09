@@ -13,9 +13,6 @@ from geometry_msgs.msg import PoseStamped
 
 from pycram.ros import create_action_client
 
-from pycram.tf_transformations import quaternion_from_euler, quaternion_multiply
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 # Global variables for shared resources
@@ -91,6 +88,7 @@ def start_nav_to_pose(nav_pose: PoseStamped) -> NavigateToPose.Result | None:
     """
 
     global nav_action_client, current_goal_handle, nav_node
+
     result_response: NavigateToPose_GetResult_Response | None = None
     result: NavigateToPose.Result | None = None
     result_event = threading.Event()
@@ -190,70 +188,3 @@ def shutdown_nav_interface():
 
     is_init = False
     logger.info("Navigation interface shut down")
-
-
-def change_orientation(start_pose: PoseStamped) -> PoseStamped:
-    """
-    Rotate a pose by 180 degrees around the z-axis using quaternion multiplication.
-
-    This is a pure mathematical function that does not require Nav2 initialization.
-    It works in unknown environments without a loaded world model.
-
-    :param start_pose: The pose to rotate around (geometry_msgs.msg.PoseStamped).
-    :return: A new pose with the same position but rotated 180 degrees.
-    """
-    quat_orientation = (
-        start_pose.pose.orientation.x,
-        start_pose.pose.orientation.y,
-        start_pose.pose.orientation.z,
-        start_pose.pose.orientation.w,
-    )
-
-    # 180-degree rotation around z-axis
-    quat_add = quaternion_from_euler(0.0, 0.0, np.pi)
-    q_new = quaternion_multiply(quat_orientation, quat_add)
-
-    new_pose = PoseStamped()
-    new_pose.header.frame_id = "map"
-    new_pose.pose.position = start_pose.pose.position
-    new_pose.pose.orientation.x = q_new[0]
-    new_pose.pose.orientation.y = q_new[1]
-    new_pose.pose.orientation.z = q_new[2]
-    new_pose.pose.orientation.w = q_new[3]
-
-    logger.info(
-        f"Rotated pose 180 degrees: original quat={quat_orientation}, new quat={tuple(q_new)}"
-    )
-    return new_pose
-
-
-def buffer_in_front_of(target_pose: PoseStamped, min_distance: float) -> PoseStamped:
-    from pycram.tf_transformations import quaternion_matrix
-
-    quat = [
-        target_pose.pose.orientation.x,
-        target_pose.pose.orientation.y,
-        target_pose.pose.orientation.z,
-        target_pose.pose.orientation.w,
-    ]
-
-    rot_matrix = quaternion_matrix(quat)
-    forward_vector = rot_matrix[:3, 0]
-
-    stand_x = target_pose.pose.position.x - min_distance * forward_vector[0]
-    stand_y = target_pose.pose.position.y - min_distance * forward_vector[1]
-
-    standoff = PoseStamped()
-    standoff.header.frame_id = "map"
-    standoff.pose.position.x = float(stand_x)
-    standoff.pose.position.y = float(stand_y)
-    standoff.pose.position.z = 0.0
-    standoff.pose.orientation = target_pose.pose.orientation
-
-    logger.info(
-        f"buffer_in_front_of: target at "
-        f"({target_pose.pose.position.x:.2f}, {target_pose.pose.position.y:.2f}), "
-        f"standoff at ({stand_x:.2f}, {stand_y:.2f}), distance={min_distance:.2f}m"
-    )
-
-    return standoff

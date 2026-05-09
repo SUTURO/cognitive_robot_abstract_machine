@@ -18,7 +18,8 @@ from semantic_digital_twin.reasoning.predicates import (
     is_body_in_region,
     occluding_bodies,
     is_supported_by,
-    reachable, is_supporting,
+    reachable,
+    is_supporting,
 )
 from semantic_digital_twin.reasoning.robot_predicates import (
     robot_in_collision,
@@ -177,7 +178,7 @@ def test_get_visible_objects(pr2_world_copy: World):
 
 def test_occluding_bodies(pr2_world_state_reset: World):
     world = deepcopy(pr2_world_state_reset)
-    pr2 = PR2.from_world(world)
+    PR2.from_world(world)
     world.get_body_by_name("base_footprint").parent_connection.origin = (
         HomogeneousTransformationMatrix.from_xyz_rpy(0, 0, 0)
     )
@@ -307,7 +308,7 @@ def test_is_body_in_gripper(pr2_world_copy):
         if LeftOf(
             gripper[0].root.center_of_mass,
             gripper[1].root.center_of_mass,
-            pr2.root.global_pose,
+            pr2.root.global_transform,
         )()
         else gripper[1]
     )

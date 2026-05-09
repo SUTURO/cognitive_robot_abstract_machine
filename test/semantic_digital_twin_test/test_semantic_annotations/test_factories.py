@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from krrood.adapters.json_serializer import to_json
-from krrood.ormatic.dao import to_dao
+from krrood.ormatic.data_access_objects.helper import to_dao
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     InvalidPlaneDimensions,
@@ -39,6 +39,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cabinet,
     Milk,
     Cereal,
+    DiningTable,
+    Leg,
+    Sofa,
 )
 from semantic_digital_twin.spatial_types import (
     Vector3,
@@ -441,7 +444,8 @@ class TestFactories(unittest.TestCase):
         # handle is at y=0.4, door width is 1.0. Hinge should be at opposite side: y=-0.5
         world_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
         expected_T_hinge = (
-            door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(y=-0.5)
+            door.root.global_transform
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(y=-0.5)
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
 
@@ -457,7 +461,8 @@ class TestFactories(unittest.TestCase):
 
         world_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Z())
         expected_T_hinge = (
-            door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(y=0.5)
+            door.root.global_transform
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(y=0.5)
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
 
@@ -478,7 +483,8 @@ class TestFactories(unittest.TestCase):
         # handle z=0. Hinge should be at z=1.0 (opposite of default sign 1 if z=0)
         world_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Y())
         expected_T_hinge = (
-            door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(z=1.0)
+            door.root.global_transform
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(z=1.0)
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
 
@@ -500,7 +506,8 @@ class TestFactories(unittest.TestCase):
         )
         world_T_hinge = door.calculate_world_T_hinge_based_on_handle(Vector3.Y())
         expected_T_hinge = (
-            door.root.global_pose @ HomogeneousTransformationMatrix.from_xyz_rpy(z=-1.0)
+            door.root.global_transform
+            @ HomogeneousTransformationMatrix.from_xyz_rpy(z=-1.0)
         )
         self.assertTrue(np.allclose(world_T_hinge.to_np(), expected_T_hinge.to_np()))
 
@@ -560,11 +567,11 @@ class TestFactories(unittest.TestCase):
 
         _, max_point = table.min_max_points
         # supporting surface should be at the height of the table's global z + the max z of the table's bounding box (since the table's origin is at its center)
-        expected_z = table.root.global_pose.z + max_point.z
+        expected_z = table.root.global_transform.z + max_point.z
 
         self.assertIsNotNone(surface)
         self.assertEqual(surface, table.supporting_surface)
-        self.assertEqual(expected_z, surface.global_pose.z)
+        self.assertEqual(expected_z, surface.global_transform.z)
 
     def test_sample_points_from_surface(self):
         world = World()
@@ -651,7 +658,7 @@ class TestFactories(unittest.TestCase):
             conditional, _ = sampler.conditional({object_variable: object})
             expectation = conditional.expectation([x_variable, y_variable])
             surface_T_object = world.transform(
-                object.global_pose, table.supporting_surface
+                object.global_transform, table.supporting_surface
             )
             assert expectation[x_variable] == surface_T_object.x
             assert expectation[y_variable] == surface_T_object.y
@@ -686,10 +693,10 @@ class TestFactories(unittest.TestCase):
         surface_event: Event = table._2d_surface_sample_space_excluding_objects(0)
 
         surface_P_milk = world.transform(
-            milk.root.global_pose, table.supporting_surface
+            milk.root.global_transform, table.supporting_surface
         ).to_position()
         surface_P_cereal = world.transform(
-            cereal.root.global_pose, table.supporting_surface
+            cereal.root.global_transform, table.supporting_surface
         ).to_position()
 
         assert not surface_event.contains(surface_P_milk[:2])
@@ -765,6 +772,84 @@ class TestFactories(unittest.TestCase):
         self.assertEqual(len(world.get_semantic_annotations_by_type(Floor)), 1)
         self.assertTrue(len(floor.root.collision) > 0)
 
+    def test_dining_table_factory(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+
+        # Dimensions
+        table_len = 1.6
+        table_width = 0.9
+        table_height = 0.75
+        plate_thickness = 0.05
+        leg_width = 0.05
+        leg_height = table_height - plate_thickness
+
+        with world.modify_world():
+            # 1. Create Table Top (Minimal version)
+            table = DiningTable.create_with_new_body_in_world(
+                name=PrefixedName("dining_table"),
+                world=world,
+                scale=Scale(table_len, table_width, plate_thickness),
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(z=table_height - plate_thickness / 2)
+            )
+
+            world.update_forward_kinematics()
+
+            # 2. Create and add legs manually
+            offsets = [
+                (table_len / 2 - leg_width / 2, table_width / 2 - leg_width / 2),
+                (table_len / 2 - leg_width / 2, -table_width / 2 + leg_width / 2),
+                (-table_len / 2 + leg_width / 2, table_width / 2 - leg_width / 2),
+                (-table_len / 2 + leg_width / 2, -table_width / 2 + leg_width / 2)
+            ]
+
+            for i, (x, y) in enumerate(offsets):
+                leg_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=table.root.global_pose.x + x,
+                    y=table.root.global_pose.y + y,
+                    z=leg_height / 2
+                )
+                leg = Leg.create_with_new_body_in_world(
+                    name=PrefixedName(f"leg_{i}"),
+                    world=world,
+                    scale=Scale(leg_width, leg_width, leg_height),
+                    world_root_T_self=leg_pose
+                )
+                table.add_leg(leg)
+
+        # Check if table exists and has legs
+        self.assertIsNotNone(table)
+        self.assertEqual(len(table.legs), 4)
+
+        # Check connections of legs
+        for leg in table.legs:
+            self.assertEqual(leg.root.parent_kinematic_structure_entity, table.root)
+            self.assertIsInstance(leg.root.parent_connection, FixedConnection)
+
+        # Check if supporting surface can be calculated
+        with world.modify_world():
+            table.calculate_supporting_surface()
+        self.assertIsNotNone(table.supporting_surface)
+
+    def test_sofa_factory(self):
+        world = World()
+        root = Body(name=PrefixedName("root"))
+        with world.modify_world():
+            world.add_body(root)
+        with world.modify_world():
+            sofa = Sofa.create_with_new_body_in_world(
+                name=PrefixedName("sofa"), world=world, scale=Scale(0.9, 2.0, 0.85)
+            )
+
+        self.assertIsNotNone(sofa)
+        # Check if supporting surface was calculated automatically
+        self.assertIsNotNone(sofa.supporting_surface)
+        # Check connections: Sofa (root) should be parent to SupportingSurface (Total 1)
+        children = [c.child for c in world.connections if c.parent == sofa.root]
+        self.assertEqual(len(children), 1)
+
     def test_wall_doors(self):
         world = World()
         root = Body(name=PrefixedName("root"))
@@ -825,10 +910,10 @@ class TestFactories(unittest.TestCase):
         with world.modify_world():
             world.add_semantic_annotation(slider)
 
-        parent_T_self = root.global_pose.inverse() @ slider.root.global_pose
+        parent_T_self = root.global_transform.inverse() @ slider.root.global_transform
         self.assertAlmostEqual(parent_T_self[0, 3], 2.0)
 
-        self_T_child = slider.root.global_pose.inverse() @ root.global_pose
+        self_T_child = slider.root.global_transform.inverse() @ root.global_transform
         self.assertAlmostEqual(self_T_child[0, 3], -2.0)
 
         self.assertEqual(slider.get_new_grandparent(mid), root)

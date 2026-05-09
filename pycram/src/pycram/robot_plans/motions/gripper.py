@@ -1,17 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, List
 
-from giskardpy.motion_statechart.goals.pick_up import OpenHand, CloseHand
-from giskardpy.motion_statechart.goals.place import Place, Retracting
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
     CartesianPosition,
 )
-from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
+from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from semantic_digital_twin.datastructures.definitions import GripperState
-from semantic_digital_twin.robots.abstract_robot import Manipulator
-from semantic_digital_twin.spatial_types import Point3, HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.world_entity import Body
 from pycram.robot_plans.motions.base import BaseMotion
 from pycram.datastructures.enums import (
@@ -20,7 +17,6 @@ from pycram.datastructures.enums import (
     WaypointsMovementType,
 )
 from pycram.datastructures.grasp import GraspDescription
-from pycram.datastructures.pose import PoseStamped
 from pycram.view_manager import ViewManager
 from pycram.utils import translate_pose_along_local_axis
 
@@ -50,7 +46,7 @@ class ReachMotion(BaseMotion):
     Reverses the sequence of poses, i.e., moves away from the object instead of towards it. Used for placing objects.
     """
 
-    def _calculate_pose_sequence(self) -> List[PoseStamped]:
+    def _calculate_pose_sequence(self) -> List[Pose]:
         end_effector = ViewManager.get_end_effector_view(self.arm, self.robot_view)
 
         target_pose = GraspDescription.get_grasp_pose(
@@ -68,9 +64,7 @@ class ReachMotion(BaseMotion):
             -0.05,  # TODO: Maybe put these values in the semantic annotates
         )
 
-        pose = PoseStamped.from_spatial_type(
-            self.world.transform(target_pre_pose.to_spatial_type(), self.world.root)
-        )
+        pose = self.world.transform(target_pre_pose, self.world.root)
 
         sequence = [target_pre_pose, pose]
         return sequence.reverse() if self.reverse_pose_sequence else sequence
@@ -85,7 +79,7 @@ class ReachMotion(BaseMotion):
             CartesianPose(
                 root_link=self.robot_view.root,
                 tip_link=tip,
-                goal_pose=pose.to_spatial_type(),
+                goal_pose=pose,
                 threshold=0.005,
                 name="Reach",
             )
@@ -118,7 +112,7 @@ class MoveGripperMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        arm = ViewManager().get_end_effector_view(self.gripper, self.robot_view)
+        arm = ViewManager().get_end_effector_view(self.gripper, self.robot)
 
         return JointPositionList(
             goal_state=arm.get_joint_state_by_type(self.motion),
@@ -129,12 +123,12 @@ class MoveGripperMotion(BaseMotion):
 
 
 @dataclass
-class MoveTCPMotion(BaseMotion):
+class MoveToolCenterPointMotion(BaseMotion):
     """
     Moves the Tool center point (TCP) of the robot
     """
 
-    target: PoseStamped
+    target: Pose
     """
     Target pose to which the TCP should be moved
     """
@@ -156,25 +150,21 @@ class MoveTCPMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot_view).tool_frame
-        root = (
-            self.world.root
-            if self.robot_view.full_body_controlled
-            else self.robot_view.root
-        )
+        tip = ViewManager().get_end_effector_view(self.arm, self.robot).tool_frame
+        root = self.world.root if self.robot.full_body_controlled else self.robot.root
         task = None
         if self.movement_type == MovementType.TRANSLATION:
             task = CartesianPosition(
                 root_link=root,
                 tip_link=tip,
-                goal_point=self.target.to_spatial_type().to_position(),
+                goal_point=self.target.to_position(),
                 name="MoveTCP",
             )
         else:
             task = CartesianPose(
                 root_link=root,
                 tip_link=tip,
-                goal_pose=self.target.to_spatial_type(),
+                goal_pose=self.target,
                 name="MoveTCP",
             )
         return task
@@ -186,7 +176,7 @@ class MoveTCPWaypointsMotion(BaseMotion):
     Moves the Tool center point (TCP) of the robot
     """
 
-    waypoints: List[PoseStamped]
+    waypoints: List[Pose]
     """
     Waypoints the TCP should move along 
     """
@@ -210,122 +200,15 @@ class MoveTCPWaypointsMotion(BaseMotion):
 
     @property
     def _motion_chart(self):
-        tip = ViewManager().get_end_effector_view(self.arm, self.robot_view).tool_frame
-        root = (
-            self.world.root
-            if self.robot_view.full_body_controlled
-            else self.robot_view.root
-        )
+        tip = ViewManager().get_end_effector_view(self.arm, self.robot).tool_frame
+        root = self.world.root if self.robot.full_body_controlled else self.robot.root
         nodes = [
             CartesianPose(
                 root_link=root,
                 tip_link=tip,
-                goal_pose=pose.to_spatial_type(),
+                goal_pose=pose,
                 # threshold=0.005,
             )
             for pose in self.waypoints
         ]
         return Sequence(nodes=nodes)
-
-
-@dataclass
-class PlaceMotion(BaseMotion):
-    """
-    Motion for placing an object, i.e., moving the gripper to a certain pose
-    It creates a _motion_chart that is used by the motion framework
-    It directly calls the implemented PickUp of Giskard.
-    """
-
-    gripper: Manipulator = field(kw_only=True)
-    """
-    Name of the gripper that should be moved
-    """
-
-    object_designator: Body = field(kw_only=True)
-    """
-    Object designator_description describing the object that should be placed
-    """
-    goal_pose: HomogeneousTransformationMatrix | Point3 = field(kw_only=True)
-    """
-    The goal_pose at which the object should be placed
-    """
-
-    simulated: bool = field(default=True, kw_only=True)
-    """
-    Parsing simulation argument
-    """
-
-    allow_gripper_collision: Optional[bool] = None
-    """
-    If the gripper is allowed to collide with something
-    """
-
-    def perform(self):
-        return
-
-    @property
-    def _motion_chart(self):
-        goal_pose = self.goal_pose
-
-        return Place(
-            manipulator=self.gripper,
-            object_geometry=self.object_designator,
-            goal=goal_pose,
-            simulated=self.simulated,
-        )
-
-
-@dataclass
-class RetractMotion(BaseMotion):
-    """
-    Motion for placing an object, i.e., moving the gripper to a certain pose
-    It creates a _motion_chart that is used by the motion framework
-    It directly calls the implemented PickUp of Giskard.
-    """
-
-    gripper: Manipulator = field(kw_only=True)
-    """
-    Name of the gripper that should be moved
-    """
-    simulated: bool = field(default=True, kw_only=True)
-    """
-    Parsing simulation argument
-    """
-
-    def perform(self):
-        return
-
-    @property
-    def _motion_chart(self):
-        return Retracting(
-            manipulator=self.gripper,
-        )
-
-
-# TODO currently still missing the class that just sits within the Pickup of Giskard
-@dataclass
-class GiskardMoveGripperMotion(BaseMotion):
-    """
-    Opens or closes the gripper
-    """
-
-    motion: GripperState
-    """
-    Motion that should be performed, either 'open' or 'close'
-    """
-    simulated: bool = True
-    """
-    Parsing simulation argument
-    """
-
-    def perform(self):
-        return
-
-    @property
-    def _motion_chart(self):
-        if self.motion == GripperState.OPEN:
-            return OpenHand(simulated_execution=self.simulated)
-        if self.motion == GripperState.CLOSE:
-            return CloseHand(simulated_execution=self.simulated)
-        else:
-            raise ValueError(f"Unknown motion {self.motion}")

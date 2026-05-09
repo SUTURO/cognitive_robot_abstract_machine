@@ -7,7 +7,7 @@ from typing import Iterable, Optional, Self, Tuple
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
-
+from semantic_digital_twin.world_description.geometry import Color
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from semantic_digital_twin.semantic_annotations.mixins import (
@@ -17,6 +17,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasDoors,
     HasShelfLayers,
     HasHandle,
+    HasLegs,
     HasCaseAsRootBody,
     HasHinge,
     HasSlider,
@@ -47,7 +48,14 @@ from semantic_digital_twin.world_description.connections import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh
+from semantic_digital_twin.world_description.geometry import Scale, TriangleMesh, Mesh, Color
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+    ShapeCollection,
+)
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedomLimits,
+)
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
     ShapeCollection,
@@ -124,7 +132,7 @@ class Handle(HasRootBody):
 
         z_interval = closed(-scale.z / 2, scale.z / 2)
 
-        return SimpleEvent(
+        return SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: x_interval,
                 SpatialVariables.y.value: y_interval,
@@ -262,7 +270,7 @@ class Door(HasHandle, HasHinge):
         )
         entry_way_region = Region(
             name=entry_way_region_name,
-            area=ShapeCollection([TriangleMesh(mesh=door_body.combined_mesh)]),
+            area=ShapeCollection([Mesh.from_trimesh(mesh=door_body.combined_mesh)]),
         )
         entry_way = EntryWay(name=entry_way_name, root=entry_way_region)
         world.add_region(entry_way.root)
@@ -289,7 +297,7 @@ class Door(HasHandle, HasHinge):
         connection = self.handle.root.parent_connection
         door_P_handle = connection.origin_expression.to_position()
         scale = self.root.collision.scale
-        world_T_door = self.root.global_pose
+        world_T_door = self.root.global_transform
 
         match opening_axis.to_np().tolist():
             case [0, 1, 0, 0]:
@@ -345,9 +353,9 @@ class DoubleDoor(SemanticAnnotation):
 
         :return: A tuple containing the left and right door. the first door is the left door, the second door is the right door.
         """
-        world_T_door_0 = self.door_0.root.global_pose
+        world_T_door_0 = self.door_0.root.global_transform
         view_point_T_door_0 = world_T_view_point.inverse() @ world_T_door_0
-        world_T_door_1 = self.door_1.root.global_pose
+        world_T_door_1 = self.door_1.root.global_transform
         view_point_T_door_1 = world_T_view_point.inverse() @ world_T_door_1
         if view_point_T_door_0.y > view_point_T_door_1.y:
             return self.door_0, self.door_1
@@ -372,9 +380,8 @@ class ShelfLayer(HasSupportingSurface):
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """
 
-
 @dataclass(eq=False)
-class Table(Furniture, HasSupportingSurface):
+class Table(Furniture, HasSupportingSurface, HasLegs):
     """
     A semantic annotation that represents a table.
     """
@@ -415,6 +422,7 @@ class Sink(HasRootBody):
     """
     A bowl-shaped plumbing fixture used for washing hands, dishware, and other small objects.
     """
+
 
 
 @dataclass(eq=False)
@@ -549,7 +557,7 @@ class Wall(HasApertures):
         y_interval = closed(-scale.y / 2, scale.y / 2)
         z_interval = closed(0, scale.z)
 
-        return SimpleEvent(
+        return SimpleEvent.from_data(
             {
                 SpatialVariables.x.value: x_interval,
                 SpatialVariables.y.value: y_interval,
@@ -818,6 +826,12 @@ class Banana(Fruit):
     A banana.
     """
 
+@dataclass(eq=False)
+class Leg(HasRootBody):
+    """
+    A semantic annotation representing a leg of a furniture item.
+    """
+    pass
 
 @dataclass(eq=False)
 class CoffeeTable(Table):
@@ -895,6 +909,79 @@ class Sofa(Furniture, HasSupportingSurface):
     A sofa.
     """
 
+    @classmethod
+    def create_with_new_body_in_world(
+        cls,
+        name: PrefixedName,
+        world: World,
+        world_root_T_self: Optional[HomogeneousTransformationMatrix] = None,
+        connection_limits: Optional[DegreeOfFreedomLimits] = None,
+        active_axis: Optional[Vector3] = None,
+        connection_multiplier: float = 1.0,
+        connection_offset: float = 0.0,
+        scale: Scale = Scale(0.9, 2.0, 0.85),  # Default: x=depth, y=width, z=height
+        *,
+        color: Color = Color(0.5, 0.5, 0.5),  # Grey default
+        **kwargs,
+    ) -> Self:
+        """
+        Creates a sofa as a single body by subtracting the sitting area from the outer bounding box.
+        """
+        # Dimensions based on scale: x=depth, y=width, z=height
+        seat_height = scale.z * 0.45
+        backrest_depth = scale.x * 0.20
+        armrest_width = scale.y * 0.10
+
+        # 1. Create the outer bounding box event
+        outer_event = scale.to_simple_event()
+
+        # 2. Create the cutout event (the empty space where you sit)
+        # We extend the cutout slightly in the "open" directions (Top and Front)
+        # to ensure the subtraction cleanly breaks the surface.
+        # X (Depth): Opening at -X (front), backrest at +X
+        # Y (Width): Between armrests
+        # Z (Height): Above the seat
+        cutout_event = SimpleEvent.from_data(
+            {
+                SpatialVariables.x.value: closed(
+                    -scale.x / 2 - 0.001, scale.x / 2 - backrest_depth
+                ),
+                SpatialVariables.y.value: closed(
+                    -scale.y / 2 + armrest_width, scale.y / 2 - armrest_width
+                ),
+                SpatialVariables.z.value: closed(
+                    -scale.z / 2 + seat_height, scale.z / 2 + 0.001
+                ),
+            }
+        )
+
+        # 3. Subtract cutout from outer box
+        sofa_event = outer_event.as_composite_set() - cutout_event.as_composite_set()
+
+        sofa_body = Body(name=name)
+        shapes = BoundingBoxCollection.from_event(sofa_body, sofa_event).as_shapes()
+
+        # Apply color to the generated shapes
+        for shape in shapes:
+            shape.color = color
+
+        sofa_body.collision = shapes
+        sofa_body.visual = shapes
+
+        sofa = cls._create_with_connection_in_world(
+            name=name,
+            world=world,
+            kinematic_structure_entity=sofa_body,
+            world_root_T_self=world_root_T_self,
+            connection_limits=connection_limits,
+            active_axis=active_axis,
+            connection_multiplier=connection_multiplier,
+            connection_offset=connection_offset,
+        )
+
+        world.update_forward_kinematics()
+        sofa.calculate_supporting_surface()
+        return sofa
 
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
