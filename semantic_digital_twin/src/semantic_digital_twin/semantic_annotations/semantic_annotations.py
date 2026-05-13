@@ -367,6 +367,10 @@ class DoubleDoor(SemanticAnnotation):
 class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace):
 
     @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return PrismaticConnection
+
+    @classproperty
     def hole_direction(self) -> Vector3:
         return Vector3.Z()
 
@@ -883,7 +887,10 @@ class Armchair(Chair):
 
 
 @dataclass(eq=False)
-class TrashCan(HasRootBody, Furniture):
+class TrashCan(Furniture, HasCaseAsRootBody):
+    @classproperty
+    def hole_direction(self) -> Vector3:
+        return Vector3.Z()
     """
     Abstract class for Trash Can.
     """
