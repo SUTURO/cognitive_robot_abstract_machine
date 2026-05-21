@@ -755,6 +755,19 @@ class HasDrawersDAO_drawers_association(Base, AssociationDataAccessObject):
     )
 
 
+class HasLegsDAO_legs_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_93184027564042720508623552238029976658215971953774990349182199"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_haslegsdao_id: Mapped[int] = mapped_column(
+        ForeignKey("HasLegsDAO.database_id")
+    )
+    target_legdao_id: Mapped[int] = mapped_column(ForeignKey("LegDAO.database_id"))
+
+    target: Mapped[LegDAO] = relationship("LegDAO", foreign_keys=[target_legdao_id])
+
+
 class HasAperturesDAO_apertures_association(Base, AssociationDataAccessObject):
 
     __tablename__ = "_20807349603043271587286625033281799047722033893758740561822060"
@@ -1003,6 +1016,17 @@ class SofaDAO_objects_association(Base, AssociationDataAccessObject):
     target: Mapped[HasRootBodyDAO] = relationship(
         "HasRootBodyDAO", foreign_keys=[target_hasrootbodydao_id]
     )
+
+
+class TableDAO_legs_association(Base, AssociationDataAccessObject):
+
+    __tablename__ = "_71256982599188676809632984764672354445519855604058752071019270"
+
+    database_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_tabledao_id: Mapped[int] = mapped_column(ForeignKey("TableDAO.database_id"))
+    target_legdao_id: Mapped[int] = mapped_column(ForeignKey("LegDAO.database_id"))
+
+    target: Mapped[LegDAO] = relationship("LegDAO", foreign_keys=[target_legdao_id])
 
 
 class TableDAO_objects_association(Base, AssociationDataAccessObject):
@@ -6575,113 +6599,6 @@ class DoubleDoorDAO(
     }
 
 
-class DrinkDAO(
-    SemanticAnnotationDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Drink
-    ],
-):
-
-    __tablename__ = "DrinkDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(SemanticAnnotationDAO.database_id),
-        primary_key=True,
-        use_existing_column=True,
-    )
-
-    body_id: Mapped[int] = mapped_column(
-        ForeignKey("BodyDAO.database_id", use_alter=True),
-        nullable=True,
-        use_existing_column=True,
-    )
-
-    body: Mapped[BodyDAO] = relationship(
-        "BodyDAO", uselist=False, foreign_keys=[body_id], post_update=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "DrinkDAO",
-        "inherit_condition": database_id == SemanticAnnotationDAO.database_id,
-    }
-
-
-class BeerDAO(
-    DrinkDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Beer
-    ],
-):
-
-    __tablename__ = "BeerDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "BeerDAO",
-        "inherit_condition": database_id == DrinkDAO.database_id,
-    }
-
-
-class ColaDAO(
-    DrinkDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Cola
-    ],
-):
-
-    __tablename__ = "ColaDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ColaDAO",
-        "inherit_condition": database_id == DrinkDAO.database_id,
-    }
-
-
-class FantaDAO(
-    DrinkDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Fanta
-    ],
-):
-
-    __tablename__ = "FantaDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "FantaDAO",
-        "inherit_condition": database_id == DrinkDAO.database_id,
-    }
-
-
-class WaterDAO(
-    DrinkDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Water
-    ],
-):
-
-    __tablename__ = "WaterDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "WaterDAO",
-        "inherit_condition": database_id == DrinkDAO.database_id,
-    }
-
-
 class FurnitureDAO(
     SemanticAnnotationDAO,
     DataAccessObject[
@@ -6881,6 +6798,33 @@ class HasDrawersDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HasDrawersDAO",
+        "inherit_condition": database_id
+        == HasRootKinematicStructureEntityDAO.database_id,
+    }
+
+
+class HasLegsDAO(
+    HasRootKinematicStructureEntityDAO,
+    DataAccessObject[semantic_digital_twin.semantic_annotations.mixins.HasLegs],
+):
+
+    __tablename__ = "HasLegsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootKinematicStructureEntityDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    legs: Mapped[builtins.list[HasLegsDAO_legs_association]] = relationship(
+        "HasLegsDAO_legs_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[HasLegsDAO_legs_association.source_haslegsdao_id]",
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "HasLegsDAO",
         "inherit_condition": database_id
         == HasRootKinematicStructureEntityDAO.database_id,
     }
@@ -7303,6 +7247,172 @@ class PosterDAO(
     }
 
 
+class DrinkDAO(
+    HasRootBodyDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Drink
+    ],
+):
+
+    __tablename__ = "DrinkDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootBodyDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "DrinkDAO",
+        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+    }
+
+
+class BeerDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Beer
+    ],
+):
+
+    __tablename__ = "BeerDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "BeerDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class ColaDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Cola
+    ],
+):
+
+    __tablename__ = "ColaDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ColaDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class FantaDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Fanta
+    ],
+):
+
+    __tablename__ = "FantaDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "FantaDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class IcedTeaDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.IcedTea
+    ],
+):
+
+    __tablename__ = "IcedTeaDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "IcedTeaDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class JuiceDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Juice
+    ],
+):
+
+    __tablename__ = "JuiceDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "JuiceDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class LemonadeDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Lemonade
+    ],
+):
+
+    __tablename__ = "LemonadeDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "LemonadeDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
+class WaterDAO(
+    DrinkDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Water
+    ],
+):
+
+    __tablename__ = "WaterDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(DrinkDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "WaterDAO",
+        "inherit_condition": database_id == DrinkDAO.database_id,
+    }
+
+
 class DrinkingContainerDAO(
     HasRootBodyDAO,
     DataAccessObject[
@@ -7496,29 +7606,6 @@ class CheezeItDAO(
     }
 
 
-class ChipsDAO(
-    FoodDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Chips
-    ],
-):
-
-    __tablename__ = "ChipsDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FoodDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "ChipsDAO",
-        "inherit_condition": database_id == FoodDAO.database_id,
-    }
-
-
 class CrispbreadDAO(
     FoodDAO,
     DataAccessObject[
@@ -7653,52 +7740,6 @@ class HoneyWafersDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HoneyWafersDAO",
-        "inherit_condition": database_id == FoodDAO.database_id,
-    }
-
-
-class IcedTeaDAO(
-    FoodDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.IcedTea
-    ],
-):
-
-    __tablename__ = "IcedTeaDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FoodDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "IcedTeaDAO",
-        "inherit_condition": database_id == FoodDAO.database_id,
-    }
-
-
-class JuiceDAO(
-    FoodDAO,
-    DataAccessObject[
-        semantic_digital_twin.semantic_annotations.semantic_annotations.Juice
-    ],
-):
-
-    __tablename__ = "JuiceDAO"
-
-    database_id: Mapped[builtins.int] = mapped_column(
-        ForeignKey(FoodDAO.database_id), primary_key=True, use_existing_column=True
-    )
-
-    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
-        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
-    )
-
-    __mapper_args__ = {
-        "polymorphic_identity": "JuiceDAO",
         "inherit_condition": database_id == FoodDAO.database_id,
     }
 
@@ -8422,6 +8463,94 @@ class SauceDAO(
     }
 
 
+class SnackDAO(
+    FoodDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Snack
+    ],
+):
+
+    __tablename__ = "SnackDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(FoodDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SnackDAO",
+        "inherit_condition": database_id == FoodDAO.database_id,
+    }
+
+
+class ChipsDAO(
+    SnackDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Chips
+    ],
+):
+
+    __tablename__ = "ChipsDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SnackDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ChipsDAO",
+        "inherit_condition": database_id == SnackDAO.database_id,
+    }
+
+
+class ChocolateWafflesDAO(
+    SnackDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.ChocolateWaffles
+    ],
+):
+
+    __tablename__ = "ChocolateWafflesDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SnackDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "ChocolateWafflesDAO",
+        "inherit_condition": database_id == SnackDAO.database_id,
+    }
+
+
+class CornyDAO(
+    SnackDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Corny
+    ],
+):
+
+    __tablename__ = "CornyDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(SnackDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "CornyDAO",
+        "inherit_condition": database_id == SnackDAO.database_id,
+    }
+
+
 class SodaDAO(
     FoodDAO,
     DataAccessObject[
@@ -8556,6 +8685,29 @@ class SugarDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "SugarDAO",
+        "inherit_condition": database_id == FoodDAO.database_id,
+    }
+
+
+class TomatoSauceDAO(
+    FoodDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.TomatoSauce
+    ],
+):
+
+    __tablename__ = "TomatoSauceDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(FoodDAO.database_id), primary_key=True, use_existing_column=True
+    )
+
+    class_label: Mapped[typing.Optional[builtins.str]] = mapped_column(
+        sqlalchemy.sql.sqltypes.Text, use_existing_column=True
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "TomatoSauceDAO",
         "inherit_condition": database_id == FoodDAO.database_id,
     }
 
@@ -9383,6 +9535,12 @@ class TableDAO(
     root: Mapped[BodyDAO] = relationship(
         "BodyDAO", uselist=False, foreign_keys=[root_id], post_update=True
     )
+    legs: Mapped[builtins.list[TableDAO_legs_association]] = relationship(
+        "TableDAO_legs_association",
+        collection_class=builtins.list,
+        cascade="all, delete-orphan",
+        foreign_keys="[TableDAO_legs_association.source_tabledao_id]",
+    )
     objects: Mapped[builtins.list[TableDAO_objects_association]] = relationship(
         "TableDAO_objects_association",
         collection_class=builtins.list,
@@ -9516,6 +9674,27 @@ class HouseplantDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "HouseplantDAO",
+        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+    }
+
+
+class LegDAO(
+    HasRootBodyDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Leg
+    ],
+):
+
+    __tablename__ = "LegDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootBodyDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "LegDAO",
         "inherit_condition": database_id == HasRootBodyDAO.database_id,
     }
 
@@ -9905,6 +10084,27 @@ class ScrewdriverDAO(
 
     __mapper_args__ = {
         "polymorphic_identity": "ScrewdriverDAO",
+        "inherit_condition": database_id == HasRootBodyDAO.database_id,
+    }
+
+
+class SinkDAO(
+    HasRootBodyDAO,
+    DataAccessObject[
+        semantic_digital_twin.semantic_annotations.semantic_annotations.Sink
+    ],
+):
+
+    __tablename__ = "SinkDAO"
+
+    database_id: Mapped[builtins.int] = mapped_column(
+        ForeignKey(HasRootBodyDAO.database_id),
+        primary_key=True,
+        use_existing_column=True,
+    )
+
+    __mapper_args__ = {
+        "polymorphic_identity": "SinkDAO",
         "inherit_condition": database_id == HasRootBodyDAO.database_id,
     }
 

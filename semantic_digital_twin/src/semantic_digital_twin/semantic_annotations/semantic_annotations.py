@@ -7,7 +7,7 @@ from typing import Iterable, Optional, Self, Tuple
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
 from typing_extensions import List, Type
-
+from semantic_digital_twin.world_description.geometry import Color
 from krrood.ormatic.utils import classproperty
 from krrood.symbolic_math import symbolic_math
 from semantic_digital_twin.semantic_annotations.mixins import (
@@ -17,6 +17,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasDoors,
     HasShelfLayers,
     HasHandle,
+    HasLegs,
     HasCaseAsRootBody,
     HasHinge,
     HasSlider,
@@ -55,7 +56,6 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
-from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.shape_collection import (
     BoundingBoxCollection,
     ShapeCollection,
@@ -367,6 +367,10 @@ class DoubleDoor(SemanticAnnotation):
 class Drawer(Furniture, HasCaseAsRootBody, HasHandle, HasSlider, HasStorageSpace):
 
     @classproperty
+    def _parent_connection_type(self) -> Type[Connection]:
+        return PrismaticConnection
+
+    @classproperty
     def hole_direction(self) -> Vector3:
         return Vector3.Z()
 
@@ -380,9 +384,8 @@ class ShelfLayer(HasSupportingSurface):
     A horizontal surface used for storing objects, typically found inside cabinets or on walls.
     """
 
-
 @dataclass(eq=False)
-class Table(Furniture, HasSupportingSurface):
+class Table(Furniture, HasSupportingSurface, HasLegs):
     """
     A semantic annotation that represents a table.
     """
@@ -416,6 +419,14 @@ class Cupboard(Cabinet, HasDoors, HasShelfLayers): ...
 
 @dataclass(eq=False)
 class Wardrobe(Cabinet, HasDrawers, HasDoors): ...
+
+
+@dataclass(eq=False)
+class Sink(HasRootBody):
+    """
+    A bowl-shaped plumbing fixture used for washing hands, dishware, and other small objects.
+    """
+
 
 
 @dataclass(eq=False)
@@ -665,6 +676,10 @@ class Food(HasRootBody): ...
 
 
 @dataclass(eq=False)
+class Snack(Food): ...
+
+
+@dataclass(eq=False)
 class TunaCan(Food):
     """
     A tuna can.
@@ -705,6 +720,10 @@ class TomatoSoup(Food):
     """
     Tomato soup.
     """
+
+
+@dataclass(eq=False)
+class TomatoSauce(Food, IsPerceivable): ...
 
 
 @dataclass(eq=False)
@@ -811,6 +830,12 @@ class Banana(Fruit):
     A banana.
     """
 
+@dataclass(eq=False)
+class Leg(HasRootBody):
+    """
+    A semantic annotation representing a leg of a furniture item.
+    """
+    pass
 
 @dataclass(eq=False)
 class CoffeeTable(Table):
@@ -862,7 +887,10 @@ class Armchair(Chair):
 
 
 @dataclass(eq=False)
-class TrashCan(HasRootBody, Furniture):
+class TrashCan(Furniture, HasCaseAsRootBody):
+    @classproperty
+    def hole_direction(self) -> Vector3:
+        return Vector3.Z()
     """
     Abstract class for Trash Can.
     """
@@ -961,7 +989,6 @@ class Sofa(Furniture, HasSupportingSurface):
         world.update_forward_kinematics()
         sofa.calculate_supporting_surface()
         return sofa
-
 
 @dataclass(eq=False)
 class Kettle(CookingContainer): ...
@@ -1107,12 +1134,12 @@ class LiquidCap(HasRootBody):
 
 
 @dataclass(eq=False)
-class Drink(SemanticAnnotation):
+class Drink(HasRootBody):
     """
     A Semantic annotation representing a drink item.
     """
 
-    body: Body = field(kw_only=True)
+    # body: Body = field(kw_only=True)
 
 
 @dataclass(eq=False)
@@ -1133,10 +1160,18 @@ class Beer(Drink): ...
 
 # Food Items (with HasRootBody)
 @dataclass(eq=False)
-class Chips(Food, IsPerceivable):
+class Chips(Snack, IsPerceivable):
     """
     A bag or can of chips.
     """
+
+
+@dataclass(eq=False)
+class ChocolateWaffles(Snack, IsPerceivable): ...
+
+
+@dataclass(eq=False)
+class Corny(Snack, IsPerceivable): ...
 
 
 @dataclass(eq=False)
@@ -1336,14 +1371,18 @@ class Hammer(HasRootBody, IsPerceivable):
 
 
 @dataclass(eq=False)
-class IcedTea(Food, IsPerceivable):
+class IcedTea(Drink, IsPerceivable):
     """
     A can or bottle of iced tea.
     """
 
 
 @dataclass(eq=False)
-class Juice(Food, IsPerceivable):
+class Lemonade(Drink, IsPerceivable): ...
+
+
+@dataclass(eq=False)
+class Juice(Drink, IsPerceivable):
     """
     A carton or bottle of juice.
     """

@@ -57,6 +57,7 @@ class SimulationPacer(Pacer):
         - If `real_time_factor` is None, return immediately (no pacing).
         - Otherwise, target interval is `control_dt / real_time_factor`.
         """
+
         if self.real_time_factor is None:
             return
         if self.real_time_factor <= 0:

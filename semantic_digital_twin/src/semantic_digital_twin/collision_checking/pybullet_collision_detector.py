@@ -295,10 +295,13 @@ class BulletCollisionDetector(CollisionDetector):
 
     def sync_world_state(self) -> None:
         if len(self._ordered_bullet_objects) > 0:
-            bullet.batch_set_transforms(
-                self._ordered_bullet_objects,
-                self.get_all_collision_fks(),
-            )
+            try:
+                bullet.batch_set_transforms(
+                    self._ordered_bullet_objects,
+                    self.get_all_collision_fks(),
+                )
+            except RuntimeError as e:
+                pass  # this happens when the world is not synchronized yet
 
     def add_body(self, body: Body):
         o = create_shape_from_body(body=body)
