@@ -74,6 +74,9 @@ from giskardpy.motion_statechart.tasks.feature_functions import (
     DistanceGoal,
     HeightGoal,
 )
+from giskardpy.motion_statechart.tasks.admittance_tasks import (
+    AdmittanceCartesianPosition,
+)
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
 from giskardpy.motion_statechart.test_nodes.test_nodes import (
@@ -87,6 +90,10 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
     TestEndBeforeStart,
     TestUnpauseUnknownFromParentPause,
 )
+from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
+    ForceTorqueSymbolNode,
+)
+from giskardpy.ros_executor import Ros2Executor
 from giskardpy.qp.constraint import EqualityConstraint
 from giskardpy.qp.constraint_collection import ConstraintCollection
 from giskardpy.qp.qp_controller_config import QPControllerConfig
@@ -98,6 +105,7 @@ from krrood.symbolic_math.symbolic_math import (
     FloatVariable,
     shortest_angular_distance,
 )
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import VizMarkerPublisher
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -130,6 +138,7 @@ from semantic_digital_twin.world_description.connections import (
     ActiveConnection1DOF,
     FixedConnection,
     OmniDrive,
+    PrismaticConnection,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedom,
@@ -4497,3 +4506,275 @@ class TestLifeCycleTransitions:
         msc.plot_gantt_chart()
 
         assert len(msc.history) == 5
+
+
+# ---------------------------------------------------------------------------
+# Force/torque symbol node + admittance control
+# ---------------------------------------------------------------------------
+
+
+from geometry_msgs.msg import WrenchStamped
+
+
+def _make_wrench(force_xyz=(0.0, 0.0, 0.0), torque_xyz=(0.0, 0.0, 0.0)) -> WrenchStamped:
+    msg = WrenchStamped()
+    msg.wrench.force.x, msg.wrench.force.y, msg.wrench.force.z = force_xyz
+    msg.wrench.torque.x, msg.wrench.torque.y, msg.wrench.torque.z = torque_xyz
+    return msg
+
+
+def _inject_wrench(node: ForceTorqueSymbolNode, msg: WrenchStamped) -> None:
+    # Bypass the ROS subscription by setting the name-mangled latest msg directly.
+    setattr(node, "_TopicSubscriberNode__last_msg", msg)
+
+
+@pytest.fixture
+def prismatic_z_world() -> World:
+    """A two-body world with a prismatic joint along Z, velocity-limited to ±1 m/s."""
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("root"))
+        tip = Body(name=PrefixedName("tip"))
+        upper = DerivativeMap()
+        upper.velocity = 1.0
+        lower = DerivativeMap()
+        lower.velocity = -1.0
+        dof = DegreeOfFreedom(
+            name=PrefixedName("dof", "z_prismatic"),
+            limits=DegreeOfFreedomLimits(lower=lower, upper=upper),
+        )
+        world.add_degree_of_freedom(dof)
+        connection = PrismaticConnection(
+            parent=root, child=tip, axis=Vector3.Z(), dof_id=dof.id
+        )
+        world.add_connection(connection)
+    return world
+
+
+class TestForceTorqueSymbolNode:
+
+    def test_post_init_creates_force_and_torque_symbols(self, mini_world):
+        node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=mini_world.root,
+            name="ft",
+        )
+        assert isinstance(node.force, Vector3)
+        assert isinstance(node.torque, Vector3)
+        assert node.force.reference_frame is mini_world.root
+        assert node.torque.reference_frame is mini_world.root
+        assert len(node.force.free_variables()) == 3
+        assert len(node.torque.free_variables()) == 3
+
+    def test_register_and_set_value_round_trip(self, mini_world):
+        context = MotionStatechartContext(world=mini_world)
+        node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=mini_world.root,
+            name="ft",
+        )
+        context.float_variable_data.register_expression(node.force)
+        context.float_variable_data.register_expression(node.torque)
+        context.float_variable_data.set_value(node.force, [1.0, 2.0, 3.0])
+        context.float_variable_data.set_value(node.torque, [0.1, 0.2, 0.3])
+        assert node.force.x.evaluate() == pytest.approx(1.0)
+        assert node.force.y.evaluate() == pytest.approx(2.0)
+        assert node.force.z.evaluate() == pytest.approx(3.0)
+        assert node.torque.x.evaluate() == pytest.approx(0.1)
+        assert node.torque.y.evaluate() == pytest.approx(0.2)
+        assert node.torque.z.evaluate() == pytest.approx(0.3)
+
+    def test_on_tick_writes_wrench_into_data(self, mini_world):
+        context = MotionStatechartContext(world=mini_world)
+        node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=mini_world.root,
+            name="ft",
+        )
+        context.float_variable_data.register_expression(node.force)
+        context.float_variable_data.register_expression(node.torque)
+        _inject_wrench(
+            node, _make_wrench(force_xyz=(1.0, 2.0, 3.0), torque_xyz=(0.1, 0.2, 0.3))
+        )
+        state = node.on_tick(context)
+        assert state == ObservationStateValues.UNKNOWN
+        assert node.force.x.evaluate() == pytest.approx(1.0)
+        assert node.force.z.evaluate() == pytest.approx(3.0)
+        assert node.torque.y.evaluate() == pytest.approx(0.2)
+
+    def test_on_tick_without_message_returns_unknown(self, mini_world):
+        context = MotionStatechartContext(world=mini_world)
+        node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=mini_world.root,
+            name="ft",
+        )
+        context.float_variable_data.register_expression(node.force)
+        context.float_variable_data.register_expression(node.torque)
+        state = node.on_tick(context)
+        assert state == ObservationStateValues.UNKNOWN
+        assert np.allclose(context.float_variable_data.data, 0)
+
+
+class TestAdmittanceCartesianPosition:
+
+    def _build_task(self, world: World, **task_kwargs):
+        """Construct context, FT node and admittance task; run build()."""
+        context = MotionStatechartContext(world=world)
+        ft_node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=world.root,
+            name="ft",
+        )
+        context.float_variable_data.register_expression(ft_node.force)
+        context.float_variable_data.register_expression(ft_node.torque)
+        defaults = dict(
+            root_link=world.root,
+            tip_link=world.get_kinematic_structure_entity_by_name("tip"),
+            goal_point=Point3(0, 0, 0, reference_frame=world.root),
+            ft_node=ft_node,
+            M=Vector3(x=1.0, y=1.0, z=1.0),
+            C=Vector3(x=20.0, y=20.0, z=20.0),
+            K=Vector3(),
+        )
+        defaults.update(task_kwargs)
+        task = AdmittanceCartesianPosition(**defaults)
+        task.build(context)
+        return context, ft_node, task
+
+    def _apply_force(self, context, ft_node, force_xyz):
+        _inject_wrench(ft_node, _make_wrench(force_xyz=force_xyz))
+        ft_node.on_tick(context)
+
+    def test_build_registers_admittance_state(self, prismatic_z_world):
+        context, _, task = self._build_task(prismatic_z_world)
+        assert isinstance(task._x_admittance, Vector3)
+        assert isinstance(task._xd_admittance, Vector3)
+        assert task._xd_idx == task._x_idx + 3
+        data = context.float_variable_data.data
+        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
+        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+
+    def test_zero_force_keeps_state_at_zero(self, prismatic_z_world):
+        context, ft_node, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, ft_node, (0.0, 0.0, 0.0))
+        for _ in range(20):
+            task.on_tick(context)
+        data = context.float_variable_data.data
+        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
+        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+
+    def test_z_force_drives_z_correction(self, prismatic_z_world):
+        context, ft_node, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        for _ in range(10):
+            task.on_tick(context)
+        x_a = context.float_variable_data.data[task._x_idx : task._x_idx + 3]
+        assert x_a[0] == pytest.approx(0.0, abs=1e-9)
+        assert x_a[1] == pytest.approx(0.0, abs=1e-9)
+        assert x_a[2] > 0.01
+
+    def test_steady_state_velocity_under_damping(self, prismatic_z_world):
+        # K=0, M=1, C=20, F=10 → steady-state xd_z = F / C = 0.5 m/s.
+        context, ft_node, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        for _ in range(50):
+            task.on_tick(context)
+        xd_a = context.float_variable_data.data[task._xd_idx : task._xd_idx + 3]
+        assert xd_a[2] == pytest.approx(0.5, abs=0.05)
+
+    def test_spring_pulls_correction_back_to_zero(self, prismatic_z_world):
+        # K>0 with no force pulls a non-zero offset back to zero (damped spring).
+        context, ft_node, task = self._build_task(
+            prismatic_z_world,
+            M=Vector3(x=1.0, y=1.0, z=1.0),
+            C=Vector3(x=5.0, y=5.0, z=5.0),
+            K=Vector3(x=50.0, y=50.0, z=50.0),
+        )
+        # Inject an offset and let the spring relax.
+        context.float_variable_data.set_value(task._x_admittance, [0.0, 0.0, 0.1])
+        self._apply_force(context, ft_node, (0.0, 0.0, 0.0))
+        for _ in range(200):
+            task.on_tick(context)
+        x_a = context.float_variable_data.data[task._x_idx : task._x_idx + 3]
+        assert abs(x_a[2]) < 0.005
+
+    def test_reset_zeros_state(self, prismatic_z_world):
+        context, ft_node, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        for _ in range(5):
+            task.on_tick(context)
+        assert context.float_variable_data.data[task._x_idx + 2] != 0
+        task.on_reset(context)
+        data = context.float_variable_data.data
+        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
+        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+
+    def test_invalid_mass_raises(self, prismatic_z_world):
+        context = MotionStatechartContext(world=prismatic_z_world)
+        ft_node = ForceTorqueSymbolNode(
+            topic_name="/test/wrench",
+            reference_frame=prismatic_z_world.root,
+            name="ft",
+        )
+        context.float_variable_data.register_expression(ft_node.force)
+        context.float_variable_data.register_expression(ft_node.torque)
+        task = AdmittanceCartesianPosition(
+            root_link=prismatic_z_world.root,
+            tip_link=prismatic_z_world.get_kinematic_structure_entity_by_name("tip"),
+            goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
+            ft_node=ft_node,
+            M=Vector3(x=1.0, y=1.0, z=0.0),
+        )
+        with pytest.raises(ValueError):
+            task.build(context)
+
+    def test_full_executor_drift_in_force_direction(
+        self, prismatic_z_world, rclpy_node
+    ):
+        """End-to-end: Ros2Executor + published wrench drives tip motion."""
+        VizMarkerPublisher(_world=prismatic_z_world, node=rclpy_node).with_tf_publisher()
+        tip = prismatic_z_world.get_kinematic_structure_entity_by_name("tip")
+        topic = "/test_admittance/wrench"
+        ft_node = ForceTorqueSymbolNode(
+            topic_name=topic,
+            reference_frame=tip,
+            name="ft",
+        )
+        admittance = AdmittanceCartesianPosition(
+            root_link=prismatic_z_world.root,
+            tip_link=tip,
+            goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
+            ft_node=ft_node,
+            M=Vector3(x=1.0, y=1.0, z=1.0),
+            C=Vector3(x=20.0, y=20.0, z=20.0),
+            K=Vector3(),
+            threshold=100.0,
+        )
+        msc = MotionStatechart()
+        msc.add_node(ft_node)
+        msc.add_node(admittance)
+        # No EndMotion: we tick a fixed number of steps directly.
+
+        kin_sim = Ros2Executor(
+            context=MotionStatechartContext(world=prismatic_z_world),
+            ros_node=rclpy_node,
+        )
+        kin_sim.compile(motion_statechart=msc)
+
+        pub = rclpy_node.create_publisher(WrenchStamped, topic, 10)
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline and pub.get_subscription_count() == 0:
+            time.sleep(0.02)
+        assert pub.get_subscription_count() >= 1
+
+        msg = _make_wrench(force_xyz=(0.0, 0.0, 10.0))
+        for _ in range(60):
+            pub.publish(msg)
+            kin_sim.tick()
+            time.sleep(0.01)
+
+        tip_pose = prismatic_z_world.compute_forward_kinematics_np(
+            prismatic_z_world.root, tip
+        )
+        assert tip_pose[2, 3] > 0.01
