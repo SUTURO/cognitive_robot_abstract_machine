@@ -59,6 +59,10 @@ class TopicSubscriberNode(TopicNode[MsgType]):
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         node_artifacts = super().build(context)
+
+        if getattr(self, "_subscriber", None):
+            return node_artifacts
+
         self._subscriber = self.ros2_node.create_subscription(
             msg_type=self.msg_type,
             topic=self.topic_name,
