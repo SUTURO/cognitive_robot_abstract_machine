@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any, Optional
+from typing_extensions import Any, Optional
 
 import rclpy
 from rclpy.node import Node
@@ -104,78 +104,78 @@ class HriHuman(Human):
         )
 
 
-# there are different Rasa Models for each challenge, the Models are written behind the case, option for later: use
-# string challenge, if some intents are the same for different challenges, but should behave different in hri
-def process_response(responses: list[list[Any]], person: HriHuman):
-    """
-    Process NLP responses and update the HriHuman instance accordingly.
+    # there are different Rasa Models for each challenge, the Models are written behind the case, option for later: use
+    # string challenge, if some intents are the same for different challenges, but should behave different in hri
+    def process_response(self, responses: list[list[Any]]):
+        """
+        Process NLP responses and update the HriHuman instance accordingly.
 
-    :param responses: NLP outputs (intent + extracted entities)
-    :param person: HriHuman object to update
-    """
-    for response in responses:
-        match response[1]:  # intent
-            case "Order":  # Model: Restaurant
-                if len(response[2]) == 0:
-                    print("No roles found.")
+        :param responses: NLP outputs (intent + extracted entities)
+        :param person: HriHuman object to update
+        """
+        for response in responses:
+            match response[1]:  # intent
+                case "Order":  # Model: Restaurant
+                    if len(response[2]) == 0:
+                        print("No roles found.")
 
-                repeat = 1
-                for elem in response[2]:
-                    # elem structure:
-                    # [0] role (Food / Drink)
-                    # [1] value
-                    # [5] quantity modifier (e.g. "two", "three")
-                    if elem[0] == "Food" or elem[0] == "Drink":
-                        item = elem[1]
+                    for elem in response[2]:
+                        # elem structure:
+                        # [0] role (Food / Drink)
+                        # [1] value
+                        # [5] quantity modifier (e.g. "two", "three")
+                        if elem[0] == "Food" or elem[0] == "Drink":
+                            item = elem[1]
 
-                        # Handle quantity words
-                        if elem[5] == ["two"]:
-                            repeat = 2
-                        if elem[5] == ["three"]:
-                            repeat = 3
+                            repeat = 1
+                            # Handle quantity words
+                            if elem[5] == ["two"]:
+                                repeat = 2
+                            if elem[5] == ["three"]:
+                                repeat = 3
 
-                        # Add item(s) to the order
-                        for i in range(0, repeat):
-                            person.order["string"].append(item)  # entity value
-                            if elem[0] == "Food":
-                                person.order["food_objects"].append(get_obj(elem[1]))
-                            if elem[0] == "Drink":
-                                person.order["drink_objects"].append(get_obj(elem[1]))
+                            # Add item(s) to the order
+                            for i in range(0, repeat):
+                                self.order["string"].append(item)  # entity value
+                                if elem[0] == "Food":
+                                    self.order["food_objects"].append(get_obj(elem[1]))
+                                if elem[0] == "Drink":
+                                    self.order["drink_objects"].append(get_obj(elem[1]))
 
-            case "receptionist" | "Receptionist":  # Model: Receptionist
-                if len(response[2]) == 0:
-                    logging.warning(f"No roles found in response: {response}")
+                case "receptionist" | "Receptionist":  # Model: Receptionist
+                    if len(response[2]) == 0:
+                        logging.warning(f"No roles found in response: {response}")
 
-                # Process extracted entities
-                for elem in response[2]:
-                    match elem[0]:  # role
-                        case "Drink":
-                            # Save favourite drink as (string, semantic object)
-                            person.hri_favourite_drink = (
-                                elem[1],
-                                get_obj(elem[1]),
-                            )  # elem[1]: value
+                    # Process extracted entities
+                    for elem in response[2]:
+                        match elem[0]:  # role
+                            case "Drink":
+                                # Save favourite drink as (string, semantic object)
+                                self.hri_favourite_drink = (
+                                    elem[1],
+                                    get_obj(elem[1]),
+                                )  # elem[1]: value
 
-                        case "Food":
-                            # Save favourite food as (string, semantic object)
-                            person.favourite_food = (
-                                elem[1],
-                                get_obj(elem[1]),
-                            )  # elem[1]: value
+                            case "Food":
+                                # Save favourite food as (string, semantic object)
+                                self.favourite_food = (
+                                    elem[1],
+                                    get_obj(elem[1]),
+                                )  # elem[1]: value
 
-                        case "Person":
-                            # Assign human name with semantic prefix
-                            person.name = PrefixedName(elem[1])
+                            case "Person":
+                                # Assign human name with semantic prefix
+                                self.name = PrefixedName(elem[1])
 
-                        case "Hobby":
-                            # Save hobby
-                            person.hobby = elem[1]
+                            case "Hobby":
+                                # Save hobby
+                                self.hobby = elem[1]
 
-                        case _:
-                            logging.warning(f"Role not implemented in hri: {elem}")
+                            case _:
+                                logging.warning(f"Role not implemented in hri: {elem}")
 
-            case _:
-                logging.warning(f"Intent not implemented in hri: {response[1]}")
+                case _:
+                    logging.warning(f"Intent not implemented in hri: {response[1]}")
 
 
 class HriNlpInterface(NlpInterface):
@@ -200,7 +200,7 @@ def main():
     person = HriHuman()
 
     # Process all collected NLP outputs
-    process_response(responses=nlp.all_last_outputs, person=person)
+    person.process_response(responses=nlp.all_last_outputs)
 
     person.debug()
 
