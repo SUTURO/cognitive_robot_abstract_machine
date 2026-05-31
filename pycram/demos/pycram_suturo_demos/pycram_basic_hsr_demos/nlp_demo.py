@@ -1,10 +1,9 @@
-from typing import Any
-import rclpy
-from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
-
 """
 Start the Nlp Pipeline before executing this demo. For audio output start the TTS Node.
 """
+from typing import Any
+import rclpy
+from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
 
 class NlpInterfaceTest(NlpInterface):
 

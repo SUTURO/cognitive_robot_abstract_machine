@@ -1,11 +1,11 @@
+"""Helper functions for resolving semantic object classes from strings"""
+
+import logging
 from dataclasses import is_dataclass
 import inspect
 import sys
 
 import semantic_digital_twin.semantic_annotations.semantic_annotations as sem_annotations
-
-"""Helper functions for resolving semantic object classes from strings"""
-
 
 # Faster lookup method:
 # If the target dataclass is known to live inside a specific module
@@ -44,10 +44,8 @@ def _find_dataclass_global(class_name: str):
             for _, obj in inspect.getmembers(module, inspect.isclass):
                 if obj.__name__ == class_name and is_dataclass(obj):
                     return obj
-        except Exception:
-            # Some modules may raise exceptions when inspected;
-            # these are safely ignored.
-            pass
+        except Exception as e:
+            logging.debug(f"Failed to inspect module: {e}")
     return None
 
 
@@ -66,8 +64,9 @@ def get_object_class_from_string(string: str):
     """
 
     # Try fast, module-local lookup first
-    if _find_dataclass_by_name(sem_annotations, string.capitalize()) is not None:
-        return _find_dataclass_by_name(sem_annotations, string.capitalize())
+    lookup = _find_dataclass_by_name(sem_annotations, string.capitalize())
+    if lookup is not None:
+        return lookup
     else:
         # Fallback: search all loaded modules
         return _find_dataclass_global(string.capitalize())

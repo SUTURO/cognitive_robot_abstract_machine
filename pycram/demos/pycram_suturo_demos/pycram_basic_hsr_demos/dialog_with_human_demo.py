@@ -1,9 +1,9 @@
-from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import *
-from time import sleep
-
 """
 Start the Nlp Pipeline before executing this demo. For audio output start the TTS Node.
 """
+from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import *
+from time import sleep
+
 
 # sleep duration hardcoded and dependent on how long the tts node needs to finish se
 def main():
