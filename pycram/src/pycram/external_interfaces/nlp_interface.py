@@ -1,9 +1,8 @@
 # Standard library imports
 import json
 import logging
-import time
-from time import sleep
-from typing import Any
+from time import sleep, time
+from typing_extensions import Any
 from abc import ABC, abstractmethod
 
 # ROS2 related imports
@@ -13,8 +12,6 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from enum import Enum
 
-# quick fix for robocup
-# TODO: make better
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 
@@ -49,13 +46,13 @@ class TalkingNode(Node):
         self.get_logger().info(f"Publishing: {text}")
 
         self.talk_pub.publish(msg)
-        time.sleep(delay)
+        sleep(delay)
 
 
 
 """
 ---Roles:---
-NatrualPerson = Person,  
+NaturalPerson = Person,  
 drink = Drink, 
 food = Food, 
 Room = Location, 
@@ -86,9 +83,6 @@ class FilterOptions(Enum):
     TOPIC = "Topic"
 
 
-# TODO: replace print with talking function
-
-
 class NlpInterface(ABC):
     """
     Abstract base class defining a generic NLP interface.
@@ -103,32 +97,30 @@ class NlpInterface(ABC):
         # Initialize the ROS2 NLP node
         self.node = NlpNode()
 
-        # TODO: Another quick fix for robocup, make better
         self.tts = TalkingNode()
         self.tti = TextToImagePublisher()
 
+        self.last_output = []
         """
         stores the last NLP output
         """
-        self.last_output = []
 
+        self.all_last_outputs : list[list[Any]] = []
         """
         if multiple outputs are expected, all outputs from one input
         """
-        self.all_last_outputs : list[list[Any]] = []
 
+        self.last_confirmation = []
         """
         Stores the last confirmation result 
         (affirm / deny)
         """
-        self.last_confirmation = []
 
+        self.timeout: int = 15
         """
         Timeout (in seconds) for waiting for NLP responses, default: 15
         """
-        self.timeout: int = 15
 
-    # TODO: write functions for all challenges
     """
     List of intents and roles
         ---Intent List:---
@@ -153,7 +145,7 @@ class NlpInterface(ABC):
         order
 
         ---Roles:---
-        NatrualPerson = Person,  
+        NaturalPerson = Person,  
         drink = Drink, 
         food = Food, 
         Room = Location, 
@@ -163,7 +155,6 @@ class NlpInterface(ABC):
         Transportable = Item
     """
 
-    @abstractmethod
     def filter_response(self, response: list[Any], filter_for: FilterOptions):
         """
         Filters and post-processes the NLP response depending on the challenge.
@@ -216,7 +207,7 @@ class NlpInterface(ABC):
         Returns:
             list: Last accepted NLP output
         """
-        for tries in range(0, tries):
+        for attempt in range(tries):
             print("Say what you want me to do:")
             self.tts.pub("Say what you want me to do:", delay=6)
 
@@ -267,19 +258,19 @@ class NlpInterface(ABC):
             return False
 
 
-        def get_complete_sentence(output):
+        def _get_complete_sentence(output):
             sentence = ""
             for out in output:
                 sentence += ' ' + out[0]
             return sentence
 
         # Ask user for confirmation
-        print(f"Did I understand correctly, you said:{get_complete_sentence(self.all_last_outputs)}")
-        self.tts.pub(f"Did I understand correctly, you said:{get_complete_sentence(self.all_last_outputs)}. Say Yes you did or no you did not.", delay=17)
+        print(f"Did I understand correctly, you said:{_get_complete_sentence(self.all_last_outputs)}")
+        self.tts.pub(f"Did I understand correctly, you said:{_get_complete_sentence(self.all_last_outputs)}. Say Yes you did or no you did not.", delay=17)
         self.tti.publish_text("now")
 
         # Listen for confirmation response
-        self.last_confirmation = NlpNode.talk_nlp(self.node, timeout=self.timeout)
+        self.last_confirmation = self.node.talk_nlp(timeout=self.timeout)
 
         if self.last_confirmation is None:
             self.tts.pub("Sorry, I couldn't understand.", delay=10)
@@ -306,12 +297,11 @@ class NlpNode(Node):
     """
 
     def __init__(self):
+        # Initialize ROS2 node with name "nlp"
+        super().__init__('nlp')
 
         self.tti_nlp_node = TextToImagePublisher()
         self.tts_nlp_node = TalkingNode()
-
-        # Initialize ROS2 node with name "nlp"
-        super().__init__('nlp')
 
         # Publisher to trigger NLP listening
         self.nlp_pub = self.create_publisher(
@@ -435,10 +425,10 @@ class NlpNode(Node):
         executor = SingleThreadedExecutor()
         executor.add_node(self)
 
-        start_time = time.time()
+        start_time = time()
 
         # Wait until a response arrives or timeout is reached
-        while not self.response and (time.time() - start_time < timeout):
+        while not self.response and (time() - start_time < timeout):
             executor.spin_once(timeout_sec=0.1)
 
         all_out : list[list[Any]] = []
@@ -455,8 +445,8 @@ class NlpNode(Node):
             # sometimes multiple outputs, have to wait to ensure all of them are received
             old_res = self.response
             all_out.append(self.response)
-            second_start_time = time.time()
-            while (time.time() - second_start_time) < 2:
+            second_start_time = time()
+            while (time() - second_start_time) < 2:
                 new_res = self.response
                 if new_res != old_res:
                     res = self.response

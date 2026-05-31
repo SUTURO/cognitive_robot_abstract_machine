@@ -1,10 +1,10 @@
 from typing import Any
-
 import rclpy
-from debian.debtags import output
-
 from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
 
+"""
+Start the Nlp Pipeline before executing this demo. For audio output start the TTS Node.
+"""
 
 class NlpInterfaceTest(NlpInterface):
 
