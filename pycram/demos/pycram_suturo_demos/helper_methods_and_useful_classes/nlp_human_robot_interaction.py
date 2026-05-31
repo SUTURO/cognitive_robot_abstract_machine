@@ -75,19 +75,23 @@ class HriHuman(Human):
         self.favourite_robot = "Toya"
 
         # Tuple: (entity name as string, semantic Drink object)
-        self.hri_favourite_drink = (Optional[str], Optional[Drink])
+        self.hri_favourite_drink: tuple[Optional[str], Optional[Drink]] = (None, None)
 
         # Tuple: (entity name as string, semantic Food object)
-        self.favourite_food = (Optional[str], Optional[Food])
+        self.favourite_food:tuple[Optional[str], Optional[Drink]] = (None, None)
 
         # Order structure:
         # [0] list of raw entity strings
         # [1] list of Food objects
         # [2] list of Drink objects
-        self.order = ([Optional[str]], [Optional[Food]], [Optional[Drink]])
+        self.order = {
+            "string": [],
+            "food_objects": [],
+            "drink_objects": [],
+            }
 
         # User hobby as plain text
-        self.hobby = Optional[str]
+        self.hobby: Optional[str] = None
 
     def debug(self):
         """Print all stored HRI-relevant information for debugging."""
@@ -102,12 +106,11 @@ class HriHuman(Human):
 
 # there are different Rasa Models for each challenge, the Models are written behind the case, option for later: use
 # string challenge, if some intents are the same for different challenges, but should behave different in hri
-def process_response(responses: list[list[Any]], challenge: str, person: HriHuman):
+def process_response(responses: list[list[Any]], person: HriHuman):
     """
     Process NLP responses and update the HriHuman instance accordingly.
 
     :param responses: NLP outputs (intent + extracted entities)
-    :param challenge: Name of the current challenge (currently unused)
     :param person: HriHuman object to update
     """
     for response in responses:
@@ -133,11 +136,11 @@ def process_response(responses: list[list[Any]], challenge: str, person: HriHuma
 
                         # Add item(s) to the order
                         for i in range(0, repeat):
-                            person.order[0].append(item)  # entity value
+                            person.order["string"].append(item)  # entity value
                             if elem[0] == "Food":
-                                person.order[1].append(get_obj(elem[1]))
+                                person.order["food_objects"].append(get_obj(elem[1]))
                             if elem[0] == "Drink":
-                                person.order[2].append(get_obj(elem[1]))
+                                person.order["drink_objects"].append(get_obj(elem[1]))
 
             case "receptionist" | "Receptionist":  # Model: Receptionist
                 if len(response[2]) == 0:
@@ -183,8 +186,7 @@ class HriNlpInterface(NlpInterface):
     def __init__(self):
         super().__init__()
 
-    # Required by the interface but unused here because
-    # we need direct access to the human object
+    # Required by the interface but unused here because we need direct access to the human object
     def filter_response(self, response: list[Any], challenge: str):
         raise NotImplementedError
 
@@ -198,12 +200,9 @@ def main():
     person = HriHuman()
 
     # Process all collected NLP outputs
-    process_response(responses=nlp.all_last_outputs, challenge="", person=person)
+    process_response(responses=nlp.all_last_outputs, person=person)
 
-    # Debug output
-    # print(person.debug())
-    # print(nlp.all_last_outputs)
-    # TODO nlp.input_confirmation_loop(2)
+    person.debug()
 
 
 if __name__ == "__main__":
