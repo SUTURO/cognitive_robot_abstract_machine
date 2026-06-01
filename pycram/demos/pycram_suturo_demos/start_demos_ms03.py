@@ -1,42 +1,17 @@
-from typing import Any
+import logging
+
+from typing_extensions import Any
 from time import sleep
 
 from pycram.datastructures.pose import PoseStamped
 from pycram.ros_utils.text_to_image import TextToImagePublisher
 
 import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String
 
 from pycram_suturo_demos.helper_methods_and_useful_classes.nlp_human_robot_interaction import (
     TalkingNode,
 )
 from pycram.external_interfaces.nlp_interface import NlpInterface, FilterOptions
-
-# from pycram_suturo_demos.pycram_advanced_hsr_demos.bring_item_from_table import (
-#     bring_item_from_table_to_human_demo,
-# )
-from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
-
-# from pycram_suturo_demos.pycram_basic_hsr_demos.dialog_with_human_demo import (
-#     main as dialog_with_human_demo_main,
-# )
-# from pycram_suturo_demos.pycram_advanced_hsr_demos.Tell_waving_person_where_to_sit import (
-#     main as tell_waving_person_where_to_sit_demo,
-# )
-# from pycram_suturo_demos.pycram_advanced_hsr_demos.bring_object_from_table_to_shelf_demo import (
-#     main as bring_object_from_table_to_shelf_demo,
-# )
-# from pycram_suturo_demos.pycram_advanced_hsr_demos.tell_me_what_is_on_the_shelf_with_main import (
-#     main as tell_me_what_is_on_the_shelf_with_main,
-# )
-# from pycram_suturo_demos.pycram_advanced_hsr_demos.open_the_door import (
-#     main as open_the_door_demo_main,
-# )
-
-from pycram.external_interfaces.nav2_move import start_nav_to_pose
-
-# rclpy_node, world, robot_view, context = setup_hsrb_context()
 
 
 start_point = PoseStamped.from_list(
@@ -90,11 +65,9 @@ class NlpInterfaceDemoStartM3(NlpInterface):
 
 
 def main():
+    logger = logging.getLogger()
     nlp = NlpInterfaceDemoStartM3()
     talk = TalkingNode()
-    tti = TextToImagePublisher()
-
-    # start_nav_to_pose(start_point)
 
     while True:
 
@@ -104,13 +77,10 @@ def main():
             "Hey, please start talking after my display changed. Speak clear and have some distance to the microphone. What can I help you with?",
             delay=15,
         )
-
-        # nlp.start_nlp()
         nlp.input_confirmation_loop(2)
 
         resp = nlp.last_output
 
-        # print(resp)
         try:
             # TODO: add demo starts
             match nlp.filter_response(resp, FilterOptions.INTENT):
@@ -118,21 +88,17 @@ def main():
                     if "waving" in resp[2][0][4]:
                         print("start 'Tell the waving person where he/she can sit'")
                         talk.pub("I will go and show them where to sit.", delay=5)
-                        # tell_waving_person_where_to_sit_demo()
-                        # dialog_with_human_demo_main()
-
                 case "lookup":
                     where = resp[2][0][1]
                     print(f"Start Challenge 'Is there something on the {where}.'")
                     talk.pub(
                         f"I will look if there is something on the {where}.", delay=5
                     )
-                    # tell_me_what_is_on_the_shelf_with_main()
                 case "deliver":
                     re = nlp.filter_response(resp, FilterOptions.FURNITURE)
                     item = nlp.filter_response(resp, FilterOptions.ITEM)
                     if re is None:
-                        print("Oh no")
+                        logger.info("No furniture found.")
                     if len(re) == 1:
                         print(
                             f"Start Challenge 'Bring me object {item[0]} from the {re[0]}.'"
@@ -140,8 +106,6 @@ def main():
                         talk.pub(
                             f"I will drive to the {re[0]} now and get the object {item[0]}."
                         )
-                        # bring_item_from_table_to_human_demo(context=context,object_name=item[0])
-
                     elif len(re) == 2:
                         print(
                             f"Start Challenge 'Bring object {item[0]} from the {re[0]} to the {re[1]}.'"
@@ -150,22 +114,14 @@ def main():
                             f"I will drive to the {re[0]} now and get the object {item[0]} and bring it to the {re[1]}.",
                             delay=5,
                         )
-                        # bring_object_from_table_to_shelf_demo(context=context, object_to_pick=item[0])
                     else:
-                        print("Oh no")
+                        logger.info('Unexpected length of response array')
                 case "open":
                     print("Start Challenge 'Open the door.'")
-                    talk.pub(f"I will go and open the door now.", delay=5)
-                    # open_the_door_demo_main()
+                    talk.pub("I will go and open the door now.", delay=5)
 
         except Exception as e:
-            print(e)
-            talk.pub(f"I am a failure.", delay=5)
-
-        # print(f"last intent: {nlp.filter_response(nlp.last_output, FilterOptions.INTENT)}")
-        # print(f"last output: {nlp.last_output}")
-        # print(f"complete output: {nlp.all_last_outputs}")
-        # print(f"last confirmation: {nlp.last_confirmation}")
+            logger.info(f'Error occurred while executing: {e}')
 
 
 if __name__ == "__main__":
