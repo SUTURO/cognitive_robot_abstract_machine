@@ -305,7 +305,7 @@ class BringObjectFromTableToShelfDemo:
                     simulated=False,
                     ignore_orientation=True,
                 ),
-            )
+            ).preform()
 
     def _calc_closest_point_to_robot(self, *, points: List[Point3]) -> Point3:
         min_dist = float("inf")
@@ -351,7 +351,7 @@ class BringObjectFromTableToShelfDemo:
             SequentialPlan(
                 self._context,
                 NavigateActionDescription(target_location=self._STARTING_POSE),
-            )
+            ).perform()
 
 
 if __name__ == "__main__":
