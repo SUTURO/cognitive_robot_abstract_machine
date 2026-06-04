@@ -32,11 +32,19 @@ from std_msgs.msg import String
 
 
 class TtsPublisher:
+    """A simple ROS2 node to publish text-to-speech messages."""
+
     def __init__(self, node_name="tts_text_publisher", topic_name="/tts_text"):
+        """Initializes the ROS2 node and publisher."""
         self.node = Node(node_name)
         self.publisher = self.node.create_publisher(String, topic_name, 10)
 
     def pub(self, text: str):
+        """Publishes a string message to the TTS topic.
+
+        Args:
+            text: The text to be spoken by the robot.
+        """
         msg = String()
         msg.data = text
         self.publisher.pub(msg)
@@ -44,6 +52,7 @@ class TtsPublisher:
         rclpy.spin_once(self.node, timeout_sec=0.1)
 
     def shutdown(self):
+        """Shuts down the ROS2 node."""
         self.node.destroy_node()
         rclpy.shutdown()
 
@@ -60,6 +69,8 @@ BUFFER_SWITCH = False
 
 
 class Direction(Enum):
+    """Enumeration for different directions the robot can look at."""
+
     LEFT = [0.1, 1, 1]
     RIGHT = [0.1, -1, 1]
     BACK = [-1, 0, 1]
@@ -69,6 +80,11 @@ class Direction(Enum):
 
 
 def get_sofa_pose() -> PoseStamped:
+    """Returns the hardcoded pose of the sofa in the map frame.
+
+    Returns:
+        The pose of the sofa as a PoseStamped object.
+    """
     sofa_pose = PoseStamped.from_list(
         position=[2.436592493983716, -1.263586281296266, 0.0],
         orientation=[0.0, 0.0, 0.2790542921412484, 0.7430916153276875],
@@ -78,10 +94,23 @@ def get_sofa_pose() -> PoseStamped:
 
 
 def get_robot_pose() -> PoseStamped:
+    """Gets the current pose of the robot from the world model.
+
+    Returns:
+        The current robot pose as a PoseStamped object.
+    """
     return PoseStamped.from_spatial_type(robot_view.root.global_pose)
 
 
 def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
+    """Transforms a pose from the robot's camera frame to the map frame.
+
+    Args:
+        perception_pose: The pose as perceived by the robot's camera.
+
+    Returns:
+        The transformed pose in the map frame.
+    """
     pose_in_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
         pos_x=float(perception_pose.position.x),
         pos_y=float(perception_pose.position.y),
@@ -108,6 +137,7 @@ def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
 
 
 def park_arms():
+    """Parks both arms of the robot."""
     SequentialPlan(
         context,
         ParkArmsActionDescription(Arms.BOTH),
@@ -115,6 +145,11 @@ def park_arms():
 
 
 def look_in_direction(direction: Direction):
+    """Makes the robot look in a specified direction.
+
+    Args:
+        direction: The direction to look at, from the Direction enum.
+    """
     look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
         x=direction.value[0],
         y=direction.value[1],
@@ -130,6 +165,11 @@ def look_in_direction(direction: Direction):
 
 
 def drive_to_pose(target_pose: PoseStamped):
+    """Drives the robot to a given target pose.
+
+    Args:
+        target_pose: The destination pose.
+    """
     goal_pose = target_pose
     if BUFFER_SWITCH:
         goal_pose = buffer_in_front_of(target_pose, MIN_DISTANCE_M)
@@ -138,6 +178,11 @@ def drive_to_pose(target_pose: PoseStamped):
 
 
 def scan_for_waving_human() -> Optional[PoseStamped]:
+    """Scans the environment for a waving human by looking in multiple directions.
+
+    Returns:
+        The pose of the waving human if found, otherwise None.
+    """
     detector = ContinuousWavingDetector(retry_interval=1.0)
     s_human = detector.wait_for_waving_human(timeout=WAVING_TIMEOUT_PER_DIRECTION)
     for direction in [
@@ -155,11 +200,26 @@ def scan_for_waving_human() -> Optional[PoseStamped]:
 
 
 def find_free_seat() -> str:
+    """Looks towards the sofa and queries for a free seat using RoboKudo.
+
+    Returns:
+        The result from the RoboKudo query.
+    """
     look_in_direction(Direction.FRONT_SOFA)
     return pycram.external_interfaces.robokudo.query_specific_region("sofa")
 
 
 def main():
+    """Main execution logic for the demo.
+
+    The robot performs the following sequence of actions:
+    1. Scans for a waving human.
+    2. Drives to the human.
+    3. Drives to the sofa to find a free seat.
+    4. Drives back to the human.
+    5. Tells the human where to sit.
+    6. Returns to its starting position.
+    """
     with real_robot:
         start_position = get_robot_pose()
         print(
@@ -216,7 +276,7 @@ def main():
         test1 = robokudo.send_query()
         sleep(2)
         result = find_free_seat()
-        text_pub.publish_text(f"Got Data")
+        text_pub.publish_text("Got Data")
         tts.pub("I got Data")
 
         # 5. Drive back to the human
@@ -228,9 +288,9 @@ def main():
 
         # 6. Tell the human where to sit
         if len(result.res) == 0:
-            text_pub.publish_text(f"Something went wrong while finding seats.")
+            text_pub.publish_text("Something went wrong while finding seats.")
             tts.pub("Something went wrong while finding seats")
-            print(f"Aborted")
+            print("Aborted")
         else:
             right_seat = result.res[0].attribute[0]
             list_right = right_seat.split(",")
@@ -246,60 +306,60 @@ def main():
                 and list_left[1] == " False"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Sofa is free and also chair")
+                text_pub.publish_text("Sofa is free and also chair")
                 tts.pub("All seats are free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " True"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"No seats free")
+                text_pub.publish_text("No seats free")
                 tts.pub("No seats free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " True"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Right seats free")
+                text_pub.publish_text("Right seats free")
                 tts.pub("Right seats free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " False"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Left seats free")
+                text_pub.publish_text("Left seats free")
                 tts.pub("Left seats free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " True"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Chair is free")
+                text_pub.publish_text("Chair is free")
                 tts.pub("Chair is free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " False"
                 and list_chair[1] == " True"
             ):
-                text_pub.publish_text(f"Right and left seats are free")
+                text_pub.publish_text("Right and left seats are free")
                 tts.pub("Right and left seats are free")
             elif (
                 list_right[1] == " False"
                 and list_left[1] == " True"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Right seat and chair are free")
+                text_pub.publish_text("Right seat and chair are free")
                 tts.pub("Right seat and chair are free")
             elif (
                 list_right[1] == " True"
                 and list_left[1] == " False"
                 and list_chair[1] == " False"
             ):
-                text_pub.publish_text(f"Left seat and chair are free")
+                text_pub.publish_text("Left seat and chair are free")
                 tts.pub("Left seat and chair are free")
             else:
                 text_pub.publish_text(
-                    f"Something went wrong while interpreting the data."
+                    "Something went wrong while interpreting the data."
                 )
                 tts.pub("Something went wrong while interpreting the data")
 

@@ -1,42 +1,42 @@
 import logging
-import os
 from enum import Enum
 from time import sleep
-from typing import Optional
 
 import semantic_digital_twin
-from pycram.external_interfaces import nav2_move
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
+from pycram.external_interfaces import nav2_move
 from pycram.external_interfaces.nlp_interface import TalkingNode
-
-from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
-from pycram.external_interfaces.nav2_move import buffer_in_front_of, change_orientation
-from pycram.external_interfaces.robokudo import shutdown_robokudo_interface, send_query
-from pycram.ros_utils.text_to_image import TextToImagePublisher
+from pycram.external_interfaces.robokudo import send_query
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
 from pycram.robot_plans import (
-    ParkArmsActionDescription,
     LookAtActionDescription,
     MoveTorsoActionDescription,
+    ParkArmsActionDescription,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from pycram.ros_utils.text_to_image import TextToImagePublisher
+from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
 from semantic_digital_twin.datastructures.definitions import TorsoState
-from pycram_suturo_demos.pycram_basic_hsr_demos.talking_demo import TtsPublisher
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
+# Configure logging
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 
+# Initialize robot context
 rclpy_node, world, robot_view, context = setup_hsrb_context()
 
 
 class Direction(Enum):
+    """Enumeration for different look directions."""
+
     FRONT = [1, 0, 1]
     FRONT_DOWN = [1, 0, 0.25]
 
 
 def park_arms():
+    """Parks both arms of the robot."""
     SequentialPlan(
         context,
         ParkArmsActionDescription(Arms.BOTH),
@@ -44,10 +44,22 @@ def park_arms():
 
 
 def get_robot_pose() -> PoseStamped:
+    """
+    Retrieves the current pose of the robot.
+
+    Returns:
+        PoseStamped: The robot's current pose in the world frame.
+    """
     return PoseStamped.from_spatial_type(robot_view.root.global_pose)
 
 
 def look_in_direction(direction: Direction):
+    """
+    Makes the robot look in a specified direction.
+
+    Args:
+        direction (Direction): The direction to look at.
+    """
     look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
         x=direction.value[0],
         y=direction.value[1],
@@ -61,17 +73,21 @@ def look_in_direction(direction: Direction):
     ).perform()
 
 
-move_torso_low1 = SequentialPlan(
-    context,
-    MoveTorsoActionDescription(TorsoState.LOW),
-)
-move_torso_low2 = SequentialPlan(
-    context,
-    MoveTorsoActionDescription(TorsoState.LOW),
-)
+def move_torso_low():
+    """Moves the robot's torso to the low position."""
+    SequentialPlan(
+        context,
+        MoveTorsoActionDescription(TorsoState.LOW),
+    ).perform()
 
 
 def move_torso_mid(direction: Direction):
+    """
+    Moves the robot's torso to the middle position and looks in a specified direction.
+
+    Args:
+        direction (Direction): The direction to look at after moving the torso.
+    """
     look_at_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
         x=direction.value[0],
         y=direction.value[1],
@@ -86,7 +102,15 @@ def move_torso_mid(direction: Direction):
     ).perform()
 
 
-def print_result(result, text_pub, tts):
+def print_result(result, text_pub: TextToImagePublisher, tts: TalkingNode):
+    """
+    Prints and announces the detected objects.
+
+    Args:
+        result: The list of detected objects from RoboKudo.
+        text_pub (TextToImagePublisher): Publisher for displaying text on an image.
+        tts (TalkingNode): Node for text-to-speech announcements.
+    """
     print(result)
     for r in result:
         print(r.type)
@@ -96,12 +120,17 @@ def print_result(result, text_pub, tts):
 
 
 def main():
+    """
+    Main function to execute the "tell me what is on the shelf" demo.
+    The robot drives to a shelf, scans it at two different heights,
+    reports the objects it finds, and returns to its starting position.
+    """
     with real_robot:
         text_pub = TextToImagePublisher()
         tts = TalkingNode()
         start_pose = get_robot_pose()
 
-        # Driving to shelf (Koordinaten anpassen!)
+        # Driving to shelf
         text_pub.publish_text("Driving to shelf.")
         tts.pub("Driving to shelf")
         shelf_pose = PoseStamped.from_list(
@@ -110,57 +139,47 @@ def main():
             frame=world.root,
         )
         park_arms()
-        goal = shelf_pose.ros_message()
-        nav2_move.start_nav_to_pose(goal)
+        nav2_move.start_nav_to_pose(shelf_pose.ros_message())
 
         # Looking at shelf
         text_pub.publish_text("Looking at shelf.")
         tts.pub("Looking at shelf")
-        move_torso_low1.perform()
+
+        # Scan low shelf
+        move_torso_low()
         look_in_direction(Direction.FRONT_DOWN)
         text_pub.publish_text("Looking at low shelf.")
         tts.pub("Looking at low shelf")
-        o_test = send_query(obj_type="object")
-        print(f"Low test: {o_test}")
-        sleep(1)
+        sleep(1)  # Wait for perception
         result_low = send_query(obj_type="object")
         print(f"Low: {result_low}")
-        print("Looking at shelf FRONT.")
+
+        # Scan high shelf
         move_torso_mid(Direction.FRONT)
         text_pub.publish_text("Looking at high shelf.")
         tts.pub("Looking at high shelf")
-        o_test2 = send_query(obj_type="object")
-        print(f"High test: {o_test2}")
-        sleep(1)
+        sleep(1)  # Wait for perception
         result_high = send_query(obj_type="object")
         print(f"High: {result_high}")
-        move_torso_low2.perform()
+        move_torso_low()
 
         # Driving back
         text_pub.publish_text("Driving back to person.")
         tts.pub("Driving back to person")
-        final_move = start_pose.ros_message()
-        nav2_move.start_nav_to_pose(final_move)
+        nav2_move.start_nav_to_pose(start_pose.ros_message())
 
         # Reporting what is on the shelf
-        if result_low is None and result_high is None:
+        all_results = []
+        if result_low and result_low.res:
+            all_results.extend(result_low.res)
+        if result_high and result_high.res:
+            all_results.extend(result_high.res)
+
+        if not all_results:
             text_pub.publish_text("No objects seen.")
             tts.pub("No objects seen")
-        elif len(result_low.res) == 0 and len(result_high.res) == 0:
-            text_pub.publish_text("No objects seen.")
-            tts.pub("No objects seen")
-        elif result_low is None or len(result_low.res) == 0:
-            print_result(result_high.res, text_pub, tts)
-        elif result_high is None or len(result_high.res) == 0:
-            print_result(result_low.res, text_pub, tts)
         else:
-            print(result_low.res)
-            print(result_high.res)
-            print_result(result_low.res, text_pub, tts)
-            print_result(result_high.res, text_pub, tts)
-            # result_comb = result_low.res.extend(result_high.res)
-            # print(result_comb)
-            # print_result(result_comb)
+            print_result(all_results, text_pub, tts)
 
 
 if __name__ == "__main__":
