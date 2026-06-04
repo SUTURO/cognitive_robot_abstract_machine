@@ -163,20 +163,9 @@ def send_query(
 
 
 @init_robokudo_interface
-def query_human() -> "PointStamped":
-    """Query RoboKudo for human detection and return the detected human's pose.
-    This only querys one human.
-    """
-    result = send_query(obj_type="human")
-    posi = None
-    if result is None:
-        return None
-    else:
-        for r in result.res:
-            for p in r.pose:
-                if posi is None or p.pose > posi:
-                    posi = p.pose
-    return posi
+def query_human() -> PoseStamped | None:
+    """Query RoboKudo for human detection and return the detected human's pose."""
+    return send_query(obj_type="human")
 
 
 @init_robokudo_interface
@@ -198,7 +187,7 @@ def query_all_objects() -> dict:
 
 
 @init_robokudo_interface
-def query_postion_closest_object() -> PoseStamped:
+def query_position_closest_object() -> PoseStamped | None:
     """Untested"""
     result = send_query()
     posi = None
@@ -293,7 +282,7 @@ def shutdown_robokudo_interface():
         continuous_human_detection_node.destroy_node()
 
     is_init = False
-    logger.info("Robokudo interface shut down")
+    logger.info("Robokudo interface shutdown")
 
 
 class ContinuousHumanDetection(Node):
