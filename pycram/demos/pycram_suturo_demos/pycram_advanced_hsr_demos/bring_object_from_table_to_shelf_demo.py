@@ -182,8 +182,9 @@ class BringObjectFromTableToShelfDemo:
             ).tolist()
 
             # Object found on table
-            if object_to_pick_type in objs:
-                return objs[0]
+            matching = [o for o in objs if isinstance(o, object_to_pick_type)]
+            if matching:
+                return matching[0]
 
         return None
 
