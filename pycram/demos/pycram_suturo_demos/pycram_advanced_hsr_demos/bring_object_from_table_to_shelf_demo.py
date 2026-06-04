@@ -1,5 +1,5 @@
 import logging
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from suturo_resources.queries import (
     query_surface_of_most_similar_obj,
@@ -54,6 +54,14 @@ logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
 def _filter_points_full_on_surface(
     points: List[Point3], obj: HasRootBody, surface: HasSupportingSurface
 ) -> List[Point3]:
+    """
+    Filters the given points to only include those where the whole object would be on the surface if placed at that point.
+
+    :param points: List of points to filter
+    :param obj: Object to filter for
+    :param surface: Surface to filter on
+    :return: Filtered list of points
+    """
     obj_min, obj_max = obj.min_max_points
     surf_min, surf_max = surface.min_max_points
 
@@ -70,6 +78,10 @@ def _filter_points_full_on_surface(
 
 
 class BringObjectFromTableToShelfDemo:
+    """
+    Demo used for internal robocup.
+    """
+
     def __init__(self, context: Context, execution_type: ExecutionEnvironment):
         self._context = context
         self._execution_type = execution_type
@@ -101,6 +113,7 @@ class BringObjectFromTableToShelfDemo:
             frame=self._world.root,
         )
 
+        # Free chosen values for now, should be changed
         self._TORSO_THRESHOLDS = {"high": 1.5, "mid": 0.8}
 
         self._STARTING_POSE = PoseStamped.from_spatial_type(
@@ -108,6 +121,11 @@ class BringObjectFromTableToShelfDemo:
         )
 
     def run(self, *, object_to_pick: str = None):
+        """
+        Runs the demo.
+
+        :param object_to_pick: String of the object type to pick up. E.g.: "Milk"
+        """
         table: Table = self._world.get_semantic_annotation_by_name(self._TABLE_NAME)
         obj_type = query_class_by_label(object_to_pick)
 
@@ -154,6 +172,11 @@ class BringObjectFromTableToShelfDemo:
         self._tts.shutdown()
 
     def _move_to_pose(self, *, pose: PoseStamped):
+        """
+        Simple reusable action to move to a pose.
+
+        :param pose: PoseStamped to move to
+        """
         with self._execution_type:
             SequentialPlan(
                 self._context, NavigateActionDescription(target_location=pose)
@@ -164,7 +187,15 @@ class BringObjectFromTableToShelfDemo:
         *,
         object_to_pick_type: type,
         from_table: Table,
-    ):
+    ) -> Union[HasRootBody, None]:
+        """
+        Tries to scan the table for the given object type.
+        Tries 3 different locations on the surface by looking at the surface with different offsets. If the object is not found after 3 tries, returns None.
+
+        :param object_to_pick_type: Semantic type to look for.
+        :param from_table: Table to look at.
+        :return: First found instance of the object type or None, if nothing was found.
+        """
         offset = 0.2
         for try_count in range(3):
             # Look at surface with different offset each try
@@ -182,12 +213,18 @@ class BringObjectFromTableToShelfDemo:
             ).tolist()
 
             # Object found on table
-            if object_to_pick_type in objs:
-                return objs[0]
+            matching = [o for o in objs if isinstance(o, object_to_pick_type)]
+            if matching:
+                return matching[0]
 
         return None
 
     def _look_at_point(self, *, point: Point3):
+        """
+        Function to look at a point in the world.
+
+        :param point: Point to look at.
+        """
         with real_robot:
             SequentialPlan(
                 self._context,
@@ -205,14 +242,28 @@ class BringObjectFromTableToShelfDemo:
     def _look_at_surface(
         self, *, surface: HasSupportingSurface, offset: Optional[float] = None
     ):
+        """
+        Function to look at a surface with an optional offset.
+
+        :param surface: Surface to look at.
+        :param offset: Offset left or right. If None or 0, looks at the middle of the surface. If positive, looks to the left of the middle. If negative, looks to the right of the middle (from the robot's perspective).
+        """
         if offset is None or offset == 0.0:
-            self._look_at_point(point=surface.global_pose.to_position())
+            self._look_at_point(
+                point=surface.supporting_surface.global_pose.to_position()
+            )
         else:
             self._look_side_of_surface_middle(surface=surface, offset=offset)
 
     def _look_side_of_surface_middle(
         self, *, surface: HasSupportingSurface, offset: float
     ):
+        """
+        Function to look at the left or right side of the middle of a surface.
+
+        :param surface: Surface to look at.
+        :param offset: Offset left or right. If positive, looks to the left of the middle. If negative, looks to the right of the middle (from the robot's perspective).
+        """
         surface_middle_point = surface.global_pose.to_translation_matrix()
         middle_point_T_robot = self._world.transform(
             surface_middle_point, self._robot_view.root
@@ -222,6 +273,11 @@ class BringObjectFromTableToShelfDemo:
         self._look_at_point(point=middle_point_T_robot.to_position())
 
     def _try_to_pick_up_else_hri(self, *, obj: HasRootBody):
+        """
+        Function to try to pick up the object else do human hand over.
+
+        :param obj: Object to pick up.
+        """
         for try_count in range(3):
             with self._execution_type:
                 did_pick_up = SequentialPlan(
@@ -235,11 +291,13 @@ class BringObjectFromTableToShelfDemo:
                 ).perform()
             if did_pick_up:
                 return
-            self._look_at_point(point=obj.global_pose.to_position())
         self._tts.publish("Could not pick up the object. Manual handover needed.")
         self._handover_human_robot()
 
     def _handover_human_robot(self):
+        """
+        Function that does the handover from human to robot.
+        """
         with self._execution_type:
             SequentialPlan(
                 self._context,
@@ -254,10 +312,21 @@ class BringObjectFromTableToShelfDemo:
             ).perform()
 
     def _move_torso(self, *, state: TorsoState):
+        """
+        Function to move the torso.
+        """
         with real_robot:
             SequentialPlan(self._context, MoveTorsoActionDescription(state)).perform()
 
     def _scan_shelves(self, *, shelves: List[ShelfLayer]):
+        """
+        Function to scan the shelves.
+        Tries to move the torso to get a better view at the shelf.
+        Validates which objects are actually on the shelf we are looking at, so that we don't add wrong items to the wrong shelf.
+        Also adds the found objects on the shelf to the stored objects on the shelf.
+
+        :param shelves: Shelves to scan.
+        """
         for shelf in shelves:
             z_shelf = float(shelf.global_pose.z)
 
@@ -291,6 +360,12 @@ class BringObjectFromTableToShelfDemo:
         obj: HasRootBody,
         surface_to_place_on: HasSupportingSurface,
     ):
+        """
+        Places the object on a sampled pose on the surface.
+
+        :param obj: Object to place on the surface.
+        :param surface_to_place_on: Surface to place on.
+        """
         pose = self._get_pose_from_surface(
             surface=surface_to_place_on, obj=obj, closest_to_robot=True
         )
@@ -305,10 +380,17 @@ class BringObjectFromTableToShelfDemo:
                     simulated=False,
                     ignore_orientation=True,
                 ),
-            )
+            ).perform()
 
     def _calc_closest_point_to_robot(self, *, points: List[Point3]) -> Point3:
+        """
+        Calculates the closest point to the robot from given points.
+
+        :param points: Points to calculate for.
+        """
         min_dist = float("inf")
+        if not points:
+            raise ValueError("Input points is empty")
         min_dist_point = points[0]
         for point in points:
             dist = self._robot_view.root.global_pose.to_position().euclidean_distance(
@@ -325,6 +407,14 @@ class BringObjectFromTableToShelfDemo:
         obj: HasRootBody,
         closest_to_robot: bool = True,
     ) -> Pose:
+        """
+        Generates a pose for the given object on the surface.
+
+        :param surface: Surface to generate pose for.
+        :param obj: Object to generate pose for.
+        :param closest_to_robot: If true, will try to find closest point to the robot
+        :return: Generated pose
+        """
         points = surface.sample_points_from_surface(obj)
         filtered_points = _filter_points_full_on_surface(
             points=points, obj=obj, surface=surface
@@ -346,15 +436,21 @@ class BringObjectFromTableToShelfDemo:
             ).perform()
 
     def _reset_to_start(self):
+        """
+        Navigates to the starting point.
+        """
         self._park_arms()
         with self._execution_type:
             SequentialPlan(
                 self._context,
                 NavigateActionDescription(target_location=self._STARTING_POSE),
-            )
+            ).perform()
 
 
-if __name__ == "__main__":
+def main():
+    """
+    Simple simulated demo.
+    """
     SIMULATED = True
     main_context, main_execution_type = setup_context(
         simulated=SIMULATED,
@@ -384,3 +480,7 @@ if __name__ == "__main__":
     BringObjectFromTableToShelfDemo(
         context=main_context, execution_type=main_execution_type
     ).run(object_to_pick="Milk")
+
+
+if __name__ == "__main__":
+    main()
