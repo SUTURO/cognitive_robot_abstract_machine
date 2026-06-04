@@ -310,6 +310,8 @@ class BringObjectFromTableToShelfDemo:
 
     def _calc_closest_point_to_robot(self, *, points: List[Point3]) -> Point3:
         min_dist = float("inf")
+        if not points:
+            raise ValueError("Input points is empty")
         min_dist_point = points[0]
         for point in points:
             dist = self._robot_view.root.global_pose.to_position().euclidean_distance(
