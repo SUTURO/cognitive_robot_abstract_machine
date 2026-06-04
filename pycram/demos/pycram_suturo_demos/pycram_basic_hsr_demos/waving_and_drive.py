@@ -4,26 +4,28 @@ drive to a buffered standoff position in front of them.
 """
 
 import logging
+import math
 import os
 
 import semantic_digital_twin
-from pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
-    ContinuousWavingDetector,
-)
-from pycram.external_interfaces import nav2_move
+from transforms3d.euler import euler2quat
+
 from pycram.datastructures.enums import Arms
 from pycram.datastructures.pose import PoseStamped
-from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
+from pycram.external_interfaces import nav2_move
 from pycram.external_interfaces.nav2_move import buffer_in_front_of
 from pycram.external_interfaces.robokudo import shutdown_robokudo_interface
 from pycram.language import SequentialPlan
 from pycram.motion_executor import real_robot
 from pycram.robot_plans import ParkArmsActionDescription
+from pycram_suturo_demos.helper_methods_and_useful_classes.waving_detection import (
+    ContinuousWavingDetector,
+)
+from pycram_suturo_demos.pycram_basic_hsr_demos.A_start_up import setup_hsrb_context
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 
 logger = logging.getLogger(__name__)
 logging.getLogger(semantic_digital_twin.world.__name__).setLevel(logging.WARN)
-
 
 rclpy_node, world, robot_view, context = setup_hsrb_context()
 
@@ -33,10 +35,25 @@ ORIENTATION_SWITCH: bool = True
 
 
 def get_robot_pose() -> PoseStamped:
+    """
+    Retrieves the current global pose of the robot.
+
+    Returns:
+        PoseStamped: The robot's current pose in the world frame.
+    """
     return PoseStamped.from_spatial_type(robot_view.root.global_pose)
 
 
 def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
+    """
+    Transforms a perceived pose from the camera frame to the global map frame.
+
+    Args:
+        perception_pose (PoseStamped): The pose detected in the camera's reference frame.
+
+    Returns:
+        PoseStamped: The transformed pose in the map frame, with Z position set to 0.0.
+    """
     print(perception_pose.frame_id)
     pose_in_camera = HomogeneousTransformationMatrix.from_xyz_quaternion(
         pos_x=float(perception_pose.position.x),
@@ -70,6 +87,9 @@ def transform_perception_to_map(perception_pose: PoseStamped) -> PoseStamped:
 
 
 def park_arms():
+    """
+    Executes a plan to safely park both of the robot's arms.
+    """
     SequentialPlan(
         context,
         ParkArmsActionDescription(Arms.BOTH),
@@ -77,12 +97,16 @@ def park_arms():
 
 
 def drive_to_pose(target_pose: PoseStamped):
+    """
+    Drives the robot to a specified target pose, ensuring it stops at a buffered
+    minimum distance (MIN_DISTANCE_M) and rotates to face the target.
 
+    Args:
+        target_pose (PoseStamped): The destination pose for the robot.
+    """
     robot_pose = get_robot_pose()
     dx = robot_pose.pose.position.x - target_pose.pose.position.x
     dy = robot_pose.pose.position.y - target_pose.pose.position.y
-    import math
-    from transforms3d.euler import euler2quat
 
     yaw = math.atan2(dy, dx)
     q = euler2quat(0, 0, yaw)
@@ -90,12 +114,12 @@ def drive_to_pose(target_pose: PoseStamped):
     target_pose.pose.orientation.y = q[2]
     target_pose.pose.orientation.z = q[3]
     target_pose.pose.orientation.w = q[0]
+
     nav_target = buffer_in_front_of(
         target_pose,
         min_distance=MIN_DISTANCE_M,
     )
 
-    # nav_target = target_pose
     logger.info(f"Driving to standoff: {nav_target}")
     park_arms()
     nav2_move.start_nav_to_pose(nav_target)
@@ -103,26 +127,36 @@ def drive_to_pose(target_pose: PoseStamped):
     logger.info("Done — robot is now facing the human.")
 
 
-with real_robot:
-    os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
+def main():
+    """
+    Main routine for the waving and drive demo.
+    It looks for a waving human, transforms their pose to the map frame,
+    and drives the robot toward them.
+    """
+    with real_robot:
+        os.environ["ROS_PYTHON_CHECK_FIELDS"] = "1"
 
-    # 1. Detect waving human
-    logger.info("Looking for a waving human...")
-    detector = ContinuousWavingDetector(retry_interval=1.0)
-    human = detector.wait_for_waving_human(timeout=WAVING_TIMEOUT)
+        # 1. Detect waving human
+        logger.info("Looking for a waving human...")
+        detector = ContinuousWavingDetector(retry_interval=1.0)
+        human = detector.wait_for_waving_human(timeout=WAVING_TIMEOUT)
 
-    if human is None:
-        logger.warning("No waving human found.")
+        if human is None:
+            logger.warning("No waving human found.")
+            shutdown_robokudo_interface()
+            exit(1)
+
+        # 2. Transform to map coordinates
+        human_pose = transform_perception_to_map(human)
+        logger.info(f"Human pose in map frame: {human_pose}")
+        print(human_pose)
+
+        # 3. Drive to the human
+        goal = human_pose.ros_message()
+        drive_to_pose(goal)
+
         shutdown_robokudo_interface()
-        exit(1)
 
-    # 2. Transform to map coordinates
-    human_pose = transform_perception_to_map(human)
-    logger.info(f"Human pose in map frame: {human_pose}")
-    print(human_pose)
 
-    # 3. Drive to the human
-    goal = human_pose.ros_message()
-    drive_to_pose(goal)
-
-    shutdown_robokudo_interface()
+if __name__ == "__main__":
+    main()
