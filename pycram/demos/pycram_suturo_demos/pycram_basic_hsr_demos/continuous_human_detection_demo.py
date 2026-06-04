@@ -33,7 +33,7 @@ def main():
     # While human is seen print location
     while found_position and time.time() < timeout:
         # Send goal
-        position = robokudo.query_current_human_position_in_continues()
+        position = robokudo.query_current_human_position_in_continuous()
         if (
             position is not None
             and position.header.stamp.sec > time.time() - internaltimeout

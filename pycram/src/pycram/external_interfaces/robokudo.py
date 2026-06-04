@@ -1,3 +1,5 @@
+"""Perception currently has some issues with continuous. The new form of continuous needs testing when continuous Perception works again."""
+
 import sys
 import logging
 import threading
@@ -11,8 +13,8 @@ from pycram.ros import create_action_client
 from robokudo_msgs.action import Query
 from typing_extensions import List, Callable, Optional
 from typing import Any
-from ..datastructures.pose import PoseStamped
-from ..designator import ObjectDesignatorDescription
+from pycram.datastructures.pose import PoseStamped
+from pycram.designator import ObjectDesignatorDescription
 from geometry_msgs.msg import PointStamped
 from time import sleep
 import time
@@ -22,32 +24,32 @@ logger = logging.getLogger(__name__)
 # Global variables for shared resources
 robokudo_action_client: ActionClient | None = None
 robokudo_node: Node | None = None
-chd: Node | None = None
+continuous_human_detection_node: Node | None = None
 current_human_position: PoseStamped | None = None
 is_init = False
 goal_handle: ClientGoalHandle | None = None
 executor: MultiThreadedExecutor | None = None
 executor_thread: Thread | None = None
-continues_lock = False
+continuous_lock = False
 
 
 def create_robokudo_action_client():
     """Creates a new ActionClient and a MultithreadedExecutor for the Robokudo interface."""
 
-    global robokudo_node, executor, executor_thread, chd
+    global robokudo_node, executor, executor_thread, continuous_human_detection_node
 
     if robokudo_node is None:
         robokudo_node = Node("robokudo_interface_client")
 
-    if chd is None:
-        chd = CONTINUOUS_HUMAN_DETECTION()
+    if continuous_human_detection_node is None:
+        continuous_human_detection_node = ContinuousHumanDetection()
 
     client = create_action_client("/robokudo/query", Query, robokudo_node)
 
     if executor is None:
         executor = MultiThreadedExecutor()
         executor.add_node(robokudo_node)
-        executor.add_node(chd)
+        executor.add_node(continuous_human_detection_node)
 
         executor_thread = Thread(target=executor.spin, daemon=True)
         executor_thread.start()
@@ -110,13 +112,13 @@ def send_query(
     attributes: Optional[List[str]] = None,
 ) -> Any:
     """Generic function to send a query to RoboKudo."""
-    if continues_lock:
+    if continuous_lock:
         logger.warning("Can not send query while continuous query is running")
         return None
     else:
         global robokudo_action_client, goal_handle
         goal = Query.Goal()
-        continues = False
+        continuous = False
 
         if obj_type:
             goal.obj.type = obj_type
@@ -125,8 +127,8 @@ def send_query(
         if attributes:
             goal.obj.attribute = attributes
             for a in attributes:
-                if a == "continues":
-                    continues = True
+                if a == "continuous":
+                    continuous = True
 
         result: Query.Result | None = None
         result_event = threading.Event()
@@ -148,7 +150,7 @@ def send_query(
             result_event.set()
 
         logger.info("Send Query")
-        if continues:
+        if continuous:
             send_goal_future = robokudo_action_client.send_goal_async(goal)
             send_goal_future.add_done_callback(goal_response_callback)
         else:
@@ -178,12 +180,12 @@ def query_human() -> "PointStamped":
 
 
 @init_robokudo_interface
-def query_current_human_position_in_continues():
-    global current_human_position, continues_lock
+def query_current_human_position_in_continuous():
+    global current_human_position, continuous_lock
     if not goal_handle:
         # Send goal
-        send_query(obj_type="human", attributes=["continues"])
-        continues_lock = True
+        send_query(obj_type="human", attributes=["continuous"])
+        continuous_lock = True
         timeout = time.time() + 5
         while current_human_position is None and time.time() < timeout:
             sleep(0.1)
@@ -197,6 +199,7 @@ def query_all_objects() -> dict:
 
 @init_robokudo_interface
 def query_postion_closest_object() -> PoseStamped:
+    """Untested"""
     result = send_query()
     posi = None
     if result is None:
@@ -218,17 +221,6 @@ def query_object(obj_desc: ObjectDesignatorDescription) -> dict:
 @init_robokudo_interface
 def query_object_str(obj_desc: str) -> dict:
     return send_query(obj_type=str(obj_desc))
-
-
-"""
-Cancel needs to be implemented bevor this will work.
-@init_robokudo_interface
-def stop_query():
-    global robokudo_action_client
-    robokudo_action_client.cancel_goal_async()
-    logger.info("Cancelled current Robokudo query goal")
-
-"""
 
 
 @init_robokudo_interface
@@ -269,13 +261,13 @@ def cancel_goal():
 
 def cancel_done_callback(future):
     """Handles the response from the action server regarding goal cancellation."""
-    global goal_handle, current_human_position, continues_lock
+    global goal_handle, current_human_position, continuous_lock
     cancel_response = future.result()
     if len(cancel_response.goals_canceling) > 0:
         logger.info("Goal cancellation accepted by the server.")
         goal_handle = None
         current_human_position = None
-        continues_lock = False
+        continuous_lock = False
     else:
         logger.warning("Goal cancellation was not successful.")
     logger.info("Shutting down after cancellation is accepted.")
@@ -284,7 +276,7 @@ def cancel_done_callback(future):
 def shutdown_robokudo_interface():
     """Clean shutdown of perception interface."""
 
-    global robokudo_node, executor, executor_thread, is_init, chd, current_human_position
+    global robokudo_node, executor, executor_thread, is_init, continuous_human_detection_node, current_human_position
 
     cancel_goal()
 
@@ -297,14 +289,14 @@ def shutdown_robokudo_interface():
     if robokudo_node is not None:
         robokudo_node.destroy_node()
 
-    if chd is not None:
-        chd.destroy_node()
+    if continuous_human_detection_node is not None:
+        continuous_human_detection_node.destroy_node()
 
     is_init = False
     logger.info("Robokudo interface shut down")
 
 
-class CONTINUOUS_HUMAN_DETECTION(Node):
+class ContinuousHumanDetection(Node):
     def __init__(self):
 
         super().__init__("continous_human_detection")
