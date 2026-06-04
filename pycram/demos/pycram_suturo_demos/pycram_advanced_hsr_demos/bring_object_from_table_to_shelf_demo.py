@@ -357,7 +357,7 @@ class BringObjectFromTableToShelfDemo:
             ).perform()
 
 
-if __name__ == "__main__":
+def main():
     SIMULATED = True
     main_context, main_execution_type = setup_context(
         simulated=SIMULATED,
@@ -387,3 +387,7 @@ if __name__ == "__main__":
     BringObjectFromTableToShelfDemo(
         context=main_context, execution_type=main_execution_type
     ).run(object_to_pick="Milk")
+
+
+if __name__ == "__main__":
+    main()
