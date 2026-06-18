@@ -2,6 +2,7 @@ import json
 import time
 from dataclasses import dataclass
 from math import radians
+from time import sleep
 from typing import Type
 
 import numpy as np
@@ -58,6 +59,7 @@ from giskardpy.motion_statechart.motion_statechart import (
     MotionStatechart,
 )
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
+from giskardpy.motion_statechart.tasks.grasp_bar import GraspBar
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
     CartesianOrientation,
@@ -76,7 +78,9 @@ from giskardpy.motion_statechart.tasks.feature_functions import (
 )
 from giskardpy.motion_statechart.tasks.admittance_tasks import (
     AdmittanceCartesianPosition,
+    LowerUntilContact,
 )
+from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal, WipeSegment
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
 from giskardpy.motion_statechart.test_nodes.test_nodes import (
@@ -114,6 +118,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidExternalCollisions,
     AvoidAllCollisions,
     AllowAllCollisions,
+    AllowCollisionBetweenGroups,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.abstract_robot import Manipulator, AbstractRobot
@@ -4515,6 +4520,11 @@ class TestLifeCycleTransitions:
 
 from geometry_msgs.msg import WrenchStamped
 
+# Hunt-Crossley contact: stiffness ramps with tip speed, so a fast impact
+# produces more force than a slow press at the same depth.
+_CONTACT_STIFFNESS_BASE = 2000.0  # N / m at zero tip speed
+_CONTACT_VELOCITY_GAIN = 4000.0  # extra N/m per m/s of tip speed
+
 
 def _make_wrench(force_xyz=(0.0, 0.0, 0.0), torque_xyz=(0.0, 0.0, 0.0)) -> WrenchStamped:
     msg = WrenchStamped()
@@ -4524,8 +4534,86 @@ def _make_wrench(force_xyz=(0.0, 0.0, 0.0), torque_xyz=(0.0, 0.0, 0.0)) -> Wrenc
 
 
 def _inject_wrench(node: ForceTorqueSymbolNode, msg: WrenchStamped) -> None:
-    # Bypass the ROS subscription by setting the name-mangled latest msg directly.
     setattr(node, "_TopicSubscriberNode__last_msg", msg)
+
+
+def _add_wipe_table(world: World, name: str, top_z: float, thickness: float = 0.04) -> Body:
+    """Add a 0.6 x 0.6 table whose top sits at ``top_z`` and return its body."""
+    table_name = PrefixedName(name)
+    if not any(b.name == table_name for b in world.bodies):
+        with world.modify_world():
+            table = Body(
+                name=table_name,
+                collision=ShapeCollection([Box(scale=Scale(0.6, 0.6, thickness))]),
+                visual=ShapeCollection([Box(scale=Scale(0.6, 0.6, thickness))]),
+            )
+            world.add_connection(
+                FixedConnection(
+                    parent=world.root,
+                    child=table,
+                    parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                        x=0.55, z=top_z - thickness / 2
+                    ),
+                )
+            )
+    return world.get_body_by_name(table_name)
+
+
+def _hsr_wipe_collision_nodes(robot, gripper_bodies, table_body):
+    """Avoid external collisions but allow the gripper to touch the table."""
+    return [
+        UpdateTemporaryCollisionRules(
+            temporary_rules=[
+                AvoidExternalCollisions(robot=robot),
+                AllowCollisionBetweenGroups(
+                    body_group_a=gripper_bodies, body_group_b=[table_body]
+                ),
+            ]
+        ),
+        ExternalCollisionAvoidance(robot=robot),
+    ]
+
+
+def _run_contact_wipe(
+    kin_sim, world, msc, ft_node, root, tip, table_top_z,
+    fail_penetration, on_tick=None, max_ticks=100000,
+):
+    """Tick the executor while feeding back a Hunt-Crossley contact wrench.
+
+    Penetration into the table is converted into an upward wrench each tick;
+    a penetration past ``fail_penetration`` fails the test. ``on_tick`` (if
+    given) receives the current tip z after the wrench is injected. Returns
+    ``(tip_z_history, peak_penetration)`` once the motion ends.
+    """
+    control_dt = kin_sim.context.qp_controller_config.control_dt
+    prev_tip_z = None
+    tip_z_history = []
+    peak_penetration = 0.0
+    end_reached = False
+    for _ in range(max_ticks):
+        sleep(0.05)
+        tip_z = float(world.compute_forward_kinematics_np(root, tip)[2, 3])
+        tip_z_history.append(tip_z)
+        tip_z_speed = 0.0 if prev_tip_z is None else abs(tip_z - prev_tip_z) / control_dt
+        prev_tip_z = tip_z
+
+        penetration = max(0.0, table_top_z - tip_z)
+        peak_penetration = max(peak_penetration, penetration)
+        assert penetration < fail_penetration, (
+            f"Penetration grew to {penetration * 100:.2f} cm; admittance failed to yield."
+        )
+        effective_stiffness = _CONTACT_STIFFNESS_BASE + _CONTACT_VELOCITY_GAIN * tip_z_speed
+        _inject_wrench(ft_node, _make_wrench(force_xyz=(0.0, 0.0, effective_stiffness * penetration)))
+
+        if on_tick is not None:
+            on_tick(tip_z)
+        kin_sim.tick()
+        if msc.is_end_motion():
+            end_reached = True
+            break
+
+    assert end_reached, "Wipe did not finish within the tick budget."
+    return tip_z_history, peak_penetration
 
 
 @pytest.fixture
@@ -4633,9 +4721,9 @@ class TestAdmittanceCartesianPosition:
             tip_link=world.get_kinematic_structure_entity_by_name("tip"),
             goal_point=Point3(0, 0, 0, reference_frame=world.root),
             ft_node=ft_node,
-            M=Vector3(x=1.0, y=1.0, z=1.0),
-            C=Vector3(x=20.0, y=20.0, z=20.0),
-            K=Vector3(),
+            mass=Vector3(x=1.0, y=1.0, z=1.0),
+            damping=Vector3(x=20.0, y=20.0, z=20.0),
+            stiffness=Vector3(),
         )
         defaults.update(task_kwargs)
         task = AdmittanceCartesianPosition(**defaults)
@@ -4648,12 +4736,12 @@ class TestAdmittanceCartesianPosition:
 
     def test_build_registers_admittance_state(self, prismatic_z_world):
         context, _, task = self._build_task(prismatic_z_world)
-        assert isinstance(task._x_admittance, Vector3)
-        assert isinstance(task._xd_admittance, Vector3)
-        assert task._xd_idx == task._x_idx + 3
+        assert isinstance(task._admittance_position, Vector3)
+        assert isinstance(task._admittance_velocity, Vector3)
+        assert task._admittance_velocity_start == task._admittance_position_start + 3
         data = context.float_variable_data.data
-        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
-        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
+        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
 
     def test_zero_force_keeps_state_at_zero(self, prismatic_z_world):
         context, ft_node, task = self._build_task(prismatic_z_world)
@@ -4661,42 +4749,44 @@ class TestAdmittanceCartesianPosition:
         for _ in range(20):
             task.on_tick(context)
         data = context.float_variable_data.data
-        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
-        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
+        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
 
     def test_z_force_drives_z_correction(self, prismatic_z_world):
         context, ft_node, task = self._build_task(prismatic_z_world)
         self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
         for _ in range(10):
             task.on_tick(context)
-        x_a = context.float_variable_data.data[task._x_idx : task._x_idx + 3]
+        x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
         assert x_a[0] == pytest.approx(0.0, abs=1e-9)
         assert x_a[1] == pytest.approx(0.0, abs=1e-9)
         assert x_a[2] > 0.01
 
     def test_steady_state_velocity_under_damping(self, prismatic_z_world):
-        # K=0, M=1, C=20, F=10 → steady-state xd_z = F / C = 0.5 m/s.
+        # stiffness=0, mass=1, damping=20, force=10
+        # → steady-state velocity_z = force / damping = 0.5 m/s.
         context, ft_node, task = self._build_task(prismatic_z_world)
         self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
         for _ in range(50):
             task.on_tick(context)
-        xd_a = context.float_variable_data.data[task._xd_idx : task._xd_idx + 3]
+        xd_a = context.float_variable_data.data[task._admittance_velocity_start : task._admittance_velocity_start + 3]
         assert xd_a[2] == pytest.approx(0.5, abs=0.05)
 
     def test_spring_pulls_correction_back_to_zero(self, prismatic_z_world):
-        # K>0 with no force pulls a non-zero offset back to zero (damped spring).
+        # stiffness>0 with no force pulls a non-zero offset back to zero
+        # (damped spring).
         context, ft_node, task = self._build_task(
             prismatic_z_world,
-            M=Vector3(x=1.0, y=1.0, z=1.0),
-            C=Vector3(x=5.0, y=5.0, z=5.0),
-            K=Vector3(x=50.0, y=50.0, z=50.0),
+            mass=Vector3(x=1.0, y=1.0, z=1.0),
+            damping=Vector3(x=5.0, y=5.0, z=5.0),
+            stiffness=Vector3(x=50.0, y=50.0, z=50.0),
         )
         # Inject an offset and let the spring relax.
-        context.float_variable_data.set_value(task._x_admittance, [0.0, 0.0, 0.1])
+        context.float_variable_data.set_value(task._admittance_position, [0.0, 0.0, 0.1])
         self._apply_force(context, ft_node, (0.0, 0.0, 0.0))
         for _ in range(200):
             task.on_tick(context)
-        x_a = context.float_variable_data.data[task._x_idx : task._x_idx + 3]
+        x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
         assert abs(x_a[2]) < 0.005
 
     def test_reset_zeros_state(self, prismatic_z_world):
@@ -4704,11 +4794,11 @@ class TestAdmittanceCartesianPosition:
         self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
         for _ in range(5):
             task.on_tick(context)
-        assert context.float_variable_data.data[task._x_idx + 2] != 0
+        assert context.float_variable_data.data[task._admittance_position_start + 2] != 0
         task.on_reset(context)
         data = context.float_variable_data.data
-        assert np.allclose(data[task._x_idx : task._x_idx + 3], 0)
-        assert np.allclose(data[task._xd_idx : task._xd_idx + 3], 0)
+        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
+        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
 
     def test_invalid_mass_raises(self, prismatic_z_world):
         context = MotionStatechartContext(world=prismatic_z_world)
@@ -4724,7 +4814,7 @@ class TestAdmittanceCartesianPosition:
             tip_link=prismatic_z_world.get_kinematic_structure_entity_by_name("tip"),
             goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
             ft_node=ft_node,
-            M=Vector3(x=1.0, y=1.0, z=0.0),
+            mass=Vector3(x=1.0, y=1.0, z=0.0),
         )
         with pytest.raises(ValueError):
             task.build(context)
@@ -4746,15 +4836,14 @@ class TestAdmittanceCartesianPosition:
             tip_link=tip,
             goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
             ft_node=ft_node,
-            M=Vector3(x=1.0, y=1.0, z=1.0),
-            C=Vector3(x=20.0, y=20.0, z=20.0),
-            K=Vector3(),
+            mass=Vector3(x=1.0, y=1.0, z=1.0),
+            damping=Vector3(x=20.0, y=20.0, z=20.0),
+            stiffness=Vector3(),
             threshold=100.0,
         )
         msc = MotionStatechart()
         msc.add_node(ft_node)
         msc.add_node(admittance)
-        # No EndMotion: we tick a fixed number of steps directly.
 
         kin_sim = Ros2Executor(
             context=MotionStatechartContext(world=prismatic_z_world),
@@ -4778,3 +4867,346 @@ class TestAdmittanceCartesianPosition:
             prismatic_z_world.root, tip
         )
         assert tip_pose[2, 3] > 0.01
+
+
+def test_hsr_admittance_wipe_waypoints(hsr_world_setup, rclpy_node):
+    """HSR wipes waypoints set into a virtual table; admittance must yield to
+    the contact wrench so the tip hovers at the surface instead of pressing
+    through it."""
+    VizMarkerPublisher(_world=hsr_world_setup, node=rclpy_node).with_tf_publisher()
+    world = hsr_world_setup
+
+    table_top_z = 0.6
+    table_body = _add_wipe_table(world, "wipe_test_table", table_top_z)
+    tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
+    root = world.root
+    robot = world.get_semantic_annotations_by_type(HSRB)[0]
+    gripper_bodies = [b for b in world.bodies_with_collision if "hand_" in str(b.name)]
+    assert gripper_bodies, "No hand_* bodies with collision found on HSRB."
+
+    # Waypoints sit 2-3 cm below the surface so admittance has to steer away.
+    waypoint_coords = [
+        (0.45, -0.25, table_top_z - 0.025),
+        (0.7, 0.0, table_top_z - 0.03),
+        (0.45, 0.25, table_top_z - 0.02),
+    ]
+    waypoints = [Point3(x=x, y=y, z=z, reference_frame=root) for x, y, z in waypoint_coords]
+
+    ft_node = ForceTorqueSymbolNode(
+        topic_name="/test_hsr_admittance/wrench", reference_frame=root, name="ft"
+    )
+    sequence = Sequence([
+        AdmittanceCartesianPosition(
+            name=f"wipe_step_{i}",
+            root_link=root,
+            tip_link=tip,
+            goal_point=wp,
+            ft_node=ft_node,
+            mass=Vector3(x=1.0, y=1.0, z=1.0),
+            damping=Vector3(x=20.0, y=20.0, z=20.0),
+            stiffness=Vector3(x=80.0, y=80.0, z=80.0),
+            threshold=0.08,
+        )
+        for i, wp in enumerate(waypoints)
+    ])
+
+    msc = MotionStatechart()
+    msc.add_node(ft_node)
+    msc.add_nodes(_hsr_wipe_collision_nodes(robot, gripper_bodies, table_body))
+    msc.add_node(sequence)
+    msc.add_node(EndMotion.when_true(sequence))
+
+    kin_sim = Ros2Executor(
+        context=MotionStatechartContext(world=world),
+        ros_node=rclpy_node,
+        pacer=SimulationPacer(0.01),
+    )
+    kin_sim.compile(motion_statechart=msc)
+
+    tip_z_history, peak_penetration = _run_contact_wipe(
+        kin_sim, world, msc, ft_node, root, tip, table_top_z, fail_penetration=0.01
+    )
+
+    settled_min_z = min(tip_z_history[20:])
+    max_penetration = max(0.0, table_top_z - settled_min_z)
+    assert max_penetration < 0.05, (
+        f"Tip dipped {max_penetration * 100:.1f} cm below table after settling."
+    )
+
+    final_xy = world.compute_forward_kinematics_np(root, tip)[:2, 3]
+    target_xy = np.array(waypoint_coords[-1][:2])
+    assert np.linalg.norm(final_xy - target_xy) < 0.1, (
+        f"Final tip xy {final_xy} not within 10 cm of last waypoint {target_xy}."
+    )
+    assert peak_penetration < 0.01
+
+
+def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
+    """End-to-end ``WipeGoal`` on the HSR: expands into
+    approach -> lower-until-contact -> admittance wipes -> retract, declares
+    contact only after descending, keeps the tip near the surface during the
+    wipes, and lifts back above the table on retract. HSRB has an
+    ``OmniDrive``, so the base-relocation feature is not exercised here."""
+    VizMarkerPublisher(_world=hsr_world_setup, node=rclpy_node).with_tf_publisher()
+    world = hsr_world_setup
+
+    table_top_z = 0.6
+    table_body = _add_wipe_table(world, "wipe_goal_test_table", table_top_z)
+    tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
+    root = world.root
+    robot = world.get_semantic_annotations_by_type(HSRB)[0]
+    gripper_bodies = [b for b in world.bodies_with_collision if "hand_" in str(b.name)]
+    assert gripper_bodies, "No hand_* bodies with collision found on HSRB."
+
+    # Waypoints sit 2 cm below the surface so admittance has to yield upward.
+    waypoint_coords = [
+        (0.45, -0.20, table_top_z - 0.02),
+        (0.55, 0.00, table_top_z - 0.02),
+        (0.45, 0.20, table_top_z - 0.02),
+    ]
+    waypoints = [
+        Point3(x=x, y=y, z=z, reference_frame=root) for x, y, z in waypoint_coords
+    ]
+
+    ft_node = ForceTorqueSymbolNode(
+        topic_name="/test_hsr_wipe_goal/wrench", reference_frame=root, name="ft"
+    )
+    wipe_goal = WipeGoal(
+        name="wipe",
+        segments=[(None, waypoints)],
+        tip_link=tip,
+        root_link=root,
+        ft_node=ft_node,
+        approach_height=0.10,
+        contact_force_threshold=3.0,
+        lower_overshoot=0.05,
+        approach_reference_velocity=0.10,
+        lower_reference_velocity=0.03,
+        wipe_reference_velocity=0.05,
+        mass=Vector3(x=1.0, y=1.0, z=1.0),
+        damping=Vector3(x=20.0, y=20.0, z=20.0),
+        stiffness=Vector3(x=80.0, y=80.0, z=80.0),
+    )
+
+    msc = MotionStatechart()
+    msc.add_node(ft_node)
+    msc.add_nodes(_hsr_wipe_collision_nodes(robot, gripper_bodies, table_body))
+    msc.add_node(wipe_goal)
+    msc.add_node(EndMotion.when_true(wipe_goal))
+
+    kin_sim = Ros2Executor(
+        context=MotionStatechartContext(world=world),
+        ros_node=rclpy_node,
+        pacer=SimulationPacer(0.01),
+    )
+    kin_sim.compile(motion_statechart=msc)
+
+    # One segment without a base pose -> approach, lower, wipe-sequence, retract.
+    approach_node, lower_node, wipe_sequence_node, retract_node = wipe_goal.nodes
+    assert isinstance(approach_node, CartesianPosition)
+    assert not isinstance(approach_node, LowerUntilContact)
+    assert isinstance(lower_node, LowerUntilContact)
+    assert isinstance(wipe_sequence_node, Sequence)
+    assert len(wipe_sequence_node.nodes) == len(waypoints)
+    assert all(
+        isinstance(n, AdmittanceCartesianPosition) for n in wipe_sequence_node.nodes
+    )
+    assert isinstance(retract_node, CartesianPosition)
+    assert not isinstance(retract_node, LowerUntilContact)
+
+    lower_contact_z = []
+
+    def capture_contact(tip_z):
+        if not lower_contact_z and (
+            lower_node.observation_state.value == ObservationStateValues.TRUE
+        ):
+            lower_contact_z.append(tip_z)
+
+    tip_z_history, peak_penetration = _run_contact_wipe(
+        kin_sim, world, msc, ft_node, root, tip, table_top_z,
+        fail_penetration=0.015, on_tick=capture_contact,
+    )
+
+    assert lower_contact_z, "LowerUntilContact never reported contact during the run."
+    assert lower_contact_z[0] < table_top_z + 0.05, (
+        f"LowerUntilContact declared contact at z={lower_contact_z[0]:.3f}, "
+        f"more than 5 cm above the table top ({table_top_z})."
+    )
+
+    settled_min_z = min(tip_z_history[20:])
+    max_penetration = max(0.0, table_top_z - settled_min_z)
+    assert max_penetration < 0.05, (
+        f"Tip dipped {max_penetration * 100:.1f} cm below table after settling."
+    )
+
+    final_pose = world.compute_forward_kinematics_np(root, tip)
+    final_z = float(final_pose[2, 3])
+    final_xy = final_pose[:2, 3]
+    assert final_z > table_top_z + 0.05, (
+        f"After retract, tip z={final_z:.3f} is not at least 5 cm above the table top."
+    )
+    last_xy = np.array(waypoint_coords[-1][:2])
+    assert np.linalg.norm(final_xy - last_xy) < 0.15, (
+        f"Final tip xy {final_xy} not within 15 cm of last waypoint {last_xy}."
+    )
+    assert peak_penetration < 0.015
+
+
+def test_wipe_goal_expand_with_base_pose_includes_drive_step(hsr_world_setup):
+    """Only the segment carrying a base pose gets a leading
+    ``DifferentialDriveBaseGoal``; both segments keep the
+    approach -> lower -> wipe-sequence -> retract ordering."""
+    world = hsr_world_setup
+    tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
+    root = world.root
+
+    ft_node = ForceTorqueSymbolNode(
+        topic_name="/test_wipe_goal_expand/wrench",
+        reference_frame=root,
+        name="ft",
+    )
+
+    segment_with_base: WipeSegment = (
+        Pose(
+            position=Point3(x=0.3, y=0.0, z=0.0, reference_frame=root),
+            reference_frame=root,
+        ),
+        [
+            Point3(x=0.45, y=-0.1, z=0.6, reference_frame=root),
+            Point3(x=0.55, y=0.0, z=0.6, reference_frame=root),
+        ],
+    )
+    segment_without_base: WipeSegment = (
+        None,
+        [Point3(x=0.55, y=0.2, z=0.6, reference_frame=root)],
+    )
+
+    wipe_goal = WipeGoal(
+        name="wipe_two_segments",
+        segments=[segment_with_base, segment_without_base],
+        tip_link=tip,
+        root_link=root,
+        ft_node=ft_node,
+    )
+
+    context = MotionStatechartContext(world=world)
+    try:
+        wipe_goal.expand(context)
+    except Exception:
+        # super().expand may fail because HSRB has no diff drive, but the node
+        # list is assembled before that, so we can still inspect it.
+        pass
+
+    node_types = [type(n).__name__ for n in wipe_goal.nodes]
+
+    # Segment 0: drive + approach + lower + wipe-sequence + retract.
+    # Segment 1: approach + lower + wipe-sequence + retract.
+    assert node_types[0] == "DifferentialDriveBaseGoal", (
+        f"First node should be the drive step for segment 0, got {node_types}."
+    )
+    assert node_types[1:5] == [
+        "CartesianPosition",
+        "LowerUntilContact",
+        "Sequence",
+        "CartesianPosition",
+    ], f"Unexpected segment-0 child ordering: {node_types[1:5]}."
+    assert node_types[5:9] == [
+        "CartesianPosition",
+        "LowerUntilContact",
+        "Sequence",
+        "CartesianPosition",
+    ], f"Unexpected segment-1 child ordering: {node_types[5:9]}."
+
+
+def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
+    """Passing an empty segment list, or segments with no waypoints, must
+    produce no child nodes. Guards against silently scheduling stray
+    approach/lower/retract steps."""
+    world = hsr_world_setup
+    tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
+    root = world.root
+    ft_node = ForceTorqueSymbolNode(
+        topic_name="/test_wipe_goal_empty/wrench",
+        reference_frame=root,
+        name="ft",
+    )
+
+    empty_goal = WipeGoal(
+        name="wipe_empty",
+        segments=[],
+        tip_link=tip,
+        root_link=root,
+        ft_node=ft_node,
+    )
+    empty_goal.expand(MotionStatechartContext(world=world))
+    assert empty_goal.nodes == []
+
+    only_empty_waypoints = WipeGoal(
+        name="wipe_only_empty_waypoints",
+        segments=[(None, []), (None, [])],
+        tip_link=tip,
+        root_link=root,
+        ft_node=ft_node,
+    )
+    only_empty_waypoints.expand(MotionStatechartContext(world=world))
+    assert only_empty_waypoints.nodes == []
+
+
+def test_grasp_bar(pr2_world_state_reset: World):
+    tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
+        "r_gripper_tool_frame"
+    )
+    root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+
+    bar_center = Point3(0.6, -0.2, 1.0, reference_frame=root)
+    bar_axis = Vector3.Z(reference_frame=root)
+    tip_grasp_axis = Vector3.X(reference_frame=tip)
+
+    msc = MotionStatechart()
+    grasp_bar = GraspBar(
+        root_link=root,
+        tip_link=tip,
+        tip_grasp_axis=tip_grasp_axis,
+        bar_center=bar_center,
+        bar_axis=bar_axis,
+        bar_length=0.4,
+    )
+    msc.add_node(grasp_bar)
+    end = EndMotion()
+    msc.add_node(end)
+    end.start_condition = grasp_bar.observation_variable
+
+    kin_sim = Executor(MotionStatechartContext(world=pr2_world_state_reset))
+    kin_sim.compile(motion_statechart=msc)
+    kin_sim.tick_until_end()
+
+    # Check axis alignment
+    root_V_tip_grasp_axis = pr2_world_state_reset.transform(
+        target_frame=root, spatial_object=tip_grasp_axis
+    )
+    root_V_tip_grasp_axis.scale(1)
+    root_V_bar_axis = pr2_world_state_reset.transform(
+        target_frame=root, spatial_object=bar_axis
+    )
+    root_V_bar_axis.scale(1)
+    v_tip = root_V_tip_grasp_axis.to_np()[:3]
+    v_bar = root_V_bar_axis.to_np()[:3]
+    angle = angle_between_vector(v_tip, v_bar)
+    assert angle <= grasp_bar.threshold, (
+        f"GraspBar axis alignment failed: angle {angle:.6f} rad > threshold {grasp_bar.threshold:.6f} rad"
+    )
+
+    # Check tip position is within bar_length/2 of bar_center along bar_axis
+    root_P_tip = (
+        pr2_world_state_reset.compute_forward_kinematics(root, tip).to_position().to_np()[:3]
+    )
+    root_P_center = pr2_world_state_reset.transform(
+        target_frame=root, spatial_object=bar_center
+    ).to_np()[:3]
+    projection = np.dot(root_P_tip - root_P_center, v_bar)
+    projection = np.clip(projection, -grasp_bar.bar_length / 2, grasp_bar.bar_length / 2)
+    nearest = root_P_center + projection * v_bar
+    dist = np.linalg.norm(root_P_tip - nearest)
+    assert dist <= grasp_bar.threshold, (
+        f"GraspBar position failed: distance {dist:.6f} m > threshold {grasp_bar.threshold:.6f} m"
+    )
