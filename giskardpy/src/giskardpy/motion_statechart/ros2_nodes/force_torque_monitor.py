@@ -110,7 +110,6 @@ class ForceTorqueSymbolNode(ForceTorqueNode):
         self, context: MotionStatechartContext
     ) -> Optional[ObservationStateValues]:
         super().on_tick(context)
-        print(f"[ft] has_msg={self.has_msg()} force={self.force_as_np() if self.has_msg() else None}")
         if not self.has_msg():
             return ObservationStateValues.UNKNOWN
         context.float_variable_data.set_value(self.force, self.force_as_np())
