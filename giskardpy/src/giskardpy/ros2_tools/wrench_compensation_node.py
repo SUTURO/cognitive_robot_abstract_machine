@@ -40,25 +40,27 @@ class FTCompensationParams:
     reports the gravity force as ``+mass * g_sensor`` (sign verified against a
     z-down sample).
 
-    Defaults are the HSR wrist values identified on ``tf_ft_bag_BA`` (2026-06-19,
-    6549 settled samples, RMS residual 0.494 N / 0.0265 Nm).
+    Defaults are the HSR wrist values identified on a full-orientation-sweep bag
+    (2026-06-26, 24701 settled samples, RMS residual 0.585 N / 0.0352 Nm). The
+    offset drifts across sessions/power-cycles (~10 N seen on z over a week), so
+    the per-episode re-tare corrects it; mass and first_moment are stable.
     """
 
-    mass: float = 0.5945
-    """Sensor-distal load mass in kg (weight ~5.83 N)."""
+    mass: float = 0.5776
+    """Sensor-distal load mass in kg (weight ~5.67 N)."""
 
     first_moment: np.ndarray = field(
-        default_factory=lambda: np.array([-0.0002, -0.0001, -0.0246])
+        default_factory=lambda: np.array([0.0010, 0.0011, -0.0292])
     )
-    """First mass moment ``mass * com`` in kg*m; COM ~4 cm down the sensor z-axis."""
+    """First mass moment ``mass * com`` in kg*m; COM ~5 cm down the sensor z-axis."""
 
     force_offset: np.ndarray = field(
-        default_factory=lambda: np.array([-8.378, 13.673, -67.203])
+        default_factory=lambda: np.array([-9.290, 12.430, -57.135])
     )
-    """Constant sensor force bias in N."""
+    """Constant sensor force bias in N (baseline; re-tare absorbs session drift)."""
 
     torque_offset: np.ndarray = field(
-        default_factory=lambda: np.array([0.0526, -0.0081, 0.0526])
+        default_factory=lambda: np.array([-0.0585, -0.0315, 0.1374])
     )
     """Constant sensor torque bias in Nm."""
 
