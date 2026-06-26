@@ -26,7 +26,7 @@ goal = Point3(x=0.0, y=0.0, z=0.5, reference_frame=root)
 
 ft_node = ForceTorqueSymbolNode(
     reference_frame=ft_sensor_frame,
-    topic_name="/hsrb/wrist_wrench/compensated",
+    topic_name="/wrist_wrench/compensated",
 )
 
 cart_goal = AdmittanceCartesianPosition(
@@ -34,7 +34,7 @@ cart_goal = AdmittanceCartesianPosition(
     tip_link=tip,
     goal_point=goal,
     ft_node=ft_node,
-    K=Vector3(50, 50, 50),
+    stiffness=Vector3(50, 50, 50),
 )
 
 msc = MotionStatechart()
