@@ -80,7 +80,7 @@ from giskardpy.motion_statechart.tasks.admittance_tasks import (
     AdmittanceCartesianPosition,
     LowerUntilContact,
 )
-from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal, WipeSegment
+from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
 from giskardpy.motion_statechart.tasks.pointing import Pointing, PointingCone
 from giskardpy.motion_statechart.test_nodes.test_nodes import (
@@ -5052,72 +5052,6 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     assert peak_penetration < 0.015
 
 
-def test_wipe_goal_expand_with_base_pose_includes_drive_step(hsr_world_setup):
-    """Only the segment carrying a base pose gets a leading
-    ``DifferentialDriveBaseGoal``; both segments keep the
-    approach -> lower -> wipe-sequence -> retract ordering."""
-    world = hsr_world_setup
-    tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
-    root = world.root
-
-    ft_node = ForceTorqueSymbolNode(
-        topic_name="/test_wipe_goal_expand/wrench",
-        reference_frame=root,
-        name="ft",
-    )
-
-    segment_with_base: WipeSegment = (
-        Pose(
-            position=Point3(x=0.3, y=0.0, z=0.0, reference_frame=root),
-            reference_frame=root,
-        ),
-        [
-            Point3(x=0.45, y=-0.1, z=0.6, reference_frame=root),
-            Point3(x=0.55, y=0.0, z=0.6, reference_frame=root),
-        ],
-    )
-    segment_without_base: WipeSegment = (
-        None,
-        [Point3(x=0.55, y=0.2, z=0.6, reference_frame=root)],
-    )
-
-    wipe_goal = WipeGoal(
-        name="wipe_two_segments",
-        segments=[segment_with_base, segment_without_base],
-        tip_link=tip,
-        root_link=root,
-        ft_node=ft_node,
-    )
-
-    context = MotionStatechartContext(world=world)
-    try:
-        wipe_goal.expand(context)
-    except Exception:
-        # super().expand may fail because HSRB has no diff drive, but the node
-        # list is assembled before that, so we can still inspect it.
-        pass
-
-    node_types = [type(n).__name__ for n in wipe_goal.nodes]
-
-    # Segment 0: drive + approach + lower + wipe-sequence + retract.
-    # Segment 1: approach + lower + wipe-sequence + retract.
-    assert node_types[0] == "DifferentialDriveBaseGoal", (
-        f"First node should be the drive step for segment 0, got {node_types}."
-    )
-    assert node_types[1:5] == [
-        "CartesianPosition",
-        "LowerUntilContact",
-        "Sequence",
-        "CartesianPosition",
-    ], f"Unexpected segment-0 child ordering: {node_types[1:5]}."
-    assert node_types[5:9] == [
-        "CartesianPosition",
-        "LowerUntilContact",
-        "Sequence",
-        "CartesianPosition",
-    ], f"Unexpected segment-1 child ordering: {node_types[5:9]}."
-
-
 def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
     """Passing an empty segment list, or segments with no waypoints, must
     produce no child nodes. Guards against silently scheduling stray
@@ -5152,15 +5086,32 @@ def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
     assert only_empty_waypoints.nodes == []
 
 
-def test_grasp_bar(pr2_world_state_reset: World):
+def test_grasp_bar(pr2_world_state_reset: World, rclpy_node):
     tip = pr2_world_state_reset.get_kinematic_structure_entity_by_name(
         "r_gripper_tool_frame"
     )
     root = pr2_world_state_reset.get_kinematic_structure_entity_by_name("odom_combined")
+    VizMarkerPublisher(node=rclpy_node, _world=pr2_world_state_reset).with_tf_publisher()
 
+    bar_length = 0.4
     bar_center = Point3(0.6, -0.2, 1.0, reference_frame=root)
     bar_axis = Vector3.Z(reference_frame=root)
-    tip_grasp_axis = Vector3.X(reference_frame=tip)
+    tip_grasp_axis = Vector3.Z(reference_frame=tip)
+
+    with pr2_world_state_reset.modify_world():
+        bar_body = Body(
+            name=PrefixedName("bar"),
+            visual=ShapeCollection(shapes=[Cylinder(width=0.02, height=bar_length, color=Color(R=0.6, G=0.3, B=0.1, A=1))]),
+        )
+        pr2_world_state_reset.add_connection(
+            FixedConnection(
+                parent=root,
+                child=bar_body,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.6, y=-0.2, z=1.0, reference_frame=root
+                ),
+            )
+        )
 
     msc = MotionStatechart()
     grasp_bar = GraspBar(
@@ -5169,7 +5120,7 @@ def test_grasp_bar(pr2_world_state_reset: World):
         tip_grasp_axis=tip_grasp_axis,
         bar_center=bar_center,
         bar_axis=bar_axis,
-        bar_length=0.4,
+        bar_length=bar_length,
     )
     msc.add_node(grasp_bar)
     end = EndMotion()

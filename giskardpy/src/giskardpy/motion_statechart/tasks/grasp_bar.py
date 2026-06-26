@@ -52,6 +52,7 @@ class GraspBar(Task):
             frame_V_goal=root_V_bar_axis,
             reference_velocity=self.reference_angular_velocity,
             quadratic_weight=self.weight,
+            name="axis",
         )
 
         root_P_tip = root_T_tip.to_position()
@@ -67,6 +68,7 @@ class GraspBar(Task):
             frame_P_goal=nearest,
             reference_velocity=self.reference_linear_velocity,
             quadratic_weight=self.weight,
+            name="position",
         )
 
         artifacts.observation = dist <= self.threshold

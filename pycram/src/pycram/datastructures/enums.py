@@ -248,6 +248,23 @@ class WaypointsMovementType(Enum):
     ENFORCE_ORIENTATION_FINAL_POINT = auto()
 
 
+class WipeMode(Enum):
+    """
+    Surface-wiping strategy. Both modes tile the whole given table surface,
+    but the stroke objective differs (absorb vs. collect).
+    """
+
+    SPILL = auto()
+    """Absorb liquid: dense serpentine coverage in one continuous stroke,
+    tool stays in contact the whole time. Direction does not matter."""
+
+    CRUMB = auto()
+    """Collect solids: unidirectional gathering strokes that all push toward
+    the collection edge and funnel to a single collection point so the crumbs
+    pile up there, with the tool lifted between strokes so crumbs are not
+    dragged back."""
+
+
 class FilterConfig(Enum):
     """
     Declare existing filter methods.
