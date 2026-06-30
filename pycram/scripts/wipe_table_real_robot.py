@@ -69,6 +69,8 @@ from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
 
+from suturo_resources.suturo_map import load_environment
+
 # The compensated wrench stays in the sensor frame, so the admittance must read
 # it there (not the tool tip). Sensor link name on the HSR.
 SENSOR_FRAME = "wrist_ft_sensor_frame"
@@ -246,6 +248,8 @@ def main():
     world = fetch_world_from_service(node)
     ModelSynchronizer(_world=world, node=node, synchronous=True)
     StateSynchronizer(_world=world, node=node, synchronous=True)
+    with world.modify_world():
+        world.merge_world(load_environment())
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]
     context = Context(world, robot_view, ros_node=node)
 
