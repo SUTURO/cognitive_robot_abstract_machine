@@ -92,11 +92,6 @@ BASE_POSE = None           # (x, y, yaw) to nav2 first, or None to place Toya by
 STANDOFF = 0.6             # m, only used for the suggested base-pose printout
 
 
-def _yes(prompt: str) -> None:
-    if input(f"{prompt} [type 'go' to continue] ").strip().lower() != "go":
-        raise SystemExit("aborted")
-
-
 def _map_xy(world, body) -> np.ndarray:
     return world.compute_forward_kinematics_np(world.root, body)[:2, 3]
 
@@ -117,7 +112,7 @@ def _surface_extent(world, body):
 
 def pick_surface(world, target_xy: np.ndarray) -> Body:
     """List every Table/Counter_Top with its map distance to ``target_xy`` and
-    return the nearest body, after the user confirms."""
+    return the nearest body."""
     candidates = []
     for kind in (Table, Counter_Top):
         for ann in world.get_semantic_annotations_by_type(kind):
@@ -131,7 +126,7 @@ def pick_surface(world, target_xy: np.ndarray) -> Body:
     for dist, body, xy in candidates:
         print(f"  {dist:5.2f} m  {str(body.name):28s} map=({xy[0]:.2f}, {xy[1]:.2f})")
     best = candidates[0][1]
-    _yes(f"\nwipe '{best.name}'?")
+    print(f"picked '{best.name}'")
     return best
 
 
@@ -264,7 +259,6 @@ def main():
     wrist = world.get_kinematic_structure_entity_by_name(SENSOR_FRAME)
 
     if BASE_POSE is not None:
-        _yes("drive the base to BASE_POSE?")
         navigate(world, *BASE_POSE)
     else:
         print("BASE_POSE is None: position Toya in front of the table manually.")
@@ -287,8 +281,7 @@ def main():
     goal = motion.motion_chart
     msc = build_msc(goal, robot_view, world, sponge, surface)
 
-    print(f"\nready: wipe '{surface.name}', {PRESS_FORCE} N press, region {region}.")
-    _yes("EXECUTE on the real robot?")
+    print(f"\nexecuting: wipe '{surface.name}', {PRESS_FORCE} N press, region {region}.")
 
     from giskardpy_ros.python_interface.python_interface import GiskardWrapper
 
