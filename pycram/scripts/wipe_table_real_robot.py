@@ -16,17 +16,16 @@ Prerequisites (start these first, separate terminals):
          python -m giskardpy.ros2_tools.wrench_compensation_node
          ros2 service call /wrench_compensation/retare std_srvs/srv/Trigger
      Confirm ``/wrist_wrench/compensated`` reads < ~1 N before continuing.
-  3. nav2 (only if you pass ``--base-pose``).
+  3. nav2 (only if ``BASE_POSE`` is set).
 
-Run (PYTHONPATH must point at this working tree, see run-tests-pythonpath)::
+Configuration is the constants block below (target table, force, patch, base
+pose). Edit those, then run with no arguments (PYTHONPATH must point at this
+working tree, see run-tests-pythonpath)::
 
-    python pycram/scripts/wipe_table_real_robot.py --target 2.5453 6.238 0.0025
-    python pycram/scripts/wipe_table_real_robot.py --target 2.5453 6.238 0.0025 \
-        --force 6 --patch 0.4 0.3 --base-pose 2.55 5.6 1.5708
+    python pycram/scripts/wipe_table_real_robot.py
 """
 from __future__ import annotations
 
-import argparse
 import math
 import threading
 
@@ -78,6 +77,17 @@ GRIPPER_TOOL_FRAME = "hand_gripper_tool_frame"
 DEFAULT_SPONGE = (0.08, 0.055, 0.03)
 SPONGE_NAME = "wipe_sponge"
 SPONGE_BOTTOM_NAME = "wipe_sponge_bottom"
+
+# Wipe configuration -- edit these instead of passing CLI args.
+TARGET_MAP_XYZ = (2.5453, 6.238, 0.0025308)  # living-room table, map frame
+PRESS_FORCE = 8.0          # N, table frame
+CONTACT_THRESHOLD = 3.0    # N that ends the contact-seeking descent
+WIPE_PATCH = (0.4, 0.3)    # m, centred sub-rectangle of the table top
+APPROACH_HEIGHT = 0.15     # m
+WIPE_MODE = WipeMode.SPILL
+USE_SPONGE = True          # False -> wipe with the bare gripper tool frame
+BASE_POSE = None           # (x, y, yaw) to nav2 first, or None to place Toya by hand
+STANDOFF = 0.6             # m, only used for the suggested base-pose printout
 
 
 def _yes(prompt: str) -> None:
@@ -178,12 +188,12 @@ def centered_region(world, surface, patch):
 def suggest_standoff(world, surface, standoff):
     """Print a base pose ``standoff`` m off the table's local -x edge, facing it
     -- the strokes run along +x, so approaching from -x keeps the near edge
-    reachable. Informational; pass it to --base-pose if it looks right."""
+    reachable. Informational; set it as BASE_POSE if it looks right."""
     m = world.compute_forward_kinematics_np(world.root, surface)
     t, approach_dir = m[:2, 3], -m[:2, 0]  # table local -x in map
     pos = t + standoff * approach_dir / np.linalg.norm(approach_dir)
     yaw = math.atan2(t[1] - pos[1], t[0] - pos[0])
-    print(f"suggested --base-pose: {pos[0]:.3f} {pos[1]:.3f} {yaw:.4f}")
+    print(f"suggested BASE_POSE: ({pos[0]:.3f}, {pos[1]:.3f}, {yaw:.4f})")
 
 
 def navigate(world, x, y, yaw):
@@ -224,26 +234,6 @@ def build_msc(goal, robot_view, world, sponge, surface):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--target", type=float, nargs=3, required=True,
-                   metavar=("X", "Y", "Z"), help="table location in map frame")
-    p.add_argument("--force", type=float, default=8.0, help="press force N (table frame)")
-    p.add_argument("--contact-threshold", type=float, default=3.0,
-                   help="force N that ends the contact-seeking descent")
-    p.add_argument("--patch", type=float, nargs=2, default=(0.4, 0.3),
-                   metavar=("PX", "PY"), help="wipe patch size, m, table frame")
-    p.add_argument("--approach-height", type=float, default=0.15)
-    p.add_argument("--mode", choices=[m.name.lower() for m in WipeMode], default="spill")
-    p.add_argument("--sponge", type=float, nargs=3, default=DEFAULT_SPONGE,
-                   metavar=("X", "Y", "Z"), help="sponge size; must match the real tool")
-    p.add_argument("--no-sponge", action="store_true",
-                   help="wipe with the bare gripper tool frame")
-    p.add_argument("--base-pose", type=float, nargs=3, default=None,
-                   metavar=("X", "Y", "YAW"), help="nav2 the base here first")
-    p.add_argument("--standoff", type=float, default=0.6,
-                   help="distance for the suggested base pose, m")
-    args = p.parse_args()
-
     rclpy.init()
     node = rclpy.create_node("wipe_table_real_robot")
     executor = SingleThreadedExecutor()
@@ -259,42 +249,41 @@ def main():
     robot_view = world.get_semantic_annotations_by_type(HSRB)[0]
     context = Context(world, robot_view, ros_node=node)
 
-    target_xy = np.array(args.target[:2])
-    surface = pick_surface(world, target_xy)
-    suggest_standoff(world, surface, args.standoff)
+    surface = pick_surface(world, np.array(TARGET_MAP_XYZ[:2]))
+    suggest_standoff(world, surface, STANDOFF)
 
     sponge = sponge_bottom = None
-    if not args.no_sponge:
-        sponge, sponge_bottom = attach_sponge(world, tuple(args.sponge))
+    if USE_SPONGE:
+        sponge, sponge_bottom = attach_sponge(world, DEFAULT_SPONGE)
 
-    region = centered_region(world, surface, tuple(args.patch))
+    region = centered_region(world, surface, WIPE_PATCH)
     wrist = world.get_kinematic_structure_entity_by_name(SENSOR_FRAME)
 
-    if args.base_pose is not None:
-        _yes("drive the base to the given --base-pose?")
-        navigate(world, *args.base_pose)
+    if BASE_POSE is not None:
+        _yes("drive the base to BASE_POSE?")
+        navigate(world, *BASE_POSE)
     else:
-        print("no --base-pose given: position Toya in front of the table manually.")
+        print("BASE_POSE is None: position Toya in front of the table manually.")
 
     motion = WipeTableMotion(
         table=Table(root=surface),
         arm=Arms.LEFT,
-        mode=WipeMode[args.mode.upper()],
+        mode=WIPE_MODE,
         tool=sponge,
         tool_contact_frame=sponge_bottom,
         region=region,
         stroke_sample_count=6,
-        approach_height=args.approach_height,
+        approach_height=APPROACH_HEIGHT,
         wipe_threshold=0.04,
-        desired_force=Vector3(z=args.force),
-        contact_force_threshold=args.contact_threshold,
+        desired_force=Vector3(z=PRESS_FORCE),
+        contact_force_threshold=CONTACT_THRESHOLD,
         force_torque_reference_frame=wrist,
     )
     execute_single(motion, context=context)
     goal = motion.motion_chart
     msc = build_msc(goal, robot_view, world, sponge, surface)
 
-    print(f"\nready: wipe '{surface.name}', {args.force} N press, region {region}.")
+    print(f"\nready: wipe '{surface.name}', {PRESS_FORCE} N press, region {region}.")
     _yes("EXECUTE on the real robot?")
 
     from giskardpy_ros.python_interface.python_interface import GiskardWrapper
