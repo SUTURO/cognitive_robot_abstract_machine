@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
+from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
 )
@@ -205,7 +206,13 @@ class WipeTableMotion(BaseMotion):
                 body_group_a=tool_group, body_group_b=[self._table_body]
             )
         ]
-        return [ExternalCollisionAvoidance(robot=self.robot)], approach_rules, contact_rules
+        # Weight avoidance above the wipe goals (WEIGHT_ABOVE_CA) so the QP is
+        # driven away from the table rather than through it: never collide, even
+        # if a far waypoint then stays out of reach.
+        avoidance = ExternalCollisionAvoidance(
+            robot=self.robot, weight=DefaultWeights.WEIGHT_MAX
+        )
+        return [avoidance], approach_rules, contact_rules
 
     def _print_targets(self, goal: WipeGoal) -> None:
         """Print, in the world frame, where the wipe drives ``tip_link``: the

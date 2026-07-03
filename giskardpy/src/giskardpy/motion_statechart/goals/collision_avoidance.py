@@ -191,6 +191,12 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
     The maximum velocity for the collision avoidance task.
     """
 
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_COLLISION_AVOIDANCE, kw_only=True
+    )
+    """Quadratic weight of the avoidance inequality's slack. Raise it above the
+    motion's goal weights to make avoidance dominate the QP (never push through)."""
+
     @property
     def tip(self) -> KinematicStructureEntity:
         return self.collision_group.root
@@ -234,7 +240,7 @@ class _ExternalCollisionAvoidanceTask(_ExternalCollisionAvoidanceNode):
             reference_velocity=self.max_velocity,
             lower_error=lower_limit,
             upper_error=float("inf"),
-            quadratic_weight=DefaultWeights.WEIGHT_COLLISION_AVOIDANCE,
+            quadratic_weight=self.weight,
             task_expression=a_projected_on_normal,
         )
 
@@ -325,6 +331,11 @@ class ExternalCollisionAvoidance(Goal):
     """
     The maximum velocity for the collision avoidance task.
     """
+    weight: float = field(
+        default=DefaultWeights.WEIGHT_COLLISION_AVOIDANCE, kw_only=True
+    )
+    """Quadratic weight forwarded to every avoidance task. Raise it above the
+    motion's goal weights so avoidance wins the QP."""
     external_collision_manager: ExternalCollisionVariableManager = field(init=False)
     """
     Reference to the external collision variable manager shared by other external collision avoidance nodes.
@@ -363,6 +374,7 @@ class ExternalCollisionAvoidance(Goal):
                     name=f"{self.name}/task({group.root.name.name, index})",
                     collision_group=group,
                     max_velocity=self.max_velocity,
+                    weight=self.weight,
                     collision_index=index,
                     external_collision_manager=self.external_collision_manager,
                 )
