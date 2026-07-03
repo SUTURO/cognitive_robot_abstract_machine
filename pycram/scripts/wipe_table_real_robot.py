@@ -46,6 +46,7 @@ TABLE_NAME = "dining_table"
 PRESS_FORCE = 8.0          # N, table frame
 CONTACT_THRESHOLD = 3.0    # N that ends the contact-seeking descent
 WIPE_PATCH = (0.4, 0.3)    # m, centred sub-rectangle of the table top
+MAX_REACH = 0.7            # m; start near the base, drop waypoints past this (tune via the report)
 APPROACH_HEIGHT = 0.15     # m
 WIPE_MODE = WipeMode.SPILL
 USE_SPONGE = True          # False -> wipe with the bare gripper tool frame
@@ -154,6 +155,7 @@ def main():
         tool=sponge,
         tool_contact_frame=sponge_bottom,
         region=region,
+        max_reach=MAX_REACH,
         stroke_sample_count=6,
         approach_height=APPROACH_HEIGHT,
         wipe_threshold=0.04,

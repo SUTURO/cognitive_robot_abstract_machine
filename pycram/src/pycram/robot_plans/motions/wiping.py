@@ -83,6 +83,12 @@ class WipeTableMotion(BaseMotion):
     region: Optional[Tuple[float, float, float, float]] = None
     """``(min_x, max_x, min_y, max_y)`` sub-rectangle to wipe; ``None`` = whole top."""
 
+    max_reach: Optional[float] = None
+    """Horizontal reach limit from the base, in m. When set, the serpentine
+    starts at the corner nearest the base and waypoints farther than this are
+    dropped as unreachable. Set it below the arm's true reach to leave room for
+    the collision-avoidance buffer. ``None`` = no reachability handling."""
+
     obstacles: Optional[List[Body]] = None
     """Bodies on the table to wipe around. ``None`` uses the table's own
     ``objects``; pass a list to override."""
@@ -246,27 +252,48 @@ class WipeTableMotion(BaseMotion):
 
     def _build_segments(self) -> List[WipeSegment]:
         min_x, max_x, min_y, max_y, top_z = self._wipe_extent()
-        x_start = min_x + self.surface_margin
-        x_end = max_x - self.surface_margin
+        x_lo = min_x + self.surface_margin
+        x_hi = max_x - self.surface_margin
         lane_y_values = self._lane_offsets(
             min_y + self.surface_margin, max_y - self.surface_margin
         )
+        base_txy = self._base_in_table_xy() if self.max_reach is not None else None
+        if base_txy is not None:
+            # Start the serpentine at the corner nearest the base, so the first
+            # approach is the most reachable point rather than a far corner.
+            x_start, x_end = (
+                (x_hi, x_lo)
+                if abs(base_txy[0] - x_hi) < abs(base_txy[0] - x_lo)
+                else (x_lo, x_hi)
+            )
+            if abs(base_txy[1] - lane_y_values[-1]) < abs(base_txy[1] - lane_y_values[0]):
+                lane_y_values = list(reversed(lane_y_values))
+        else:
+            x_start, x_end = x_lo, x_hi
         footprints = self._obstacle_footprints()
         if self.mode == WipeMode.SPILL:
-            return self._absorb_segments(x_start, x_end, lane_y_values, top_z, footprints)
-        return self._collect_segments(x_start, x_end, lane_y_values, top_z, footprints)
+            segments = self._absorb_segments(
+                x_start, x_end, lane_y_values, top_z, footprints, base_txy
+            )
+        else:
+            segments = self._collect_segments(
+                x_start, x_end, lane_y_values, top_z, footprints, base_txy
+            )
+        self._report_reachability(segments, base_txy)
+        return segments
 
-    def _absorb_segments(self, x_start, x_end, lane_y_values, top_z, footprints):
-        """One serpentine, cut into separate segments wherever it hits an obstacle."""
+    def _absorb_segments(self, x_start, x_end, lane_y_values, top_z, footprints, base_txy):
+        """One serpentine, cut into separate segments wherever it hits an obstacle
+        or leaves the reachable radius."""
         waypoints: List[Point3] = []
         for lane_index, lane_y in enumerate(lane_y_values):
             stroke_start, stroke_end = (
                 (x_start, x_end) if lane_index % 2 == 0 else (x_end, x_start)
             )
             waypoints.extend(self._stroke_points(stroke_start, stroke_end, lane_y, top_z))
-        return [(None, run) for run in self._split_on_obstruction(waypoints, footprints)]
+        return [(None, run) for run in self._split_reachable(waypoints, footprints, base_txy)]
 
-    def _collect_segments(self, x_start, x_end, lane_y_values, top_z, footprints):
+    def _collect_segments(self, x_start, x_end, lane_y_values, top_z, footprints, base_txy):
         """One +x stroke per lane, each funneled onto a shared collection point."""
         collection_y = 0.5 * (lane_y_values[0] + lane_y_values[-1])
         collection_point = Point3(
@@ -275,8 +302,8 @@ class WipeTableMotion(BaseMotion):
         collection_clear = not self._is_obstructed(collection_point, footprints)
         segments: List[WipeSegment] = []
         for lane_y in lane_y_values:
-            runs = self._split_on_obstruction(
-                self._stroke_points(x_start, x_end, lane_y, top_z), footprints
+            runs = self._split_reachable(
+                self._stroke_points(x_start, x_end, lane_y, top_z), footprints, base_txy
             )
             for run_index, run in enumerate(runs):
                 reaches_edge = abs(float(run[-1].x) - x_end) <= 1e-9
@@ -332,12 +359,15 @@ class WipeTableMotion(BaseMotion):
             for min_x, max_x, min_y, max_y in footprints
         )
 
-    def _split_on_obstruction(self, points, footprints) -> List[List[Point3]]:
-        """Split into contiguous runs, dropping points inside an obstacle footprint."""
+    def _split_reachable(self, points, footprints, base_txy) -> List[List[Point3]]:
+        """Split into contiguous runs, dropping points inside an obstacle
+        footprint or beyond ``max_reach`` of the base."""
         runs: List[List[Point3]] = []
         current: List[Point3] = []
         for point in points:
-            if self._is_obstructed(point, footprints):
+            if self._is_obstructed(point, footprints) or not self._reachable(
+                point, base_txy
+            ):
                 if current:
                     runs.append(current)
                     current = []
@@ -346,6 +376,46 @@ class WipeTableMotion(BaseMotion):
         if current:
             runs.append(current)
         return runs
+
+    def _base_in_table_xy(self) -> Tuple[float, float]:
+        """The base position in the table's (horizontal) xy-plane, for the
+        near-corner start and the reachability check."""
+        table_T_world = np.linalg.inv(
+            self.world.compute_forward_kinematics_np(self.world.root, self._table_body)
+        )
+        base_world = self.world.compute_forward_kinematics_np(
+            self.world.root, self.robot.root
+        )[:, 3]
+        base_in_table = table_T_world @ base_world
+        return float(base_in_table[0]), float(base_in_table[1])
+
+    def _reachable(self, point: Point3, base_txy) -> bool:
+        if base_txy is None or self.max_reach is None:
+            return True
+        return (
+            math.hypot(float(point.x) - base_txy[0], float(point.y) - base_txy[1])
+            <= self.max_reach
+        )
+
+    def _report_reachability(self, segments, base_txy) -> None:
+        if base_txy is None:
+            return
+        waypoints = [wp for _base, run in segments for wp in run]
+        kept = len(waypoints)
+        if kept:
+            dists = [
+                math.hypot(float(wp.x) - base_txy[0], float(wp.y) - base_txy[1])
+                for wp in waypoints
+            ]
+            print(
+                f"reachability: {kept} waypoints kept within {self.max_reach} m "
+                f"(base-distance {min(dists):.2f}-{max(dists):.2f} m)"
+            )
+        else:
+            print(
+                f"reachability: NO waypoint within {self.max_reach} m of the base -- "
+                "move the base closer to the table or raise max_reach."
+            )
 
     def _stroke_points(self, x_start, x_end, lane_y, top_z) -> List[Point3]:
         sample_count = max(2, self.stroke_sample_count)
