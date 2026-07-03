@@ -222,7 +222,6 @@ def build_msc(goal, robot_view, world, sponge, surface):
             )
         )
     msc = MotionStatechart()
-    msc.add_node(goal.ft_node)
     msc.add_node(UpdateTemporaryCollisionRules(temporary_rules=rules))
     msc.add_node(ExternalCollisionAvoidance(robot=robot_view))
     msc.add_node(goal)

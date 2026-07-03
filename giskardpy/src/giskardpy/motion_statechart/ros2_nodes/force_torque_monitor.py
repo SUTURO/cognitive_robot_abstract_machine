@@ -4,6 +4,10 @@ from typing import Optional
 import numpy as np
 from geometry_msgs.msg import WrenchStamped
 
+from krrood.symbolic_math.exceptions import (
+    SymbolicMathExpressionAlreadyRegisteredError,
+)
+
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -102,8 +106,13 @@ class ForceTorqueSymbolNode(ForceTorqueNode):
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        context.float_variable_data.register_expression(self.force)
-        context.float_variable_data.register_expression(self.torque)
+        # WipeGoal adds this node, so it is built both as a goal child and as a
+        # top-level node; register the symbols only once
+        for expression in (self.force, self.torque):
+            try:
+                context.float_variable_data.register_expression(expression)
+            except SymbolicMathExpressionAlreadyRegisteredError:
+                pass
         return artifacts
 
     def on_tick(

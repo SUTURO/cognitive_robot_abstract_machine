@@ -203,6 +203,8 @@ class WipeGoal(Sequence):
         if not motion_nodes:
             return
 
+        self.add_node(self.ft_node)
+
         # The strokes run as a sequence; the tilt (if any) runs in parallel,
         # active until the strokes finish. Not calling super().expand() keeps
         # the two siblings parallel instead of chaining them.

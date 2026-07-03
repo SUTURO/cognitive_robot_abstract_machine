@@ -341,7 +341,6 @@ def _run_wipe(
     robot_bodies = list(robot_view.bodies_with_collision)
 
     msc = MotionStatechart()
-    msc.add_node(goal.ft_node)
     msc.add_node(
         UpdateTemporaryCollisionRules(
             temporary_rules=[
