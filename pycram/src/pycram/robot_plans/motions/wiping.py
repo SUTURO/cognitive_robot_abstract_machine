@@ -8,7 +8,6 @@ import numpy as np
 
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
-    UpdateTemporaryCollisionRules,
 )
 from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal, WipeSegment
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
@@ -159,6 +158,9 @@ class WipeTableMotion(BaseMotion):
             reference_frame=self.force_torque_reference_frame or tip_link,
             name="wipe_ft",
         )
+        parallel_nodes, approach_rules, contact_rules = (
+            self._collision_setup() if self.avoid_collisions else ([], [], [])
+        )
         goal = WipeGoal(
             name="WipeTable",
             segments=self._build_segments(),
@@ -170,34 +172,40 @@ class WipeTableMotion(BaseMotion):
             desired_force=self.desired_force,
             approach_height=self.approach_height,
             keep_tip_axis_aligned=self.keep_tool_pointing_down,
-            parallel_nodes=self._collision_nodes() if self.avoid_collisions else [],
+            parallel_nodes=parallel_nodes,
+            approach_collision_rules=approach_rules,
+            contact_collision_rules=contact_rules,
         )
         if self.verbose:
             self._print_targets(goal)
         return goal
 
-    def _collision_nodes(self) -> List:
-        """Avoid every external collision, but let the gripper and tool ride the
-        wiped surface (and let the tool touch the arm it hangs from)."""
+    def _collision_setup(self):
+        """Phase-dependent collision avoidance. The whole robot (base included)
+        avoids everything external for the whole wipe via a parallel
+        :class:`ExternalCollisionAvoidance` constraint. The gripper and tool are
+        *additionally* allowed onto the wiped surface only from the contact phase
+        on, so the approach descends from above rather than driving through the
+        table. Returns ``(parallel_nodes, approach_rules, contact_rules)``."""
         gripper = [b for b in self.world.bodies_with_collision if "hand_" in str(b.name)]
         tool_group = gripper + ([self.tool] if self.tool is not None else [])
-        rules = [
-            AvoidExternalCollisions(robot=self.robot),
-            AllowCollisionBetweenGroups(
-                body_group_a=tool_group, body_group_b=[self._table_body]
-            ),
-        ]
+        # Both phases: avoid all external collisions; the sponge is bolted to the
+        # arm, so never treat it touching the arm as a collision.
+        approach_rules = [AvoidExternalCollisions(robot=self.robot)]
         if self.tool is not None:
-            rules.append(
+            approach_rules.append(
                 AllowCollisionBetweenGroups(
                     body_group_a=[self.tool],
                     body_group_b=list(self.robot.bodies_with_collision),
                 )
             )
-        return [
-            UpdateTemporaryCollisionRules(temporary_rules=rules),
-            ExternalCollisionAvoidance(robot=self.robot),
+        # Contact phase adds the gripper+tool <-> surface exemption.
+        contact_rules = approach_rules + [
+            AllowCollisionBetweenGroups(
+                body_group_a=tool_group, body_group_b=[self._table_body]
+            )
         ]
+        return [ExternalCollisionAvoidance(robot=self.robot)], approach_rules, contact_rules
 
     def _print_targets(self, goal: WipeGoal) -> None:
         """Print, in the world frame, where the wipe drives ``tip_link``: the

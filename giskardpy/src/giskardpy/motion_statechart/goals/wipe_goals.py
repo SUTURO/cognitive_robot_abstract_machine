@@ -3,6 +3,7 @@ from __future__ import division
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+from semantic_digital_twin.collision_checking.collision_rules import CollisionRule
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.world_description.connections import DifferentialDrive
@@ -13,6 +14,9 @@ from semantic_digital_twin.world_description.world_entity import (
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.cartesian_goals import DifferentialDriveBaseGoal
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    UpdateTemporaryCollisionRules,
+)
 from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
@@ -125,6 +129,20 @@ class WipeGoal(Sequence):
     )
     """Extra nodes to run in parallel with the wipe strokes (e.g. collision
     avoidance), ending when the strokes finish -- like the tilt constraint."""
+
+    approach_collision_rules: List[CollisionRule] = field(
+        default_factory=list, kw_only=True
+    )
+    """Collision rules applied at the start of every segment (before the
+    approach), e.g. the gripper avoids the surface so it descends from above
+    instead of driving through it. Empty = leave the matrix unchanged."""
+
+    contact_collision_rules: List[CollisionRule] = field(
+        default_factory=list, kw_only=True
+    )
+    """Collision rules applied before every contact-seeking descent, e.g. suspend
+    gripper-vs-surface avoidance (base still avoided) so the tool can press on.
+    Empty = leave the matrix unchanged."""
 
     diff_drive_connection: Optional[DifferentialDrive] = field(
         default=None, kw_only=True
@@ -269,6 +287,15 @@ class WipeGoal(Sequence):
 
         nodes: List[MotionStatechartNode] = []
 
+        # Approach phase: gripper avoids the surface (comes down from above).
+        if self.approach_collision_rules:
+            nodes.append(
+                UpdateTemporaryCollisionRules(
+                    name=f"{segment_name}/approach_collision",
+                    temporary_rules=self.approach_collision_rules,
+                )
+            )
+
         if base_pose is not None:
             nodes.append(
                 DifferentialDriveBaseGoal(
@@ -295,6 +322,16 @@ class WipeGoal(Sequence):
                 weight=self.weight,
             )
         )
+
+        # Contact phase: suspend gripper-vs-surface avoidance so it can press on
+        # (the base and the rest of the robot stay avoided).
+        if self.contact_collision_rules:
+            nodes.append(
+                UpdateTemporaryCollisionRules(
+                    name=f"{segment_name}/contact_collision",
+                    temporary_rules=self.contact_collision_rules,
+                )
+            )
 
         descend_point = Point3(
             x=first_waypoint.x,
