@@ -4,11 +4,21 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+import numpy as np
+
+from giskardpy.motion_statechart.goals.collision_avoidance import (
+    ExternalCollisionAvoidance,
+    UpdateTemporaryCollisionRules,
+)
 from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal, WipeSegment
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceTorqueSymbolNode,
 )
 from giskardpy.ros2_tools.wrench_compensation_node import COMPENSATED_WRENCH_TOPIC
+from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
+    AvoidExternalCollisions,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import (
@@ -98,6 +108,15 @@ class WipeTableMotion(BaseMotion):
     sensor frame, so set this to the sensor link; it otherwise defaults to the
     tool tip, which is only correct if tool and sensor share an orientation."""
 
+    avoid_collisions: bool = False
+    """Run external collision avoidance in parallel with the wipe, letting only
+    the gripper and tool touch the wiped surface. Off by default so callers that
+    add their own collision rules aren't doubled up."""
+
+    verbose: bool = False
+    """Print the world-frame targets (approach, lower, waypoints, retract) when
+    the motion chart is built."""
+
     def __post_init__(self):
         width = self._tool_contact_width()
         if self.lane_spacing is None:
@@ -140,7 +159,7 @@ class WipeTableMotion(BaseMotion):
             reference_frame=self.force_torque_reference_frame or tip_link,
             name="wipe_ft",
         )
-        return WipeGoal(
+        goal = WipeGoal(
             name="WipeTable",
             segments=self._build_segments(),
             tip_link=tip_link,
@@ -151,7 +170,64 @@ class WipeTableMotion(BaseMotion):
             desired_force=self.desired_force,
             approach_height=self.approach_height,
             keep_tip_axis_aligned=self.keep_tool_pointing_down,
+            parallel_nodes=self._collision_nodes() if self.avoid_collisions else [],
         )
+        if self.verbose:
+            self._print_targets(goal)
+        return goal
+
+    def _collision_nodes(self) -> List:
+        """Avoid every external collision, but let the gripper and tool ride the
+        wiped surface (and let the tool touch the arm it hangs from)."""
+        gripper = [b for b in self.world.bodies_with_collision if "hand_" in str(b.name)]
+        tool_group = gripper + ([self.tool] if self.tool is not None else [])
+        rules = [
+            AvoidExternalCollisions(robot=self.robot),
+            AllowCollisionBetweenGroups(
+                body_group_a=tool_group, body_group_b=[self._table_body]
+            ),
+        ]
+        if self.tool is not None:
+            rules.append(
+                AllowCollisionBetweenGroups(
+                    body_group_a=[self.tool],
+                    body_group_b=list(self.robot.bodies_with_collision),
+                )
+            )
+        return [
+            UpdateTemporaryCollisionRules(temporary_rules=rules),
+            ExternalCollisionAvoidance(robot=self.robot),
+        ]
+
+    def _print_targets(self, goal: WipeGoal) -> None:
+        """Print, in the world frame, where the wipe drives ``tip_link``: the
+        approach (above the surface), the contact-seeking lower target (below it,
+        reached only without contact), each waypoint, and the retract -- so it is
+        visible whether the tool presses onto the surface or through it."""
+        tip = goal.tip_link
+        tip_now = self.world.compute_forward_kinematics_np(self.world.root, tip)[:3, 3]
+        print(f"tip '{tip.name}' now (world): {np.round(tip_now, 3)}")
+        for seg_index, (_base_pose, waypoints) in enumerate(goal.segments):
+            if not waypoints:
+                continue
+            surface_T = self.world.compute_forward_kinematics_np(
+                self.world.root, waypoints[0].reference_frame
+            )
+
+            def to_world(x, y, z):
+                return (surface_T @ np.array([float(x), float(y), float(z), 1.0]))[:3]
+
+            first, last = waypoints[0], waypoints[-1]
+            print(f"segment {seg_index} ({len(waypoints)} waypoints):")
+            print(f"  approach (world): "
+                  f"{np.round(to_world(first.x, first.y, float(first.z) + goal.approach_height), 3)}")
+            print(f"  lower    (world): "
+                  f"{np.round(to_world(first.x, first.y, float(first.z) - goal.lower_overshoot), 3)}"
+                  f"  <- descends here unless force >= {goal.contact_force_threshold} N")
+            for i, wp in enumerate(waypoints):
+                print(f"  waypoint {i} (world): {np.round(to_world(wp.x, wp.y, wp.z), 3)}")
+            print(f"  retract  (world): "
+                  f"{np.round(to_world(last.x, last.y, float(last.z) + goal.approach_height), 3)}")
 
     def _build_segments(self) -> List[WipeSegment]:
         min_x, max_x, min_y, max_y, top_z = self._wipe_extent()

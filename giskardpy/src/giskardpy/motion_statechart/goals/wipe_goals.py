@@ -120,6 +120,12 @@ class WipeGoal(Sequence):
     ft_node: ForceTorqueSymbolNode = field(kw_only=True)
     """Force/torque symbol source shared by ``LowerUntilContact`` and the admittance tasks."""
 
+    parallel_nodes: List[MotionStatechartNode] = field(
+        default_factory=list, kw_only=True
+    )
+    """Extra nodes to run in parallel with the wipe strokes (e.g. collision
+    avoidance), ending when the strokes finish -- like the tilt constraint."""
+
     diff_drive_connection: Optional[DifferentialDrive] = field(
         default=None, kw_only=True
     )
@@ -238,6 +244,12 @@ class WipeGoal(Sequence):
             )
             self.add_node(tilt)
             tilt.end_condition = self._strokes.observation_variable
+
+        # Collision avoidance (or anything else the caller wants live during the
+        # wipe) runs parallel to the strokes and stops when they finish.
+        for node in self.parallel_nodes:
+            self.add_node(node)
+            node.end_condition = self._strokes.observation_variable
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         if self._strokes is None:

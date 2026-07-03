@@ -6,27 +6,19 @@ import threading
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 
-from giskardpy.motion_statechart.goals.collision_avoidance import (
-    ExternalCollisionAvoidance,
-    UpdateTemporaryCollisionRules,
-)
-from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.ros2_tools.wrench_compensation_node import COMPENSATED_WRENCH_TOPIC
 
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import Arms, WipeMode
+from pycram.motion_executor import real_robot
 from pycram.plans.factories import execute_single
+from pycram.robot_plans.actions.core.wiping import WipeAction
 from pycram.robot_plans.motions.wiping import WipeTableMotion
 
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
     ModelSynchronizer,
     StateSynchronizer,
-)
-from semantic_digital_twin.collision_checking.collision_rules import (
-    AllowCollisionBetweenGroups,
-    AvoidExternalCollisions,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
@@ -57,6 +49,7 @@ WIPE_PATCH = (0.4, 0.3)    # m, centred sub-rectangle of the table top
 APPROACH_HEIGHT = 0.15     # m
 WIPE_MODE = WipeMode.SPILL
 USE_SPONGE = True          # False -> wipe with the bare gripper tool frame
+AVOID_COLLISIONS = True    # collision avoidance is added inside the motion
 
 
 def _surface_extent(world, body):
@@ -125,30 +118,6 @@ def centered_region(world, surface, patch):
     return region
 
 
-def build_msc(goal, robot_view, world, sponge, surface):
-    """WipeGoal + collision rules + EndMotion. WipeGoal adds its own FT node.
-    The table is the one surface the sponge and hand are allowed to touch."""
-    gripper = [b for b in world.bodies_with_collision if "hand_" in str(b.name)]
-    tool_group = gripper + ([sponge] if sponge is not None else [])
-    rules = [
-        AvoidExternalCollisions(robot=robot_view),
-        AllowCollisionBetweenGroups(body_group_a=tool_group, body_group_b=[surface]),
-    ]
-    if sponge is not None:
-        # The sponge is bolted to the arm; never avoid it touching the arm.
-        rules.append(
-            AllowCollisionBetweenGroups(
-                body_group_a=[sponge], body_group_b=list(robot_view.bodies_with_collision)
-            )
-        )
-    msc = MotionStatechart()
-    msc.add_node(UpdateTemporaryCollisionRules(temporary_rules=rules))
-    msc.add_node(ExternalCollisionAvoidance(robot=robot_view))
-    msc.add_node(goal)
-    msc.add_node(EndMotion.when_true(goal))
-    return msc
-
-
 def main():
     rclpy.init()
     node = rclpy.create_node("wipe_table_real_robot")
@@ -168,6 +137,8 @@ def main():
     context = Context(world, robot_view, ros_node=node)
 
     surface = world.get_body_by_name(TABLE_NAME)
+    print(f'robot position: {context.robot.root.global_pose.to_position().to_np()}')
+    print(f'Table position: {surface.global_pose.to_position().to_np()}')
 
     sponge = sponge_bottom = None
     if USE_SPONGE:
@@ -189,16 +160,12 @@ def main():
         desired_force=Vector3(z=PRESS_FORCE),
         contact_force_threshold=CONTACT_THRESHOLD,
         force_torque_reference_frame=wrist,
+        avoid_collisions=AVOID_COLLISIONS,
+        verbose=True,
     )
-    execute_single(motion, context=context)
-    goal = motion.motion_chart
-    msc = build_msc(goal, robot_view, world, sponge, surface)
-
     print(f"\nexecuting: wipe '{surface.name}', {PRESS_FORCE} N press, region {region}.")
-
-    from giskardpy_ros.python_interface.python_interface import GiskardWrapper
-
-    GiskardWrapper(node).execute(msc)
+    with real_robot:
+        execute_single(WipeAction(motion=motion), context=context).perform()
     print("wipe finished.")
 
 
