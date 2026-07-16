@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import threading
 
 import rclpy
@@ -24,6 +25,7 @@ from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Box, Scale
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
@@ -40,34 +42,37 @@ DEFAULT_SPONGE = (0.08, 0.055, 0.03)
 SPONGE_NAME = "wipe_sponge"
 SPONGE_BOTTOM_NAME = "wipe_sponge_bottom"
 
-# Wipe configuration -- edit these instead of passing CLI args. Toya must
+# Wipe configuration -- spill/crumb comes from the CLI (--mode); Toya must
 # already be positioned in front of the table.
 TABLE_NAME = "dining_table"
 PRESS_FORCE = 8.0          # N, table frame
 CONTACT_THRESHOLD = 3.0    # N that ends the contact-seeking descent
-WIPE_PATCH = (0.4, 0.3)    # m, centred sub-rectangle of the table top
-MAX_REACH = 0.7            # m; start near the base, drop waypoints past this (tune via the report)
 APPROACH_HEIGHT = 0.15     # m
-WIPE_MODE = WipeMode.SPILL
+WIPE_THRESHOLD = 0.04      # m; a waypoint counts as wiped within this distance
 USE_SPONGE = True          # False -> wipe with the bare gripper tool frame
 AVOID_COLLISIONS = True    # collision avoidance is added inside the motion
 
 
-def _surface_extent(world, body):
-    """``(min_x, max_x, min_y, max_y, top_z)`` of the table top, in its frame."""
-    boxes = list(body.collision.as_bounding_box_collection_in_frame(body))
-    if not boxes:
-        raise RuntimeError(f"{body.name} has no collision geometry.")
-    return (
-        min(b.min_x for b in boxes),
-        max(b.max_x for b in boxes),
-        min(b.min_y for b in boxes),
-        max(b.max_y for b in boxes),
-        max(b.max_z for b in boxes),
+def _to_wipe_mode(name: str) -> WipeMode:
+    return WipeMode[name.upper()]
+
+
+def wipe_mode_argument_parser(description: str) -> argparse.ArgumentParser:
+    """An argument parser with the shared ``--mode spill|crumb`` option
+    (default spill), used by the real-robot script and the RViz demo."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument(
+        "--mode",
+        type=_to_wipe_mode,
+        choices=list(WipeMode),
+        default=WipeMode.SPILL,
+        metavar="{" + ",".join(mode.name.lower() for mode in WipeMode) + "}",
+        help="spill = serpentine absorb, crumb = gather strokes to one pile",
     )
+    return parser
 
 
-def attach_sponge(world, sponge_dims):
+def attach_sponge(world: World, sponge_dims: tuple[float, float, float]) -> tuple[Body, Body]:
     """Bolt a mock sponge to the gripper; return ``(sponge, sponge_bottom)``. The
     sponge hangs along the tool +Z so its flat underside is the contact point."""
     tool = world.get_kinematic_structure_entity_by_name(GRIPPER_TOOL_FRAME)
@@ -100,26 +105,38 @@ def attach_sponge(world, sponge_dims):
     return sponge, sponge_bottom
 
 
-def centered_region(world, surface, patch):
-    """A ``patch`` (px, py) sub-rectangle centred on the table top, in the table
-    frame. Bounded so the full-serpentine stays reachable from one base pose."""
-    min_x, max_x, min_y, max_y, top_z = _surface_extent(world, surface)
-    cx, cy = (min_x + max_x) / 2.0, (min_y + max_y) / 2.0
-    px, py = patch
-    region = (
-        max(min_x, cx - px / 2),
-        min(max_x, cx + px / 2),
-        max(min_y, cy - py / 2),
-        min(max_y, cy + py / 2),
+def build_wipe_motion(
+    world: World,
+    surface: Body,
+    mode: WipeMode,
+    sponge: Body | None,
+    sponge_bottom: Body | None,
+) -> WipeTableMotion:
+    """The wipe both the real-robot script and the RViz demo run: the whole
+    table top is planned (no region -- the measured reach drops the rows Toya
+    cannot get to from her base pose), collision avoidance lives inside the
+    motion, and the wrench is read in the FT sensor frame."""
+    wrist = world.get_kinematic_structure_entity_by_name(SENSOR_FRAME)
+    return WipeTableMotion(
+        table=Table(root=surface),
+        arm=Arms.LEFT,
+        mode=mode,
+        tool=sponge,
+        tool_contact_frame=sponge_bottom,
+        limit_to_reachable=True,
+        stroke_sample_count=6,
+        approach_height=APPROACH_HEIGHT,
+        wipe_threshold=WIPE_THRESHOLD,
+        desired_force=Vector3(z=PRESS_FORCE),
+        contact_force_threshold=CONTACT_THRESHOLD,
+        force_torque_reference_frame=wrist,
+        avoid_collisions=AVOID_COLLISIONS,
+        verbose=True,
     )
-    print(
-        f"table top extent (table frame): x[{min_x:.2f},{max_x:.2f}] "
-        f"y[{min_y:.2f},{max_y:.2f}] top_z={top_z:.3f}\nwipe region: {region}"
-    )
-    return region
 
 
-def main():
+def main() -> None:
+    mode = wipe_mode_argument_parser("Wipe a table with the real HSR.").parse_args().mode
     rclpy.init()
     node = rclpy.create_node("wipe_table_real_robot")
     executor = SingleThreadedExecutor()
@@ -145,27 +162,8 @@ def main():
     if USE_SPONGE:
         sponge, sponge_bottom = attach_sponge(world, DEFAULT_SPONGE)
 
-    region = centered_region(world, surface, WIPE_PATCH)
-    wrist = world.get_kinematic_structure_entity_by_name(SENSOR_FRAME)
-
-    motion = WipeTableMotion(
-        table=Table(root=surface),
-        arm=Arms.LEFT,
-        mode=WIPE_MODE,
-        tool=sponge,
-        tool_contact_frame=sponge_bottom,
-        region=region,
-        max_reach=MAX_REACH,
-        stroke_sample_count=6,
-        approach_height=APPROACH_HEIGHT,
-        wipe_threshold=0.04,
-        desired_force=Vector3(z=PRESS_FORCE),
-        contact_force_threshold=CONTACT_THRESHOLD,
-        force_torque_reference_frame=wrist,
-        avoid_collisions=AVOID_COLLISIONS,
-        verbose=True,
-    )
-    print(f"\nexecuting: wipe '{surface.name}', {PRESS_FORCE} N press, region {region}.")
+    motion = build_wipe_motion(world, surface, mode, sponge, sponge_bottom)
+    print(f"\nexecuting: {mode.name} wipe of '{surface.name}', {PRESS_FORCE} N press.")
     with real_robot:
         execute_single(WipeAction(motion=motion), context=context).perform()
     print("wipe finished.")

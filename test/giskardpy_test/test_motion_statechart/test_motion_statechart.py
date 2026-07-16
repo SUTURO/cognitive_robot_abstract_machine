@@ -4945,8 +4945,7 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     """End-to-end ``WipeGoal`` on the HSR: expands into
     approach -> lower-until-contact -> admittance wipes -> retract, declares
     contact only after descending, keeps the tip near the surface during the
-    wipes, and lifts back above the table on retract. HSRB has an
-    ``OmniDrive``, so the base-relocation feature is not exercised here."""
+    wipes, and lifts back above the table on retract."""
     VizMarkerPublisher(_world=hsr_world_setup, node=rclpy_node).with_tf_publisher()
     world = hsr_world_setup
 
@@ -4973,10 +4972,10 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     )
     wipe_goal = WipeGoal(
         name="wipe",
-        segments=[(None, waypoints)],
+        segments=[waypoints],
         tip_link=tip,
         root_link=root,
-        ft_node=ft_node,
+        force_torque_node=ft_node,
         approach_height=0.10,
         contact_force_threshold=3.0,
         lower_overshoot=0.05,
@@ -4989,7 +4988,6 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     )
 
     msc = MotionStatechart()
-    msc.add_node(ft_node)
     msc.add_nodes(_hsr_wipe_collision_nodes(robot, gripper_bodies, table_body))
     msc.add_node(wipe_goal)
     msc.add_node(EndMotion.when_true(wipe_goal))
@@ -5001,8 +4999,12 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     )
     kin_sim.compile(motion_statechart=msc)
 
-    # One segment without a base pose -> approach, lower, wipe-sequence, retract.
-    approach_node, lower_node, wipe_sequence_node, retract_node = wipe_goal.nodes
+    # The goal owns its wrench source; the strokes run as one inner sequence
+    # of approach -> lower -> wipe-sequence -> retract.
+    force_torque_child, strokes_node = wipe_goal.nodes
+    assert force_torque_child is ft_node
+    assert isinstance(strokes_node, Sequence)
+    approach_node, lower_node, wipe_sequence_node, retract_node = strokes_node.nodes
     assert isinstance(approach_node, CartesianPosition)
     assert not isinstance(approach_node, LowerUntilContact)
     assert isinstance(lower_node, LowerUntilContact)
@@ -5018,7 +5020,7 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
 
     def capture_contact(tip_z):
         if not lower_contact_z and (
-            lower_node.observation_state.value == ObservationStateValues.TRUE
+            lower_node.observation_state == ObservationStateValues.TRUE
         ):
             lower_contact_z.append(tip_z)
 
@@ -5070,17 +5072,17 @@ def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
         segments=[],
         tip_link=tip,
         root_link=root,
-        ft_node=ft_node,
+        force_torque_node=ft_node,
     )
     empty_goal.expand(MotionStatechartContext(world=world))
     assert empty_goal.nodes == []
 
     only_empty_waypoints = WipeGoal(
         name="wipe_only_empty_waypoints",
-        segments=[(None, []), (None, [])],
+        segments=[[], []],
         tip_link=tip,
         root_link=root,
-        ft_node=ft_node,
+        force_torque_node=ft_node,
     )
     only_empty_waypoints.expand(MotionStatechartContext(world=world))
     assert only_empty_waypoints.nodes == []
