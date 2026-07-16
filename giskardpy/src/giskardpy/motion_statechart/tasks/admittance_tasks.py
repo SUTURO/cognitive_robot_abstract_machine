@@ -25,6 +25,31 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import (
 )
 
 
+def step_admittance_state(
+    position: np.ndarray,
+    velocity: np.ndarray,
+    force_error: np.ndarray,
+    mass: np.ndarray,
+    damping: np.ndarray,
+    stiffness: np.ndarray,
+    control_dt: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """One integration step of the per-axis virtual dynamics
+    ``mass * acceleration + damping * velocity + stiffness * position =
+    force_error``: semi-implicit Euler with the damping and stiffness terms
+    taken implicitly, which is unconditionally stable for any positive
+    parameters. an explicit damping term diverges once
+    ``control_dt * damping / mass`` exceeds 2."""
+    divisor = (
+        1.0 + control_dt * damping / mass + control_dt**2 * stiffness / mass
+    )
+    next_velocity = (
+        velocity + control_dt * (force_error - stiffness * position) / mass
+    ) / divisor
+    next_position = position + control_dt * next_velocity
+    return next_position, next_velocity
+
+
 @dataclass(eq=False, repr=False)
 class AdmittanceCartesianPosition(CartesianTask):
     """
@@ -37,9 +62,9 @@ class AdmittanceCartesianPosition(CartesianTask):
     where ``position`` is the admittance offset added to the nominal goal.
     ``build`` is symbolic: the QP sees goal_point + admittance_position +
     acceleration_feedforward_gain * admittance_velocity (guideline 5).
-    ``on_tick`` is numerical: it integrates ``(position, velocity)`` with
-    semi-implicit Euler using the constant ``mass/damping/stiffness`` and
-    the per-tick FT reading rotated into the goal frame.
+    ``on_tick`` integrates ``(position, velocity)`` via
+    :func:`step_admittance_state` from the per-tick FT reading rotated into
+    the goal frame.
 
     Observation TRUE compares the *nominal* goal to the tip, so termination
     still fires when a non-zero admittance offset is active.
@@ -104,7 +129,6 @@ class AdmittanceCartesianPosition(CartesianTask):
         self._rebind_ft_node()
         self._ensure_ft_symbols_registered(context)
         self._register_state_symbols(context)
-        self._validate_stability(context)
         self._compile_force_in_goal_frame(context)
 
         # guideline 5
@@ -149,15 +173,15 @@ class AdmittanceCartesianPosition(CartesianTask):
         )[:3]
         force_error = force_in_goal_frame - self._desired_force_array
 
-        # Semi-implicit Euler: update velocity first, then position.
-        control_dt = context.qp_controller_config.control_dt
-        acceleration = (
-            force_error
-            - self._damping_array * velocity
-            - self._stiffness_array * position
-        ) / self._effective_mass_array
-        next_velocity = velocity + control_dt * acceleration
-        next_position = position + control_dt * next_velocity
+        next_position, next_velocity = step_admittance_state(
+            position,
+            velocity,
+            force_error,
+            self._effective_mass_array,
+            self._damping_array,
+            self._stiffness_array,
+            context.qp_controller_config.control_dt,
+        )
 
         context.float_variable_data.set_value(self._admittance_position, next_position)
         context.float_variable_data.set_value(self._admittance_velocity, next_velocity)
@@ -201,18 +225,6 @@ class AdmittanceCartesianPosition(CartesianTask):
             raise ValueError(
                 f"acceleration_feedforward_gain must be >= 0, "
                 f"got {self.acceleration_feedforward_gain}."
-            )
-
-    def _validate_stability(self, context: MotionStatechartContext):
-        # guideline 6: semi-implicit Euler stability bound.
-        control_dt = context.qp_controller_config.control_dt
-        natural_frequency = np.sqrt(self._stiffness_array / self._effective_mass_array)
-        if np.any(control_dt * natural_frequency >= 1.0):
-            raise ValueError(
-                f"Stability bound control_dt * sqrt(stiffness / effective_mass) < 1 "
-                f"violated: control_dt={control_dt}, "
-                f"natural_frequency={natural_frequency}. "
-                f"Lower stiffness, raise mass, or shrink control_dt."
             )
 
     def _rebind_ft_node(self):
