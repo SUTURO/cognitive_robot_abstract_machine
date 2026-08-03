@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 
@@ -76,21 +77,21 @@ class AdmittanceCartesianPosition(CartesianTask):
     ft_node: ForceTorqueSymbolNode = field(kw_only=True)
     """Source of the symbolic force/torque vector."""
 
-    desired_force: Vector3 = field(default=None, kw_only=True)
+    desired_force: Vector3 | None = field(default=None, kw_only=True)
     """Contact force balanced by the admittance, in the goal frame.
     Default zero. Biasing 3-5 N into the surface removes tap-and-bounce."""
 
-    mass: Vector3 = field(default=None, kw_only=True)
+    mass: Vector3 | None = field(default=None, kw_only=True)
     """Virtual mass per axis in kg. Default (1, 1, 1)."""
 
-    damping: Vector3 = field(default=None, kw_only=True)
+    damping: Vector3 | None = field(default=None, kw_only=True)
     """Virtual damping per axis in N s/m. Default (20, 20, 20)."""
 
-    stiffness: Vector3 = field(default=None, kw_only=True)
+    stiffness: Vector3 | None = field(default=None, kw_only=True)
     """Virtual stiffness per axis in N/m. Default (0, 0, 0): pure
     accommodation (yields and stays yielded). (guideline 2)"""
 
-    inertia_compensation: Vector3 = field(default=None, kw_only=True)
+    inertia_compensation: Vector3 | None = field(default=None, kw_only=True)
     """Post-sensor inertia subtracted from ``mass`` so the rendered
     inertia is ``mass - inertia_compensation``. Default zero. (guideline 3)"""
 
@@ -101,23 +102,40 @@ class AdmittanceCartesianPosition(CartesianTask):
     threshold: float = field(default=0.01, kw_only=True)
     """Goal-reached distance (against nominal goal), in meters."""
 
-    reference_velocity: Optional[float] = field(
+    reference_velocity: float | None = field(
         default_factory=lambda: CartesianPosition.default_reference_velocity,
         kw_only=True,
     )
     """Reference velocity for normalization, in m/s."""
 
-    _admittance_position: Vector3 = field(init=False, default=None)
-    _admittance_velocity: Vector3 = field(init=False, default=None)
+    _admittance_position: Vector3 | None = field(init=False, default=None)
+    """Symbolic admittance offset added to the nominal goal, integrated per tick."""
+
+    _admittance_velocity: Vector3 | None = field(init=False, default=None)
+    """Symbolic rate of the admittance offset, integrated per tick."""
+
     _admittance_position_start: int = field(init=False, default=0)
+    """Start index of the admittance position in the float-variable data array."""
+
     _admittance_velocity_start: int = field(init=False, default=0)
+    """Start index of the admittance velocity in the float-variable data array."""
 
-    _damping_array: np.ndarray = field(init=False, default=None)
-    _stiffness_array: np.ndarray = field(init=False, default=None)
-    _effective_mass_array: np.ndarray = field(init=False, default=None)
-    _desired_force_array: np.ndarray = field(init=False, default=None)
+    _damping_array: np.ndarray | None = field(init=False, default=None)
+    """Per-axis damping as a numeric array, resolved in :meth:`build`."""
 
-    _compiled_force_in_goal_frame: CompiledFunction = field(init=False, default=None)
+    _stiffness_array: np.ndarray | None = field(init=False, default=None)
+    """Per-axis stiffness as a numeric array, resolved in :meth:`build`."""
+
+    _effective_mass_array: np.ndarray | None = field(init=False, default=None)
+    """Per-axis ``mass - inertia_compensation`` as a numeric array."""
+
+    _desired_force_array: np.ndarray | None = field(init=False, default=None)
+    """Per-axis desired contact force as a numeric array."""
+
+    _compiled_force_in_goal_frame: CompiledFunction | None = field(
+        init=False, default=None
+    )
+    """Compiled function rotating the measured wrench into the goal frame."""
 
     @property
     def goal_reference_frame(self) -> KinematicStructureEntity:
@@ -158,7 +176,7 @@ class AdmittanceCartesianPosition(CartesianTask):
 
     def on_tick(
         self, context: MotionStatechartContext
-    ) -> Optional[ObservationStateValues]:
+    ) -> ObservationStateValues | None:
         if not self.ft_node.has_msg():
             return None
 
@@ -203,13 +221,11 @@ class AdmittanceCartesianPosition(CartesianTask):
         if self.inertia_compensation is None:
             self.inertia_compensation = Vector3()
 
-        self._desired_force_array = self.desired_force.to_np()[:3].astype(np.float64)
-        self._damping_array = self.damping.to_np()[:3].astype(np.float64)
-        self._stiffness_array = self.stiffness.to_np()[:3].astype(np.float64)
-        mass_array = self.mass.to_np()[:3].astype(np.float64)
-        inertia_compensation_array = (
-            self.inertia_compensation.to_np()[:3].astype(np.float64)
-        )
+        self._desired_force_array = self.desired_force.to_np()[:3]
+        self._damping_array = self.damping.to_np()[:3]
+        self._stiffness_array = self.stiffness.to_np()[:3]
+        mass_array = self.mass.to_np()[:3]
+        inertia_compensation_array = self.inertia_compensation.to_np()[:3]
         # guideline 3
         self._effective_mass_array = mass_array - inertia_compensation_array
 

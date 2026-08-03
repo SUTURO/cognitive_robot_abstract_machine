@@ -33,6 +33,8 @@ import rclpy
 from geometry_msgs.msg import WrenchStamped
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from visualization_msgs.msg import MarkerArray
 
 from giskardpy.executor import SimulationPacer
 from giskardpy.motion_statechart.context import MotionStatechartContext
@@ -47,7 +49,10 @@ from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.ros_executor import Ros2Executor
 
 from pycram.datastructures.dataclasses import Context
+from pycram.datastructures.enums import WipeMode
 from pycram.plans.factories import execute_single
+from pycram.robot_plans.motions.wipe_coverage import WipePass, plan_per_side_wipe
+from pycram.robot_plans.motions.wipe_markers import WipeMarkers
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -55,6 +60,7 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import OmniDrive
@@ -71,16 +77,10 @@ from wipe_table_real_robot import (
     wipe_mode_argument_parser,
 )
 
-# Sim stand-in for the real script's TABLE_NAME: the local map has no
-# dining_table, and the countertop (top ~0.545 m) is low enough for the short
-# HSR to lean over.
-TABLE_NAME = "counterTop"
+TABLE_NAME = "dining_table"
 
-# Toya stands on the open floor on the +y (room) side of the counter and faces
-# it (-y). The counter is yaw ~6 deg off axis; the omni base yaw is a controlled
-# DOF, so it squares up on its own from this roughly-facing start.
 HSR_BASE_POSE = HomogeneousTransformationMatrix.from_xyz_rpy(
-    x=2.40, y=-0.75, z=0.0, yaw=-math.pi / 2
+    x=3.40, y=6.05, z=0.0, yaw=-np.pi
 )
 
 TICK_BUDGET = 20000
@@ -88,6 +88,10 @@ TICK_BUDGET = 20000
 # contact and the admittance has something to yield against.
 CONTACT_STIFFNESS_BASE = 2000.0  # N / m
 CONTACT_VELOCITY_GAIN = 4000.0  # extra N/m per m/s of tip speed
+
+# Topic for the wipe preview markers (frontier + trajectory), kept off the
+# world's /semworld/viz_marker so the leading DELETEALL only clears the wipe.
+WIPE_MARKER_TOPIC = "/wipe/markers"
 
 
 def _build_hsr_for_merge() -> World:
@@ -121,7 +125,14 @@ def _build_lab_scene() -> tuple[World, HSRB]:
     # would neither avoid the counter nor count for the reach measurement.
     drive = [c for c in world.connections if isinstance(c, OmniDrive)][0]
     drive.has_hardware_interface = True
-    return world, robot_view
+    return world, robot_view, drive
+
+
+def _place_base(world: World, drive: OmniDrive, base_pose) -> None:
+    """Drive the base to a world-frame pose -- the sim stand-in for navigating
+    Toya to the pose a coverage pass wipes from."""
+    world_T_odom = world.compute_forward_kinematics_np(world.root, drive.parent)
+    drive.origin = np.linalg.inv(world_T_odom) @ base_pose.to_np()
 
 
 def _table_top_world_z(world: World, table_body: Body) -> float:
@@ -207,6 +218,37 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
     print(f"wipe did not finish within {tick_budget} ticks.")
 
 
+def _plan_and_preview(
+    world: World,
+    drive: OmniDrive,
+    surface: Body,
+    passes: list[WipePass],
+    context: Context,
+    mode: WipeMode,
+    sponge: Body | None,
+    sponge_bottom: Body | None,
+    wipe_markers: WipeMarkers,
+) -> tuple[list[tuple[WipePass, WipeGoal]], MarkerArray]:
+    """Build each pass's wipe from its own base pose and return the goals plus
+    one accumulated marker array previewing every pass's trajectory at once."""
+    built: list[tuple[WipePass, WipeGoal]] = []
+    combined = MarkerArray()
+    for index, wipe_pass in enumerate(passes):
+        _place_base(world, drive, wipe_pass.base_pose)
+        motion = build_wipe_motion(
+            world, surface, mode, sponge, sponge_bottom,
+            region=wipe_pass.region, reach=wipe_pass.reach,
+        )
+        execute_single(motion, context=context)
+        goal = motion.motion_chart
+        built.append((wipe_pass, goal))
+        pass_markers = wipe_markers.build(
+            goal.segments, namespace_suffix=f"_{index}", clear=index == 0,
+        )
+        combined.markers.extend(pass_markers.markers)
+    return built, combined
+
+
 def main() -> None:
     parser = wipe_mode_argument_parser("Preview the real-robot table wipe in RViz.")
     parser.add_argument("--loop", action="store_true", help="repeat until Ctrl-C")
@@ -218,7 +260,7 @@ def main() -> None:
     executor.add_node(node)
     threading.Thread(target=executor.spin, daemon=True, name="rclpy-spin").start()
 
-    world, robot_view = _build_lab_scene()
+    world, robot_view, drive = _build_lab_scene()
     context = Context(world, robot_view, ros_node=node)
 
     surface = world.get_body_by_name(TABLE_NAME)
@@ -230,22 +272,36 @@ def main() -> None:
         sponge, sponge_bottom = attach_sponge(world, DEFAULT_SPONGE)
 
     VizMarkerPublisher(node=node, _world=world).with_tf_publisher()
+    wipe_marker_publisher = node.create_publisher(
+        MarkerArray,
+        WIPE_MARKER_TOPIC,
+        QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+    )
+    wipe_markers = WipeMarkers()
     print(
-        "Publishing TF + markers. In RViz: Fixed Frame = root, add a TF display "
-        "and a MarkerArray on /semworld/viz_marker (QoS Durability = Transient "
-        "Local)."
+        "Publishing TF + markers. In RViz: Fixed Frame = root, add a TF display, "
+        "a MarkerArray on /semworld/viz_marker for the scene and another on "
+        f"{WIPE_MARKER_TOPIC} for the reach frontier + wipe trajectory (QoS "
+        "Durability = Transient Local)."
     )
     time.sleep(1.0)  # give RViz a moment to subscribe before motion starts
 
+    table = Table(root=surface)
     try:
         while True:
-            motion = build_wipe_motion(
-                world, surface, arguments.mode, sponge, sponge_bottom
+            passes = plan_per_side_wipe(world, table, robot_view, -0.03)
+            print(f"reachable from {len(passes)} side(s); wiping each.")
+            built, combined_markers = _plan_and_preview(
+                world, drive, surface, passes, context, arguments.mode,
+                sponge, sponge_bottom, wipe_markers,
             )
-            execute_single(motion, context=context)
-            print(f"\nexecuting: {arguments.mode.name} wipe of '{surface.name}', "
-                  f"{PRESS_FORCE} N press.")
-            _run_wipe(world, motion.motion_chart, node, TICK_BUDGET)
+            wipe_marker_publisher.publish(combined_markers)
+            for index, (wipe_pass, goal) in enumerate(built):
+                _place_base(world, drive, wipe_pass.base_pose)
+                print(f"\npass {index + 1}/{len(built)}: {arguments.mode.name} wipe of "
+                      f"'{surface.name}' strip {tuple(round(v, 2) for v in wipe_pass.region)}, "
+                      f"{PRESS_FORCE} N press.")
+                _run_wipe(world, goal, node, TICK_BUDGET)
             if not arguments.loop:
                 break
             time.sleep(1.0)

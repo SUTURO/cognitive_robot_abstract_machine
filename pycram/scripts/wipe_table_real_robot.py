@@ -14,7 +14,8 @@ from pycram.datastructures.enums import Arms, WipeMode
 from pycram.motion_executor import real_robot
 from pycram.plans.factories import execute_single
 from pycram.robot_plans.actions.core.wiping import WipeAction
-from pycram.robot_plans.motions.wiping import WipeTableMotion
+from pycram.robot_plans.motions.wipe_coverage import Reach
+from pycram.robot_plans.motions.wiping import ForceControl, WipeTableMotion
 
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import (
@@ -46,9 +47,6 @@ SPONGE_BOTTOM_NAME = "wipe_sponge_bottom"
 # already be positioned in front of the table.
 TABLE_NAME = "dining_table"
 PRESS_FORCE = 8.0          # N, table frame
-CONTACT_THRESHOLD = 3.0    # N that ends the contact-seeking descent
-APPROACH_HEIGHT = 0.15     # m
-WIPE_THRESHOLD = 0.04      # m; a waypoint counts as wiped within this distance
 USE_SPONGE = True          # False -> wipe with the bare gripper tool frame
 AVOID_COLLISIONS = True    # collision avoidance is added inside the motion
 
@@ -111,11 +109,14 @@ def build_wipe_motion(
     mode: WipeMode,
     sponge: Body | None,
     sponge_bottom: Body | None,
+    region: tuple[float, float, float, float] | None = None,
+    reach: Reach | None = None,
 ) -> WipeTableMotion:
-    """The wipe both the real-robot script and the RViz demo run: the whole
-    table top is planned (no region -- the measured reach drops the rows Toya
-    cannot get to from her base pose), collision avoidance lives inside the
-    motion, and the wrench is read in the FT sensor frame."""
+    """The wipe both the real-robot script and the RViz demo run: collision
+    avoidance lives inside the motion and the wrench is read in the FT sensor
+    frame. ``region`` confines the wipe to one table strip and ``reach`` (both
+    from the coverage planner) tapers its lanes to the arm's reach from where the
+    base can stand; ``None``/``None`` wipes the whole top with no reach limit."""
     wrist = world.get_kinematic_structure_entity_by_name(SENSOR_FRAME)
     return WipeTableMotion(
         table=Table(root=surface),
@@ -123,15 +124,11 @@ def build_wipe_motion(
         mode=mode,
         tool=sponge,
         tool_contact_frame=sponge_bottom,
-        limit_to_reachable=True,
+        region=region,
+        reach=reach,
         stroke_sample_count=6,
-        approach_height=APPROACH_HEIGHT,
-        wipe_threshold=WIPE_THRESHOLD,
-        desired_force=Vector3(z=PRESS_FORCE),
-        contact_force_threshold=CONTACT_THRESHOLD,
-        force_torque_reference_frame=wrist,
+        force=ForceControl(desired_force=Vector3(z=PRESS_FORCE), sensor_frame=wrist),
         avoid_collisions=AVOID_COLLISIONS,
-        verbose=True,
     )
 
 

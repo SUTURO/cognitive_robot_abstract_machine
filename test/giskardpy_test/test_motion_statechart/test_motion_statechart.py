@@ -4976,15 +4976,6 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
         tip_link=tip,
         root_link=root,
         force_torque_node=ft_node,
-        approach_height=0.10,
-        contact_force_threshold=3.0,
-        lower_overshoot=0.05,
-        approach_reference_velocity=0.10,
-        lower_reference_velocity=0.03,
-        wipe_reference_velocity=0.05,
-        mass=Vector3(x=1.0, y=1.0, z=1.0),
-        damping=Vector3(x=20.0, y=20.0, z=20.0),
-        stiffness=Vector3(x=80.0, y=80.0, z=80.0),
     )
 
     msc = MotionStatechart()
@@ -5000,8 +4991,9 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     kin_sim.compile(motion_statechart=msc)
 
     # The goal owns its wrench source; the strokes run as one inner sequence
-    # of approach -> lower -> wipe-sequence -> retract.
-    force_torque_child, strokes_node = wipe_goal.nodes
+    # of approach -> lower -> wipe-sequence -> retract, alongside the tip-down
+    # alignment.
+    force_torque_child, strokes_node, *_ = wipe_goal.nodes
     assert force_torque_child is ft_node
     assert isinstance(strokes_node, Sequence)
     approach_node, lower_node, wipe_sequence_node, retract_node = strokes_node.nodes
