@@ -13,6 +13,7 @@ from semantic_digital_twin.robots.abstract_robot import (
     Finger,
     ParallelGripper,
     Camera,
+    ForceTorqueSensor,
     Torso,
     FieldOfView,
     Base,
@@ -102,12 +103,18 @@ class HSRB(AbstractRobot, HasArms, HasNeck):
             _world=self._world,
         )
 
+        wrist_force_torque_sensor = ForceTorqueSensor(
+            name=PrefixedName("wrist_force_torque_sensor", prefix=self.name.name),
+            root=self._world.get_body_by_name("wrist_ft_sensor_frame"),
+            _world=self._world,
+        )
+
         arm = Arm(
             name=PrefixedName("arm", prefix=self.name.name),
             root=self._world.get_body_by_name("arm_lift_link"),
             tip=self._world.get_body_by_name("hand_palm_link"),
             manipulator=gripper,
-            sensors=[hand_camera],
+            sensors=[hand_camera, wrist_force_torque_sensor],
             _world=self._world,
         )
         self.add_arm(arm)

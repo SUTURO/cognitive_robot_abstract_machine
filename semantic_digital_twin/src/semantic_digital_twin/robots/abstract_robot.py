@@ -378,6 +378,17 @@ class Camera(Sensor):
 
 
 @dataclass
+class ForceTorqueSensor(Sensor):
+    """
+    Represents a six-axis force/torque sensor in a robot. Its ``root`` body is the
+    frame the measured wrench is expressed in.
+    """
+
+    def __hash__(self):
+        return hash((self.name, self.root))
+
+
+@dataclass
 class Neck(KinematicChain):
     """
     Represents a special kinematic chain that connects the head of a robot with a collection of sensors, such as cameras
