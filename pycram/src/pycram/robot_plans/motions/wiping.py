@@ -7,8 +7,11 @@ from giskardpy.motion_statechart.data_types import DefaultWeights
 from giskardpy.motion_statechart.goals.collision_avoidance import (
     ExternalCollisionAvoidance,
 )
-from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal, WipeSegment
-from giskardpy.motion_statechart.graph_node import MotionStatechartNode
+from giskardpy.motion_statechart.goals.wipe_goals import (
+    WipeCollision,
+    WipeGoal,
+    WipeSegment,
+)
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceTorqueSymbolNode,
 )
@@ -18,9 +21,9 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AvoidExternalCollisions,
     CollisionRule,
 )
+from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from semantic_digital_twin.spatial_types import Point3, Vector3
-from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import BoundingBox
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -32,23 +35,16 @@ from pycram.robot_plans.motions.base import BaseMotion
 from pycram.robot_plans.motions.wipe_coverage import Reach
 from pycram.view_manager import ViewManager
 
-# Lane spacing and surface margin are derived from the tool's contact width (a
-# default when no tool is given): lanes overlap by this fraction of it.
-_DEFAULT_TOOL_WIDTH = 0.07
-_LANE_OVERLAP = 0.3
 
+class MissingForceTorqueSensorError(Exception):
+    """Raised when the robot has no force/torque sensor annotation, so the wipe
+    has no frame to measure its contact wrench in."""
 
-@dataclass(frozen=True)
-class ForceControl:
-    """The contact force to press with and where it is measured."""
-
-    desired_force: Vector3 = field(default_factory=lambda: Vector3(z=8.0))
-    """Contact force the admittance balances, in the table frame."""
-
-    sensor_frame: KinematicStructureEntity | None = None
-    """Frame the compensated wrench is measured in (the FT sensor link); the
-    admittance rotates it into the table frame. ``None`` uses the tool tip, which
-    is only correct when the sensor and tip share an orientation."""
+    def __init__(self, robot: object) -> None:
+        super().__init__(
+            f"Robot {robot} has no ForceTorqueSensor annotation; the wipe cannot "
+            "regulate contact force."
+        )
 
 
 @dataclass
@@ -70,11 +66,9 @@ class WipeTableMotion(BaseMotion):
     mode: WipeMode
     """``SPILL`` (serpentine) or ``CRUMB`` (gather to a corner)."""
 
-    tool: Body | None = None
-    """Sponge/tool body. Its footprint sets the lane spacing and margin."""
-
-    tool_contact_frame: KinematicStructureEntity | None = None
-    """Frame driven along the waypoints; defaults to the gripper tool frame."""
+    tool: Body
+    """Sponge/tool body held by the gripper. Its frame follows the waypoints and
+    its footprint sets the lane spacing and margin."""
 
     region: tuple[float, float, float, float] | None = None
     """``(min_x, max_x, min_y, max_y)`` sub-rectangle to wipe; ``None`` = whole top."""
@@ -83,34 +77,11 @@ class WipeTableMotion(BaseMotion):
     """Where the base can stand and how far the arm reaches, from the coverage
     planner; tapers lanes past the standing line. ``None`` = no reach limit."""
 
-    force: ForceControl = field(default_factory=ForceControl)
-    """The press force and the frame its wrench is measured in."""
+    desired_force: Vector3 = field(default_factory=lambda: Vector3(z=8.0))
+    """Contact force the admittance balances, in the table frame."""
 
     avoid_collisions: bool = False
     """Run external collision avoidance in parallel with the wipe."""
-
-    lane_spacing: float | None = None
-    """Distance between adjacent strokes, in m. ``None`` derives it from the tool."""
-
-    surface_margin: float | None = None
-    """Inset of the wipe area from the table edge, in m. ``None`` derives it."""
-
-    stroke_sample_count: int = 2
-    """Waypoints per stroke (>= 2); raise for a finer reach taper."""
-
-    def __post_init__(self) -> None:
-        width = _DEFAULT_TOOL_WIDTH
-        if self.tool is not None and self.tool.has_collision():
-            box = self.tool.collision.as_bounding_box_collection_in_frame(
-                self.tool
-            ).bounding_box()
-            # The wipe holds the tool's long side across the strokes, so the
-            # coverage per lane is the largest horizontal extent.
-            width = max(box.dimensions)
-        if self.lane_spacing is None:
-            self.lane_spacing = width * (1.0 - _LANE_OVERLAP)
-        if self.surface_margin is None:
-            self.surface_margin = width / 2.0
 
     def perform(self) -> None:
         return
@@ -120,67 +91,83 @@ class WipeTableMotion(BaseMotion):
         return self.table.root
 
     @property
-    def _tip_link(self) -> KinematicStructureEntity:
-        if self.tool_contact_frame is not None:
-            return self.tool_contact_frame
-        return ViewManager.get_end_effector_view(self.arm, self.robot).tool_frame
+    def _tool_width(self) -> float:
+        """The tool's largest horizontal extent: the wipe holds its long side
+        across the strokes, so this is the coverage one lane provides."""
+        box = self.tool.collision.as_bounding_box_collection_in_frame(
+            self.tool
+        ).bounding_box()
+        return max(box.dimensions)
+
+    @property
+    def lane_spacing(self) -> float:
+        """Half the tool width, so adjacent lanes overlap by 50% and every
+        surface point is covered by at least two strokes."""
+        return self._tool_width / 2.0
+
+    @property
+    def surface_margin(self) -> float:
+        """Half the tool width, so the tool's edge reaches the table edge while
+        its centre stays inset."""
+        return self._tool_width / 2.0
+
+    @property
+    def _force_torque_frame(self) -> KinematicStructureEntity:
+        """The frame the compensated wrench is measured in, taken from the
+        robot's force/torque sensor annotation."""
+        for sensor in self.robot.sensors:
+            if isinstance(sensor, ForceTorqueSensor):
+                return sensor.root
+        raise MissingForceTorqueSensorError(self.robot.name)
 
     @property
     def _motion_chart(self) -> WipeGoal:
-        tip_link = self._tip_link
         force_torque_node = ForceTorqueSymbolNode(
             topic_name=COMPENSATED_WRENCH_TOPIC,
-            reference_frame=self.force.sensor_frame or tip_link,
+            reference_frame=self._force_torque_frame,
             name="wipe_ft",
         )
-        parallel_nodes: list[MotionStatechartNode] = []
-        approach_rules: list[CollisionRule] = []
-        contact_rules: list[CollisionRule] = []
+        collision = None
         if self.avoid_collisions:
-            parallel_nodes = [
-                ExternalCollisionAvoidance(
+            collision = WipeCollision(
+                avoidance=ExternalCollisionAvoidance(
                     robot=self.robot, weight=DefaultWeights.WEIGHT_MAX
-                )
-            ]
-            approach_rules = self._approach_collision_rules()
-            contact_rules = self._contact_collision_rules()
+                ),
+                approach_rules=self._approach_collision_rules(),
+                contact_rules=self._contact_collision_rules(),
+            )
         return WipeGoal(
             name="WipeTable",
             segments=self._build_segments(),
-            tip_link=tip_link,
+            tip_link=self.tool,
             root_link=self.world.root,
             force_torque_node=force_torque_node,
-            desired_force=self.force.desired_force,
-            tool_heading=self._tool_heading(),
-            parallel_nodes=parallel_nodes,
-            approach_collision_rules=approach_rules,
-            contact_collision_rules=contact_rules,
+            desired_force=self.desired_force,
+            collision=collision,
         )
 
     def _build_segments(self) -> list[WipeSegment]:
         extent = self._wipe_extent()
         top_z = extent.max_z
-        x_low = extent.min_x + self.surface_margin
-        x_high = extent.max_x - self.surface_margin
+        margin = self.surface_margin
+        x_low = extent.min_x + margin
+        x_high = extent.max_x - margin
         lane_y_values = self._lane_offsets(
-            extent.min_y + self.surface_margin, extent.max_y - self.surface_margin
+            extent.min_y + margin, extent.max_y - margin
         )
         lanes = [self._stroke_points(x_low, x_high, y, top_z) for y in lane_y_values]
         if self.reach is not None:
-            lanes = [self._within_arm_reach(lane) for lane in lanes]
+            lanes = [
+                [
+                    point
+                    for point in lane
+                    if self._distance_to_reach_segment(point) <= self.reach.radius
+                ]
+                for lane in lanes
+            ]
         if self.mode == WipeMode.SPILL:
             return self._absorb_segments(lanes)
         return self._collect_segments(lanes)
-
-    def _within_arm_reach(self, lane: list[Point3]) -> list[Point3]:
-        """The waypoints of ``lane`` within the arm's reach of the base's standing
-        line: full strokes where the base stands beside them, tapering to nothing
-        where only the arm's sideways reach can get there."""
-        return [
-            point
-            for point in lane
-            if self._distance_to_reach_segment(point) <= self.reach.radius
-        ]
 
     def _distance_to_reach_segment(self, point: Point3) -> float:
         """Table-frame xy distance from ``point`` to the base's standing line."""
@@ -246,52 +233,38 @@ class WipeTableMotion(BaseMotion):
     def _stroke_points(
         self, x_start: float, x_end: float, lane_y: float, top_z: float
     ) -> list[Point3]:
-        sample_count = max(2, self.stroke_sample_count)
+        """Waypoints along one stroke, sampled at the lane spacing so the reach
+        taper and coverage share a uniform grid."""
+        count = max(2, math.ceil(abs(x_end - x_start) / self.lane_spacing) + 1)
         return [
             Point3(
-                x=x_start + i / (sample_count - 1) * (x_end - x_start),
+                x=x_start + i / (count - 1) * (x_end - x_start),
                 y=lane_y,
                 z=top_z,
                 reference_frame=self._table_body,
             )
-            for i in range(sample_count)
+            for i in range(count)
         ]
 
     def _lane_offsets(self, start: float, end: float) -> list[float]:
-        """Lane y-values from ``start`` to ``end``, spaced by at most ``lane_spacing``."""
+        """Lane y-values evenly spanning ``start`` to ``end`` with a gap of at
+        most ``lane_spacing`` -- both ends included exactly once."""
         span = end - start
         if span <= 0.0:
             return [start]
         lane_count = max(1, math.ceil(span / self.lane_spacing))
-        return [start + min(i * self.lane_spacing, span) for i in range(lane_count + 1)]
-
-    def _tool_heading(self) -> Vector3:
-        """World-frame direction of the table's cross-stroke axis (its y-axis,
-        pointing away from the robot): the wipe holds the tool's finger axis along
-        it, so an elongated tool covers the lane with its long side."""
-        extent = self._wipe_extent()
-        table_T_base = self.world.compute_forward_kinematics_np(
-            self._table_body, self.robot.root
-        )
-        base_y = float(table_T_base[1, 3])
-        sign = math.copysign(1.0, (extent.min_y + extent.max_y) / 2.0 - base_y)
-        world_direction = sign * self.world.compute_forward_kinematics_np(
-            self.world.root, self._table_body
-        )[:3, 1]
-        return Vector3.from_iterable(world_direction, reference_frame=self.world.root)
+        return [start + i * span / lane_count for i in range(lane_count + 1)]
 
     def _approach_collision_rules(self) -> list[CollisionRule]:
         """Avoid all external collisions; the tool is bolted to the arm, so its
         contact with the robot is never a collision."""
-        rules: list[CollisionRule] = [AvoidExternalCollisions(robot=self.robot)]
-        if self.tool is not None:
-            rules.append(
-                AllowCollisionBetweenGroups(
-                    body_group_a=[self.tool],
-                    body_group_b=list(self.robot.bodies_with_collision),
-                )
-            )
-        return rules
+        return [
+            AvoidExternalCollisions(robot=self.robot),
+            AllowCollisionBetweenGroups(
+                body_group_a=[self.tool],
+                body_group_b=list(self.robot.bodies_with_collision),
+            ),
+        ]
 
     def _contact_collision_rules(self) -> list[CollisionRule]:
         """The approach rules plus the gripper and tool allowed onto the wiped
@@ -314,6 +287,5 @@ class WipeTableMotion(BaseMotion):
             )
             if isinstance(entity, Body) and entity.has_collision()
         ]
-        if self.tool is not None:
-            bodies.append(self.tool)
+        bodies.append(self.tool)
         return bodies

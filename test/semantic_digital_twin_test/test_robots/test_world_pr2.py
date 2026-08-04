@@ -469,7 +469,8 @@ def test_hsrb_semantic_annotation(hsr_world_setup):
     assert hsrb.neck is not None
     assert len(hsrb.arms) == 1
 
-    assert len(hsrb.sensors) == 5
+    # Four head cameras + hand camera + the wrist force/torque sensor.
+    assert len(hsrb.sensors) == 6
     assert len(hsrb.sensor_chains) == 2
     assert hsrb.torso is not None
 

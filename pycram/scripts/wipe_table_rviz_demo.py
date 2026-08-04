@@ -71,7 +71,6 @@ from suturo_resources.suturo_map import load_environment
 from wipe_table_real_robot import (
     DEFAULT_SPONGE,
     PRESS_FORCE,
-    USE_SPONGE,
     attach_sponge,
     build_wipe_motion,
     wipe_mode_argument_parser,
@@ -171,10 +170,12 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
     tip = goal.tip_link
     table_top_z = _table_top_world_z(world, waypoints[0].reference_frame)
 
+    setup_start = time.perf_counter()
     msc = MotionStatechart()
     sequence = Sequence(nodes=[goal])
     msc.add_node(sequence)
     msc.add_node(EndMotion.when_true(sequence))
+    after_msc = time.perf_counter()
 
     executor = Ros2Executor(
         context=MotionStatechartContext(
@@ -186,9 +187,17 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
         ros_node=ros_node,
         pacer=SimulationPacer(1),
     )
+    after_executor = time.perf_counter()
     executor.compile(motion_statechart=msc)
+    after_compile = time.perf_counter()
     control_dt = executor.context.qp_controller_config.control_dt
+    print(
+        f"  [profile] {len(waypoints)} waypoints | msc {1000 * (after_msc - setup_start):.0f} ms | "
+        f"executor {1000 * (after_executor - after_msc):.0f} ms | "
+        f"compile {1000 * (after_compile - after_executor):.0f} ms"
+    )
 
+    first_tick_start = time.perf_counter()
     previous_tip_z = None
     for tick in range(tick_budget):
         time.sleep(0.01)
@@ -211,7 +220,14 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
         stiffness = CONTACT_STIFFNESS_BASE + CONTACT_VELOCITY_GAIN * tip_speed
         _inject_contact_wrench(goal.force_torque_node, world, stiffness * penetration)
 
+        tick_call_start = time.perf_counter()
         executor.tick()
+        if tick == 0:
+            print(
+                f"  [profile] teleport->first-tick-return "
+                f"{1000 * (time.perf_counter() - first_tick_start):.0f} ms "
+                f"(first executor.tick() {1000 * (time.perf_counter() - tick_call_start):.0f} ms)"
+            )
         if msc.is_end_motion():
             print(f"wipe finished after {tick + 1} ticks.")
             return
@@ -225,8 +241,7 @@ def _plan_and_preview(
     passes: list[WipePass],
     context: Context,
     mode: WipeMode,
-    sponge: Body | None,
-    sponge_bottom: Body | None,
+    sponge: Body,
     wipe_markers: WipeMarkers,
 ) -> tuple[list[tuple[WipePass, WipeGoal]], MarkerArray]:
     """Build each pass's wipe from its own base pose and return the goals plus
@@ -236,7 +251,7 @@ def _plan_and_preview(
     for index, wipe_pass in enumerate(passes):
         _place_base(world, drive, wipe_pass.base_pose)
         motion = build_wipe_motion(
-            world, surface, mode, sponge, sponge_bottom,
+            world, surface, mode, sponge,
             region=wipe_pass.region, reach=wipe_pass.reach,
         )
         execute_single(motion, context=context)
@@ -267,9 +282,7 @@ def main() -> None:
     print(f'robot position: {context.robot.root.global_pose.to_position().to_np()}')
     print(f'Table position: {surface.global_pose.to_position().to_np()}')
 
-    sponge = sponge_bottom = None
-    if USE_SPONGE:
-        sponge, sponge_bottom = attach_sponge(world, DEFAULT_SPONGE)
+    sponge = attach_sponge(world, DEFAULT_SPONGE)
 
     VizMarkerPublisher(node=node, _world=world).with_tf_publisher()
     wipe_marker_publisher = node.create_publisher(
@@ -293,7 +306,7 @@ def main() -> None:
             print(f"reachable from {len(passes)} side(s); wiping each.")
             built, combined_markers = _plan_and_preview(
                 world, drive, surface, passes, context, arguments.mode,
-                sponge, sponge_bottom, wipe_markers,
+                sponge, wipe_markers,
             )
             wipe_marker_publisher.publish(combined_markers)
             for index, (wipe_pass, goal) in enumerate(built):

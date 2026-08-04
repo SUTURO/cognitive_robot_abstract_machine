@@ -32,18 +32,23 @@ from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPosition
 WipeSegment = list[Point3]
 """The waypoints of one uninterrupted stroke run; the tool lifts between segments."""
 
-_WEIGHT = DefaultWeights.WEIGHT_ABOVE_CA
-_APPROACH_HEIGHT = 0.10
-_LOWER_OVERSHOOT = 0.05
-_CONTACT_FORCE_THRESHOLD = 3.0
-_WIPE_THRESHOLD = 0.03
-_APPROACH_VELOCITY = 0.10
-_LOWER_VELOCITY = 0.03
-_WIPE_VELOCITY = 0.10
-_ALIGN_VELOCITY = 0.4
-# z near-critical against a firm surface (~2 kN/m contact, unit virtual mass) so
-# the press settles instead of bouncing; x/y soft so the strokes yield sideways.
-_DAMPING = Vector3(x=20.0, y=20.0, z=100.0)
+
+@dataclass(frozen=True)
+class WipeCollision:
+    """Collision avoidance for a wipe: a node run in parallel throughout, plus
+    the collision-matrix rules swapped in for each segment's approach and contact
+    phases -- the gripper avoids the surface while descending onto it, then is
+    allowed onto it to press. Built by the caller, which has the robot and the
+    arm's gripper bodies."""
+
+    avoidance: MotionStatechartNode
+    """Runs in parallel with the strokes, ended when they finish."""
+
+    approach_rules: list[CollisionRule]
+    """Applied at the start of every segment (gripper avoids the surface)."""
+
+    contact_rules: list[CollisionRule]
+    """Applied before every contact-seeking descent (gripper allowed onto it)."""
 
 
 @dataclass(eq=False, repr=False)
@@ -71,28 +76,13 @@ class WipeGoal(Parallel):
     desired_force: Vector3 | None = field(default=None, kw_only=True)
     """Contact force the admittance balances, forwarded to every wipe task."""
 
-    tool_heading: Vector3 | None = field(default=None, kw_only=True)
-    """Root-frame direction the tip's +X axis (the finger/long-tool axis) is held
-    along; locks the yaw so an elongated tool lies across the strokes. ``None``
-    leaves the yaw to the IK."""
+    weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_CA, kw_only=True)
+    """Task weight for the strokes; the tool-down and heading alignments run at a
+    fifth of it so pressing dominates orienting."""
 
-    parallel_nodes: list[MotionStatechartNode] = field(
-        default_factory=list, kw_only=True
-    )
-    """Extra nodes running in parallel with the strokes (e.g. collision
-    avoidance), ended when the strokes finish."""
-
-    approach_collision_rules: list[CollisionRule] = field(
-        default_factory=list, kw_only=True
-    )
-    """Collision rules applied at the start of every segment (e.g. the gripper
-    avoids the surface so it descends from above). Empty = matrix unchanged."""
-
-    contact_collision_rules: list[CollisionRule] = field(
-        default_factory=list, kw_only=True
-    )
-    """Collision rules applied before every contact-seeking descent (e.g. suspend
-    gripper-vs-surface avoidance). Empty = matrix unchanged."""
+    collision: WipeCollision | None = field(default=None, kw_only=True)
+    """Collision avoidance to run with the wipe. ``None`` runs the strokes with
+    the collision matrix unchanged."""
 
     _strokes: Sequence | None = field(default=None, init=False, repr=False)
     """Inner sequence of approach/lower/wipe/retract tasks; the goal's
@@ -110,30 +100,36 @@ class WipeGoal(Parallel):
         self._strokes = Sequence(name=f"{self.name}/strokes", nodes=motion_nodes)
         self.add_node(self._strokes)
 
+        # The waypoints define the wipe plane; the tool presses into it along the
+        # surface frame's -Z and lies with its finger axis across the strokes
+        # (along +Y). Deriving both from that frame lets the same goal wipe a
+        # table, a window, or any surface without a hardcoded world direction.
+        surface_frame = next(
+            waypoint for segment in self.segments for waypoint in segment
+        ).reference_frame
         alignments = [
             AlignPlanes(
                 name=f"{self.name}/align_tip",
                 root_link=self.root_link,
                 tip_link=self.tip_link,
                 tip_normal=Vector3.Z(reference_frame=self.tip_link),
-                goal_normal=Vector3(x=0, y=0, z=-1, reference_frame=self.root_link),
-                weight=0.2 * _WEIGHT,
-                reference_velocity=_ALIGN_VELOCITY,
-            )
+                goal_normal=Vector3(x=0, y=0, z=-1, reference_frame=surface_frame),
+                weight=0.2 * self.weight,
+                reference_velocity=0.4,
+            ),
+            AlignPlanes(
+                name=f"{self.name}/align_heading",
+                root_link=self.root_link,
+                tip_link=self.tip_link,
+                tip_normal=Vector3.X(reference_frame=self.tip_link),
+                goal_normal=Vector3.Y(reference_frame=surface_frame),
+                weight=0.2 * self.weight,
+                reference_velocity=0.4,
+            ),
         ]
-        if self.tool_heading is not None:
-            alignments.append(
-                AlignPlanes(
-                    name=f"{self.name}/align_heading",
-                    root_link=self.root_link,
-                    tip_link=self.tip_link,
-                    tip_normal=Vector3.X(reference_frame=self.tip_link),
-                    goal_normal=self.tool_heading,
-                    weight=0.2 * _WEIGHT,
-                    reference_velocity=_ALIGN_VELOCITY,
-                )
-            )
-        for node in alignments + self.parallel_nodes:
+        if self.collision is not None:
+            alignments.append(self.collision.avoidance)
+        for node in alignments:
             self.add_node(node)
             node.end_condition = self._strokes.observation_variable
 
@@ -150,11 +146,11 @@ class WipeGoal(Parallel):
         reference_frame = first.reference_frame
 
         nodes: list[MotionStatechartNode] = []
-        if self.approach_collision_rules:
+        if self.collision is not None:
             nodes.append(
                 UpdateTemporaryCollisionRules(
                     name=f"{segment_name}/approach_collision",
-                    temporary_rules=self.approach_collision_rules,
+                    temporary_rules=self.collision.approach_rules,
                 )
             )
         nodes.append(
@@ -163,18 +159,18 @@ class WipeGoal(Parallel):
                 root_link=self.root_link,
                 tip_link=self.tip_link,
                 goal_point=Point3(
-                    x=first.x, y=first.y, z=first.z + _APPROACH_HEIGHT,
+                    x=first.x, y=first.y, z=first.z + 0.10,
                     reference_frame=reference_frame,
                 ),
-                reference_velocity=_APPROACH_VELOCITY,
-                weight=_WEIGHT,
+                reference_velocity=0.10,
+                weight=self.weight,
             )
         )
-        if self.contact_collision_rules:
+        if self.collision is not None:
             nodes.append(
                 UpdateTemporaryCollisionRules(
                     name=f"{segment_name}/contact_collision",
-                    temporary_rules=self.contact_collision_rules,
+                    temporary_rules=self.collision.contact_rules,
                 )
             )
         nodes.append(
@@ -183,13 +179,13 @@ class WipeGoal(Parallel):
                 root_link=self.root_link,
                 tip_link=self.tip_link,
                 goal_point=Point3(
-                    x=first.x, y=first.y, z=first.z - _LOWER_OVERSHOOT,
+                    x=first.x, y=first.y, z=first.z - 0.05,
                     reference_frame=reference_frame,
                 ),
                 ft_node=self.force_torque_node,
-                force_threshold=_CONTACT_FORCE_THRESHOLD,
-                reference_velocity=_LOWER_VELOCITY,
-                weight=_WEIGHT,
+                force_threshold=3.0,
+                reference_velocity=0.03,
+                weight=self.weight,
             )
         )
         nodes.append(
@@ -203,10 +199,13 @@ class WipeGoal(Parallel):
                         goal_point=waypoint,
                         ft_node=self.force_torque_node,
                         desired_force=self.desired_force,
-                        damping=_DAMPING,
-                        reference_velocity=_WIPE_VELOCITY,
-                        threshold=_WIPE_THRESHOLD,
-                        weight=_WEIGHT,
+                        # z near-critical against a firm surface (~2 kN/m contact,
+                        # unit virtual mass) so the press settles instead of
+                        # bouncing; x/y soft so the strokes yield sideways.
+                        damping=Vector3(x=20.0, y=20.0, z=100.0),
+                        reference_velocity=0.10,
+                        threshold=0.03,
+                        weight=self.weight,
                     )
                     for waypoint_index, waypoint in enumerate(waypoints)
                 ],
@@ -218,11 +217,11 @@ class WipeGoal(Parallel):
                 root_link=self.root_link,
                 tip_link=self.tip_link,
                 goal_point=Point3(
-                    x=last.x, y=last.y, z=last.z + _APPROACH_HEIGHT,
+                    x=last.x, y=last.y, z=last.z + 0.10,
                     reference_frame=reference_frame,
                 ),
-                reference_velocity=_APPROACH_VELOCITY,
-                weight=_WEIGHT,
+                reference_velocity=0.10,
+                weight=self.weight,
             )
         )
         return nodes
