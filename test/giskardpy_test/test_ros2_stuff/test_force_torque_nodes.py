@@ -1,5 +1,7 @@
 import json
+from copy import deepcopy
 
+import numpy as np
 from geometry_msgs.msg import WrenchStamped
 
 from giskardpy.motion_statechart.context import MotionStatechartContext
@@ -9,13 +11,58 @@ from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceImpactMonitor,
+    ForceTorqueSensorUpdater,
 )
 from giskardpy.motion_statechart.ros2_nodes.topic_monitor import (
     PublishOnStart,
     WaitForMessage,
 )
+from giskardpy.motion_statechart.ros_context import RosContextExtension
 from giskardpy.ros_executor import Ros2Executor
+from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
+from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.world import World
+
+
+def test_force_torque_sensor_updater_writes_wrench_into_annotation(
+    hsr_world_setup, rclpy_node
+):
+    """The updater resolves the robot's force/torque sensor from its frame and,
+    on tick, writes each received wrench into that sensor's live value."""
+    world = deepcopy(hsr_world_setup)
+    hsrb = HSRB.from_world(world)
+    sensor = next(s for s in hsrb.sensors if isinstance(s, ForceTorqueSensor))
+
+    updater = ForceTorqueSensorUpdater(
+        topic_name="/test_updater/wrench",
+        reference_frame=sensor.root,
+        name="ft_updater",
+    )
+    context = MotionStatechartContext(world=world)
+    context.add_extension(RosContextExtension(rclpy_node))
+    updater.build(context)
+
+    message = WrenchStamped()
+    message.wrench.force.x, message.wrench.force.y, message.wrench.force.z = (
+        1.0,
+        2.0,
+        3.0,
+    )
+    message.wrench.torque.x, message.wrench.torque.y, message.wrench.torque.z = (
+        4.0,
+        5.0,
+        6.0,
+    )
+    setattr(updater, "_TopicSubscriberNode__last_msg", message)
+
+    assert not sensor.has_received_wrench
+    updater.on_tick(context)
+
+    assert sensor.has_received_wrench
+    np.testing.assert_array_equal(sensor.force.evaluate().flatten()[:3], [1.0, 2.0, 3.0])
+    np.testing.assert_array_equal(
+        sensor.torque.evaluate().flatten()[:3], [4.0, 5.0, 6.0]
+    )
 
 
 def test_force_impact_node(rclpy_node):

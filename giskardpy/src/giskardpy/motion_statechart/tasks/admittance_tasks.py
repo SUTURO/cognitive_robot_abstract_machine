@@ -9,6 +9,7 @@ from krrood.symbolic_math.symbolic_math import (
     CompiledFunction,
     VariableParameters,
 )
+from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -17,9 +18,6 @@ from semantic_digital_twin.world_description.world_entity import (
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import NodeArtifacts
-from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
-    ForceTorqueSymbolNode,
-)
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPosition,
     CartesianTask,
@@ -73,9 +71,6 @@ class AdmittanceCartesianPosition(CartesianTask):
 
     goal_point: Point3 = field(kw_only=True)
     """Nominal target point (in the goal reference frame)."""
-
-    ft_node: ForceTorqueSymbolNode = field(kw_only=True)
-    """Source of the symbolic force/torque vector."""
 
     desired_force: Vector3 | None = field(default=None, kw_only=True)
     """Contact force balanced by the admittance, in the goal frame.
@@ -137,6 +132,9 @@ class AdmittanceCartesianPosition(CartesianTask):
     )
     """Compiled function rotating the measured wrench into the goal frame."""
 
+    _force_torque_sensor: ForceTorqueSensor | None = field(init=False, default=None)
+    """Live sensor annotation resolved from ``tip_link`` in :meth:`build`."""
+
     @property
     def goal_reference_frame(self) -> KinematicStructureEntity:
         return self.goal_point.reference_frame
@@ -144,8 +142,9 @@ class AdmittanceCartesianPosition(CartesianTask):
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
         self._resolve_defaults()
-        self._rebind_ft_node()
-        self._ensure_ft_symbols_registered(context)
+        self._force_torque_sensor = ForceTorqueSensor.for_tip(
+            context.world, self.tip_link
+        )
         self._register_state_symbols(context)
         self._compile_force_in_goal_frame(context)
 
@@ -177,7 +176,7 @@ class AdmittanceCartesianPosition(CartesianTask):
     def on_tick(
         self, context: MotionStatechartContext
     ) -> ObservationStateValues | None:
-        if not self.ft_node.has_msg():
+        if not self._force_torque_sensor.has_received_wrench:
             return None
 
         data = context.float_variable_data.data
@@ -187,7 +186,7 @@ class AdmittanceCartesianPosition(CartesianTask):
         velocity = data[velocity_start : velocity_start + 3]
 
         force_in_goal_frame = self._compiled_force_in_goal_frame(
-            context.world.state.positions, data
+            context.world.state.positions, context.world.sensor_inputs.data
         )[:3]
         force_error = force_in_goal_frame - self._desired_force_array
 
@@ -243,24 +242,6 @@ class AdmittanceCartesianPosition(CartesianTask):
                 f"got {self.acceleration_feedforward_gain}."
             )
 
-    def _rebind_ft_node(self):
-        # JSON round-trip in giskard.execute detaches ft_node; rebind to the
-        # live instance the MSC actually ticks. No-op when the task is built
-        # outside a MotionStatechart (e.g. unit tests).
-        if self._motion_statechart is None:
-            return
-        for node in self.motion_statechart.get_nodes_by_type(ForceTorqueSymbolNode):
-            if node.name == self.ft_node.name:
-                self.ft_node = node
-                return
-
-    def _ensure_ft_symbols_registered(self, context: MotionStatechartContext):
-        # MSC build order is not guaranteed, so register defensively.
-        if not hasattr(self.ft_node.force, hidden_index_name):
-            context.float_variable_data.register_expression(self.ft_node.force)
-        if not hasattr(self.ft_node.torque, hidden_index_name):
-            context.float_variable_data.register_expression(self.ft_node.torque)
-
     def _register_state_symbols(self, context: MotionStatechartContext):
         self._admittance_position = Vector3.create_with_variables(
             f"{self.name}/admittance_position"
@@ -281,13 +262,15 @@ class AdmittanceCartesianPosition(CartesianTask):
 
     def _compile_force_in_goal_frame(self, context: MotionStatechartContext):
         goal_T_sensor = context.world.compose_forward_kinematics_expression(
-            self.goal_reference_frame, self.ft_node.reference_frame
+            self.goal_reference_frame, self._force_torque_sensor.root
         )
-        force_in_goal_frame = goal_T_sensor.to_rotation_matrix() @ self.ft_node.force
+        force_in_goal_frame = (
+            goal_T_sensor.to_rotation_matrix() @ self._force_torque_sensor.force
+        )
         self._compiled_force_in_goal_frame = force_in_goal_frame.compile(
             parameters=VariableParameters.from_lists(
                 context.world.state.position_float_variables,
-                context.float_variable_data.variables,
+                context.world.sensor_inputs.variables,
             ),
             sparse=False,
         )
@@ -299,13 +282,11 @@ class LowerUntilContact(CartesianPosition):
     goal reach. Target a point below the surface; the force observation
     halts the descent, so surface depth need not be exact."""
 
-    ft_node: ForceTorqueSymbolNode = field(kw_only=True)
-    """Source of the symbolic force vector."""
-
     force_threshold: float = field(default=3.0, kw_only=True)
     """Force magnitude in N at which contact is declared."""
 
     def build(self, context: MotionStatechartContext) -> NodeArtifacts:
         artifacts = super().build(context)
-        artifacts.observation = self.ft_node.force.norm() > self.force_threshold
+        sensor = ForceTorqueSensor.for_tip(context.world, self.tip_link)
+        artifacts.observation = sensor.force.norm() > self.force_threshold
         return artifacts

@@ -202,6 +202,7 @@ class ObservationState(State):
                 self.life_cycle_symbols(),
                 context.world.state.get_variables(),
                 context.float_variable_data.variables,
+                context.world.sensor_inputs.variables,
             ),
             sparse=False,
         )
@@ -216,6 +217,9 @@ class ObservationState(State):
         )
         self._compiled_updater.bind_args_to_memory_view(
             arg_idx=3, numpy_array=context.float_variable_data.data
+        )
+        self._compiled_updater.bind_args_to_memory_view(
+            arg_idx=4, numpy_array=context.world.sensor_inputs.data
         )
 
     def update_state(self):

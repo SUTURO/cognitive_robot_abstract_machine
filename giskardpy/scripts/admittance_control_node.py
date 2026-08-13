@@ -3,7 +3,7 @@ from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.monitors.monitors import LocalMinimumReached
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
-    ForceTorqueSymbolNode,
+    ForceTorqueSensorUpdater,
 )
 from giskardpy.motion_statechart.tasks.admittance_tasks import (
     AdmittanceCartesianPosition,
@@ -24,7 +24,7 @@ ft_sensor_frame = giskard.world.get_kinematic_structure_entity_by_name(
 
 goal = Point3(x=0.0, y=0.0, z=0.5, reference_frame=root)
 
-ft_node = ForceTorqueSymbolNode(
+wrench_source = ForceTorqueSensorUpdater(
     reference_frame=ft_sensor_frame,
     topic_name="/wrist_wrench/compensated",
 )
@@ -33,12 +33,11 @@ cart_goal = AdmittanceCartesianPosition(
     root_link=root,
     tip_link=tip,
     goal_point=goal,
-    ft_node=ft_node,
     stiffness=Vector3(50, 50, 50),
 )
 
 msc = MotionStatechart()
-msc.add_node(ft_node)
+msc.add_node(wrench_source)
 msc.add_node(cart_goal)
 msc.add_node(EndMotion.when_true(cart_goal))
 

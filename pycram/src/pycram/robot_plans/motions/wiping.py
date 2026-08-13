@@ -13,7 +13,7 @@ from giskardpy.motion_statechart.goals.wipe_goals import (
     WipeSegment,
 )
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
-    ForceTorqueSymbolNode,
+    ForceTorqueSensorUpdater,
 )
 from giskardpy.ros2_tools.wrench_compensation_node import COMPENSATED_WRENCH_TOPIC
 from semantic_digital_twin.collision_checking.collision_rules import (
@@ -122,9 +122,10 @@ class WipeTableMotion(BaseMotion):
 
     @property
     def _motion_chart(self) -> WipeGoal:
-        force_torque_node = ForceTorqueSymbolNode(
+        force_torque_frame = self._force_torque_frame
+        wrench_source = ForceTorqueSensorUpdater(
             topic_name=COMPENSATED_WRENCH_TOPIC,
-            reference_frame=self._force_torque_frame,
+            reference_frame=force_torque_frame,
             name="wipe_ft",
         )
         collision = None
@@ -141,7 +142,7 @@ class WipeTableMotion(BaseMotion):
             segments=self._build_segments(),
             tip_link=self.tool,
             root_link=self.world.root,
-            force_torque_node=force_torque_node,
+            wrench_source=wrench_source,
             desired_force=self.desired_force,
             collision=collision,
         )

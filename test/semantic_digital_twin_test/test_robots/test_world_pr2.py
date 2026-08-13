@@ -1,5 +1,6 @@
 import os
 from collections import defaultdict
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -9,7 +10,12 @@ from typing_extensions import List
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.reasoning.predicates import LeftOf
-from semantic_digital_twin.robots.abstract_robot import KinematicChain
+from semantic_digital_twin.robots.abstract_robot import (
+    ForceTorqueSensor,
+    KinematicChain,
+    NoForceTorqueSensorForFrameError,
+    NoForceTorqueSensorForTipError,
+)
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.tracy import Tracy
@@ -473,6 +479,142 @@ def test_hsrb_semantic_annotation(hsr_world_setup):
     assert len(hsrb.sensors) == 6
     assert len(hsrb.sensor_chains) == 2
     assert hsrb.torso is not None
+
+
+def _wrist_force_torque_sensor(hsrb: HSRB) -> ForceTorqueSensor:
+    return next(s for s in hsrb.sensors if isinstance(s, ForceTorqueSensor))
+
+
+def test_force_torque_sensor_registers_wrench_as_world_sensor_input(hsr_world_setup):
+    """The wrist FT sensor owns its force/torque symbols and registers them in
+    ``world.sensor_inputs`` (three components each), in the sensor's own frame."""
+    hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+    sensor = _wrist_force_torque_sensor(hsrb)
+
+    assert sensor.force.reference_frame is sensor.root
+    assert sensor.torque.reference_frame is sensor.root
+    registered = set(hsr_world_setup.sensor_inputs.variables)
+    assert set(sensor.force.free_variables()) <= registered
+    assert set(sensor.torque.free_variables()) <= registered
+
+
+def test_written_wrench_is_readable_outside_a_motion(hsr_world_setup):
+    """``write_wrench`` makes the symbolic force/torque evaluate to the live value
+    with no executor and no ticking involved, mirroring how joint state is live."""
+    world = deepcopy(hsr_world_setup)
+    hsrb = HSRB.from_world(world)
+    sensor = _wrist_force_torque_sensor(hsrb)
+
+    assert not sensor.has_received_wrench
+
+    sensor.write_wrench(np.array([1.0, 2.0, 3.0]), np.array([4.0, 5.0, 6.0]))
+
+    assert sensor.has_received_wrench
+    np.testing.assert_array_equal(sensor.force.evaluate().flatten()[:3], [1.0, 2.0, 3.0])
+    np.testing.assert_array_equal(
+        sensor.torque.evaluate().flatten()[:3], [4.0, 5.0, 6.0]
+    )
+
+
+def _add_force_torque_sensor(
+    world: World, frame, name: str
+) -> ForceTorqueSensor:
+    """Attach a force/torque sensor annotation rooted at ``frame`` to ``world``."""
+    with world.modify_world():
+        return ForceTorqueSensor(
+            name=PrefixedName(name, "test"), root=frame, _world=world
+        )
+
+
+def test_for_tip_selects_the_sensor_on_the_arm_holding_the_tip(pr2_world_state_reset):
+    """On a dual-arm robot each arm's tip resolves to that arm's own force/torque
+    sensor, inferred from the kinematic chain rather than a supplied frame."""
+    world = deepcopy(pr2_world_state_reset)
+    left_sensor = _add_force_torque_sensor(
+        world,
+        world.get_kinematic_structure_entity_by_name("l_wrist_roll_link"),
+        "left_ft",
+    )
+    right_sensor = _add_force_torque_sensor(
+        world,
+        world.get_kinematic_structure_entity_by_name("r_wrist_roll_link"),
+        "right_ft",
+    )
+    left_tip = world.get_kinematic_structure_entity_by_name("l_gripper_tool_frame")
+    right_tip = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+
+    assert ForceTorqueSensor.for_tip(world, left_tip) is left_sensor
+    assert ForceTorqueSensor.for_tip(world, right_tip) is right_sensor
+
+
+def test_for_tip_prefers_the_sensor_closest_to_the_tip(pr2_world_state_reset):
+    """When several sensors lie on the chain, the one nearest the tip wins."""
+    world = deepcopy(pr2_world_state_reset)
+    _add_force_torque_sensor(
+        world,
+        world.get_kinematic_structure_entity_by_name("r_upper_arm_link"),
+        "proximal_ft",
+    )
+    distal_sensor = _add_force_torque_sensor(
+        world,
+        world.get_kinematic_structure_entity_by_name("r_wrist_roll_link"),
+        "distal_ft",
+    )
+    tip = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+
+    assert ForceTorqueSensor.for_tip(world, tip) is distal_sensor
+
+
+def test_for_tip_raises_when_no_sensor_lies_on_the_chain(pr2_world_state_reset):
+    """A tip whose chain carries no force/torque sensor raises."""
+    world = deepcopy(pr2_world_state_reset)
+    _add_force_torque_sensor(
+        world,
+        world.get_kinematic_structure_entity_by_name("l_wrist_roll_link"),
+        "left_ft",
+    )
+    right_tip = world.get_kinematic_structure_entity_by_name("r_gripper_tool_frame")
+
+    with pytest.raises(NoForceTorqueSensorForTipError):
+        ForceTorqueSensor.for_tip(world, right_tip)
+
+
+def test_with_root_resolves_sensor_and_raises_for_unknown_frame(hsr_world_setup):
+    """``with_root`` returns the annotation rooted at a frame and raises when no
+    force/torque sensor lives there."""
+    hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+    sensor = _wrist_force_torque_sensor(hsrb)
+
+    assert ForceTorqueSensor.with_root(hsr_world_setup, sensor.root) is sensor
+
+    unrelated_frame = hsr_world_setup.get_kinematic_structure_entity_by_name(
+        "hand_palm_link"
+    )
+    with pytest.raises(NoForceTorqueSensorForFrameError):
+        ForceTorqueSensor.with_root(hsr_world_setup, unrelated_frame)
+
+
+def test_sensor_inputs_are_per_world_after_deepcopy(hsr_world_setup):
+    """A deep-copied world re-registers its own wrench symbols through
+    ``from_world`` and writes to it do not leak into the original."""
+    original_hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+    original_sensor = _wrist_force_torque_sensor(original_hsrb)
+    original_sensor.write_wrench(np.zeros(3), np.zeros(3))
+
+    copy = deepcopy(hsr_world_setup)
+    copied_hsrb = HSRB.from_world(copy)
+    copied_sensor = _wrist_force_torque_sensor(copied_hsrb)
+
+    assert len(copy.sensor_inputs.variables) == 6
+
+    copied_sensor.write_wrench(np.array([7.0, 8.0, 9.0]), np.zeros(3))
+
+    np.testing.assert_array_equal(
+        copied_sensor.force.evaluate().flatten()[:3], [7.0, 8.0, 9.0]
+    )
+    np.testing.assert_array_equal(
+        original_sensor.force.evaluate().flatten()[:3], [0.0, 0.0, 0.0]
+    )
 
 
 def test_pr2_tighten_dof_velocity_limits_of_1dof_connections(pr2_world_state_reset):

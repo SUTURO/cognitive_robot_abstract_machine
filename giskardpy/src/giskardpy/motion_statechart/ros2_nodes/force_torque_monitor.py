@@ -8,6 +8,7 @@ from krrood.symbolic_math.exceptions import (
     SymbolicMathExpressionAlreadyRegisteredError,
 )
 
+from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
@@ -69,6 +70,41 @@ class ForceImpactMonitor(ForceTorqueNode):
         if self.force_magnitude() > self.threshold:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
+
+
+@dataclass(eq=False, repr=False)
+class ForceTorqueSensorUpdater(ForceTorqueNode):
+    """
+    Feeds a robot's :class:`ForceTorqueSensor` annotation from a wrench topic.
+
+    On every tick it writes the latest wrench into ``world.sensor_inputs`` through
+    the annotation, so admittance and contact tasks read a live, fixed-size sensor
+    input rather than a per-goal symbol. This is the motion-statechart feeder used
+    where the giskard server ticks the serialized chart; in simulation the wrench is
+    written directly and this node stays inert (no publisher on the topic).
+
+    TODO merge cram and remove this
+    """
+
+    reference_frame: KinematicStructureEntity = field(kw_only=True)
+    """Root frame of the force/torque sensor annotation the wrench is written to."""
+
+    _sensor: ForceTorqueSensor = field(init=False, default=None)
+    """Annotation resolved from ``reference_frame`` against the executed world."""
+
+    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
+        artifacts = super().build(context)
+        self._sensor = ForceTorqueSensor.with_root(context.world, self.reference_frame)
+        return artifacts
+
+    def on_tick(
+        self, context: MotionStatechartContext
+    ) -> Optional[ObservationStateValues]:
+        super().on_tick(context)
+        if not self.has_msg():
+            return ObservationStateValues.UNKNOWN
+        self._sensor.write_wrench(self.force_as_np(), self.torque_as_np())
+        return ObservationStateValues.UNKNOWN
 
 
 @dataclass(eq=False, repr=False)

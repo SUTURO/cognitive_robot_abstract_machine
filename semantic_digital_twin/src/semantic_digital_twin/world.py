@@ -104,6 +104,7 @@ from semantic_digital_twin.world_description.world_modification import (
     RemoveActuatorModification,
 )
 from semantic_digital_twin.world_description.world_state import WorldState
+from krrood.symbolic_math.float_variable_data import FloatVariableData
 
 if TYPE_CHECKING:
     from semantic_digital_twin.spatial_types import GenericSpatialType
@@ -375,6 +376,17 @@ class World(HasSimulatorProperties):
     2d array where rows are derivatives and columns are dof values for that derivative.
     """
 
+    sensor_inputs: FloatVariableData = field(init=False, repr=False)
+    """
+    Live values of external, single-value sensor inputs (e.g. a force/torque wrench),
+    keyed by the symbols their owning annotation registers here.
+
+    Unlike :attr:`state`, these are not degrees of freedom: they carry no derivatives
+    or limits and are never QP decision variables. They are written by whoever owns the
+    sensor (a ROS subscriber, a simulation, a test) and only read by consumers, so writes
+    do not trigger :meth:`notify_state_change`.
+    """
+
     world_is_being_modified: bool = False
     """
     Is set to True, when a world.modify_world context is used.
@@ -432,6 +444,7 @@ class World(HasSimulatorProperties):
 
     def __post_init__(self):
         self.state = WorldState(_world=self)
+        self.sensor_inputs = FloatVariableData()
         self._forward_kinematic_manager = ForwardKinematicsManager(_world=self)
         self.collision_manager = CollisionManager(
             _world=self, collision_detector=BulletCollisionDetector(_world=self)

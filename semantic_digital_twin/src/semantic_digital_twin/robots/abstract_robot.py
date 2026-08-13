@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import logging
+import time
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
+
+import numpy as np
 
 from typing_extensions import (
     Iterable,
@@ -377,12 +380,120 @@ class Camera(Sensor):
         return hash((self.name, self.root))
 
 
+class NoForceTorqueSensorForFrameError(Exception):
+    """Raised when no :class:`ForceTorqueSensor` annotation is rooted at a frame."""
+
+    def __init__(self, frame: KinematicStructureEntity) -> None:
+        super().__init__(f"No ForceTorqueSensor annotation is rooted at frame {frame}.")
+
+
+class NoForceTorqueSensorForTipError(Exception):
+    """Raised when no :class:`ForceTorqueSensor` lies on the kinematic chain to a tip."""
+
+    def __init__(self, tip: KinematicStructureEntity) -> None:
+        super().__init__(
+            f"No ForceTorqueSensor annotation lies on the kinematic chain to {tip}."
+        )
+
+
 @dataclass
 class ForceTorqueSensor(Sensor):
     """
     Represents a six-axis force/torque sensor in a robot. Its ``root`` body is the
     frame the measured wrench is expressed in.
+
+    The sensor owns the symbolic force and torque of its live wrench and registers
+    them in :attr:`semantic_digital_twin.world.World.sensor_inputs`, mirroring how a
+    degree of freedom owns its position symbol in ``world.state``. Consumers reach the
+    symbols through the robot annotation; producers push new readings through
+    :meth:`write_wrench`.
     """
+
+    force: Vector3 = field(init=False, default=None, compare=False, repr=False)
+    """Symbolic force ``[fx, fy, fz]`` in the sensor frame; its live value lives in
+    ``world.sensor_inputs``."""
+
+    torque: Vector3 = field(init=False, default=None, compare=False, repr=False)
+    """Symbolic torque ``[tx, ty, tz]`` in the sensor frame; its live value lives in
+    ``world.sensor_inputs``."""
+
+    _last_update_time: float | None = field(
+        init=False, default=None, compare=False, repr=False
+    )
+    """Monotonic time of the most recent :meth:`write_wrench`, or ``None`` if no wrench
+    has arrived yet."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self._world is not None:
+            self._register_wrench_symbols()
+
+    def _register_wrench_symbols(self):
+        """Create the force/torque symbols and register them as world sensor inputs."""
+        self.force = Vector3.create_with_variables(f"{self.name}/force")
+        self.force.reference_frame = self.root
+        self.torque = Vector3.create_with_variables(f"{self.name}/torque")
+        self.torque.reference_frame = self.root
+        self._world.sensor_inputs.register_expression(self.force)
+        self._world.sensor_inputs.register_expression(self.torque)
+
+    def write_wrench(self, force: np.ndarray, torque: np.ndarray):
+        """
+        Overwrite the live wrench value. This is the single entry point every producer
+        (real-robot subscriber, simulation, test) uses to push a new reading.
+
+        .. note:: Pull-only: this writes into ``world.sensor_inputs`` and returns; it
+            never triggers a world state-change notification.
+        """
+        self._world.sensor_inputs.set_value(self.force, force)
+        self._world.sensor_inputs.set_value(self.torque, torque)
+        self._last_update_time = time.monotonic()
+
+    @property
+    def has_received_wrench(self) -> bool:
+        """Whether at least one wrench reading has been written."""
+        return self._last_update_time is not None
+
+    @classmethod
+    def with_root(
+        cls, world: World, frame: KinematicStructureEntity
+    ) -> ForceTorqueSensor:
+        """
+        Return the sensor annotation in ``world`` rooted at ``frame``.
+
+        Resolving by frame (rather than holding the annotation object) keeps
+        consumers robust across the world's JSON round-trip: the frame is a world
+        entity that survives serialization, and the live annotation is looked up
+        from the world that is actually executed.
+        """
+        for sensor in world.get_semantic_annotations_by_type(cls):
+            if sensor.root == frame:
+                return sensor
+        raise NoForceTorqueSensorForFrameError(frame)
+
+    @classmethod
+    def for_tip(
+        cls, world: World, tip: KinematicStructureEntity
+    ) -> ForceTorqueSensor:
+        """
+        Return the sensor whose measurements pertain to ``tip``: the annotation
+        rooted at a kinematic ancestor of ``tip``, closest to it when several lie
+        on the chain.
+
+        Resolving by the controlled tip lets a caller stay agnostic of the robot's
+        wiring and disambiguates multi-arm robots, where each arm's tip selects
+        that arm's own sensor.
+        """
+        chain = world.compute_chain_of_kinematic_structure_entities(world.root, tip)
+        depth_by_entity = {entity: depth for depth, entity in enumerate(chain)}
+        sensors_on_chain = [
+            sensor
+            for sensor in world.get_semantic_annotations_by_type(cls)
+            if sensor.root in depth_by_entity
+        ]
+        if not sensors_on_chain:
+            raise NoForceTorqueSensorForTipError(tip)
+        return max(sensors_on_chain, key=lambda sensor: depth_by_entity[sensor.root])
 
     def __hash__(self):
         return hash((self.name, self.root))

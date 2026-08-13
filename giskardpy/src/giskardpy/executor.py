@@ -152,6 +152,7 @@ class Executor:
             world_state=self.context.world.state._data,
             life_cycle_state=self.motion_statechart.life_cycle_state.data,
             float_variables=self.context.float_variable_data.data,
+            sensor_inputs=self.context.world.sensor_inputs.data,
         )
         self.context.world.apply_control_commands(
             next_cmd,
@@ -208,6 +209,7 @@ class Executor:
             world_state_symbols=self.context.world.state.get_variables(),
             life_cycle_variables=self.motion_statechart.life_cycle_state.life_cycle_symbols(),
             float_variables=self.context.float_variable_data.variables,
+            sensor_input_symbols=self.context.world.sensor_inputs.variables,
         )
         if self.qp_controller.has_not_free_variables():
             raise EmptyProblemException()

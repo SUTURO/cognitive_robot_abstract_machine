@@ -18,9 +18,6 @@ from giskardpy.motion_statechart.graph_node import (
     MotionStatechartNode,
     NodeArtifacts,
 )
-from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
-    ForceTorqueSymbolNode,
-)
 from giskardpy.motion_statechart.tasks.admittance_tasks import (
     AdmittanceCartesianPosition,
     LowerUntilContact,
@@ -69,9 +66,10 @@ class WipeGoal(Parallel):
     root_link: KinematicStructureEntity = field(kw_only=True)
     """Root of the kinematic chain. Usually ``world.root``."""
 
-    force_torque_node: ForceTorqueSymbolNode = field(kw_only=True)
-    """Wrench source shared by ``LowerUntilContact`` and the admittance tasks.
-    Owned and added to the chart by this goal."""
+    wrench_source: MotionStatechartNode | None = field(default=None, kw_only=True)
+    """Node that feeds the sensor annotation from a wrench topic, run in parallel
+    with the strokes. ``None`` when the wrench is written directly (simulation and
+    tests); required on the real robot, where the server ticks the serialized chart."""
 
     desired_force: Vector3 | None = field(default=None, kw_only=True)
     """Contact force the admittance balances, forwarded to every wipe task."""
@@ -96,7 +94,8 @@ class WipeGoal(Parallel):
         if not motion_nodes:
             return
 
-        self.add_node(self.force_torque_node)
+        if self.wrench_source is not None:
+            self.add_node(self.wrench_source)
         self._strokes = Sequence(name=f"{self.name}/strokes", nodes=motion_nodes)
         self.add_node(self._strokes)
 
@@ -182,7 +181,6 @@ class WipeGoal(Parallel):
                     x=first.x, y=first.y, z=first.z - 0.05,
                     reference_frame=reference_frame,
                 ),
-                ft_node=self.force_torque_node,
                 force_threshold=3.0,
                 reference_velocity=0.03,
                 weight=self.weight,
@@ -197,7 +195,6 @@ class WipeGoal(Parallel):
                         root_link=self.root_link,
                         tip_link=self.tip_link,
                         goal_point=waypoint,
-                        ft_node=self.force_torque_node,
                         desired_force=self.desired_force,
                         # z near-critical against a firm surface (~2 kN/m contact,
                         # unit virtual mass) so the press settles instead of

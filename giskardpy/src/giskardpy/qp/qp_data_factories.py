@@ -70,12 +70,14 @@ class QPDataFactory(Generic[T], ABC):
         world_state_symbols: list[FloatVariable],
         life_cycle_symbols: list[FloatVariable],
         float_variables: list[FloatVariable],
+        sensor_inputs: list[FloatVariable],
     ):
         """
         Transforms the symbolic representation of the QP problem into functions that compute the parts of QPData.
         :param world_state_symbols: list of variables representing the world state.
         :param life_cycle_symbols: list of variables representing the life cycle states of a motion statechart.
         :param float_variables: list of variables representing the additional float variables not covered by the world state and life cycle states.
+        :param sensor_inputs: list of variables representing external sensor inputs (e.g. a force/torque wrench), a fixed group that does not grow with the number of nodes.
         """
 
     @abstractmethod
@@ -84,13 +86,15 @@ class QPDataFactory(Generic[T], ABC):
         world_state: np.ndarray,
         life_cycle_state: np.ndarray,
         float_variables: np.ndarray,
+        sensor_inputs: np.ndarray,
     ) -> QPData:
         """
-        Evaluates the QP problem represented by this factory using the given world state, life cycle state, and float variables.
+        Evaluates the QP problem represented by this factory using the given world state, life cycle state, float variables, and sensor inputs.
         .. note:: it is assumed that the input data corresponds to the input giving to `compile`.
         :param world_state: Current state of the world.
         :param life_cycle_state: Current state of the motion statechart.
         :param float_variables: Additional float variables not covered by the world state and life cycle states.
+        :param sensor_inputs: Current values of the external sensor inputs.
         :return: Explicit representation of the QP problem with numerical values.
         """
 
@@ -122,6 +126,7 @@ class QPDataExplicitFactory(QPDataFactory[QPDataExplicit]):
         world_state_symbols: list[FloatVariable],
         life_cycle_symbols: list[FloatVariable],
         float_variables: list[FloatVariable],
+        sensor_inputs: list[FloatVariable],
     ):
         eq_matrix = hstack(
             [
@@ -147,6 +152,7 @@ class QPDataExplicitFactory(QPDataFactory[QPDataExplicit]):
             world_state_symbols,
             life_cycle_symbols,
             float_variables,
+            sensor_inputs,
         ]
 
         self.equality_matrix_compiled = eq_matrix.compile(
@@ -176,11 +182,13 @@ class QPDataExplicitFactory(QPDataFactory[QPDataExplicit]):
         world_state: np.ndarray,
         life_cycle_state: np.ndarray,
         float_variables: np.ndarray,
+        sensor_inputs: np.ndarray,
     ) -> QPDataExplicit:
         args = [
             world_state,
             life_cycle_state,
             float_variables,
+            sensor_inputs,
         ]
         eq_matrix_np_raw = self.equality_matrix_compiled(*args)
         neq_matrix_np_raw = self.inequality_matrix_compiled(*args)
@@ -221,6 +229,7 @@ class QPDataTwoSidedInequalityFactory(QPDataFactory[QPDataTwoSidedInequality]):
         world_state_symbols: list[FloatVariable],
         life_cycle_symbols: list[FloatVariable],
         float_variables: list[FloatVariable],
+        sensor_inputs: list[FloatVariable],
     ):
         if len(self.qp_data.neq_matrix_dofs) == 0:
             constraint_matrix = hstack(
@@ -253,6 +262,7 @@ class QPDataTwoSidedInequalityFactory(QPDataFactory[QPDataTwoSidedInequality]):
             world_state_symbols,
             life_cycle_symbols,
             float_variables,
+            sensor_inputs,
         ]
 
         len_lb_be_lba_end = (
@@ -296,11 +306,13 @@ class QPDataTwoSidedInequalityFactory(QPDataFactory[QPDataTwoSidedInequality]):
         world_state: np.ndarray,
         life_cycle_state: np.ndarray,
         float_variables: np.ndarray,
+        sensor_inputs: np.ndarray,
     ) -> QPDataTwoSidedInequality:
         args = [
             world_state,
             life_cycle_state,
             float_variables,
+            sensor_inputs,
         ]
         neq_matrix = self.inequality_matrix_compiled(*args)
         (

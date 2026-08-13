@@ -366,6 +366,7 @@ class QPController:
     world_state_symbols: List[sm.FloatVariable]
     life_cycle_variables: List[sm.FloatVariable]
     float_variables: List[sm.FloatVariable]
+    sensor_input_symbols: List[sm.FloatVariable]
 
     qp_data_factory: QPDataFactory = field(default=None, init=False)
     qp_solver: QPSolver = field(default=None, init=False)
@@ -397,6 +398,7 @@ class QPController:
             world_state_symbols=self.world_state_symbols,
             life_cycle_symbols=self.life_cycle_variables,
             float_variables=self.float_variables,
+            sensor_inputs=self.sensor_input_symbols,
         )
 
     def _set_active_dofs(self, degrees_of_freedom: List[DegreeOfFreedom]):
@@ -442,12 +444,13 @@ class QPController:
         world_state: np.ndarray,
         life_cycle_state: np.ndarray,
         float_variables: np.ndarray,
+        sensor_inputs: np.ndarray,
     ) -> np.ndarray:
         """
         Uses substitutions for each symbol to compute the next commands for each joint.
         """
         qp_data_raw = self.qp_data_factory.evaluate(
-            world_state, life_cycle_state, float_variables
+            world_state, life_cycle_state, float_variables, sensor_inputs
         )
         qp_data_filtered = qp_data_raw.apply_filters()
         xdot_full = self.qp_solver.solver_call(qp_data_filtered)

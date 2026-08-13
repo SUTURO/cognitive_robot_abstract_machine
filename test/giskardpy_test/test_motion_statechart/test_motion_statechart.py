@@ -95,6 +95,7 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
     TestUnpauseUnknownFromParentPause,
 )
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
+    ForceTorqueSensorUpdater,
     ForceTorqueSymbolNode,
 )
 from giskardpy.ros_executor import Ros2Executor
@@ -121,7 +122,11 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import Manipulator, AbstractRobot
+from semantic_digital_twin.robots.abstract_robot import (
+    AbstractRobot,
+    ForceTorqueSensor,
+    Manipulator,
+)
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -4575,15 +4580,17 @@ def _hsr_wipe_collision_nodes(robot, gripper_bodies, table_body):
 
 
 def _run_contact_wipe(
-    kin_sim, world, msc, ft_node, root, tip, table_top_z,
+    kin_sim, world, msc, sensor, root, tip, table_top_z,
     fail_penetration, on_tick=None, max_ticks=100000,
 ):
     """Tick the executor while feeding back a Hunt-Crossley contact wrench.
 
-    Penetration into the table is converted into an upward wrench each tick;
-    a penetration past ``fail_penetration`` fails the test. ``on_tick`` (if
-    given) receives the current tip z after the wrench is injected. Returns
-    ``(tip_z_history, peak_penetration)`` once the motion ends.
+    Penetration into the table is converted into an upward wrench each tick,
+    rotated into the sensor frame and written straight into the sensor's live
+    wrench (the simulation stand-in for the real-robot subscriber); a penetration
+    past ``fail_penetration`` fails the test. ``on_tick`` (if given) receives the
+    current tip z after the wrench is written. Returns ``(tip_z_history,
+    peak_penetration)`` once the motion ends.
     """
     control_dt = kin_sim.context.qp_controller_config.control_dt
     prev_tip_z = None
@@ -4603,7 +4610,11 @@ def _run_contact_wipe(
             f"Penetration grew to {penetration * 100:.2f} cm; admittance failed to yield."
         )
         effective_stiffness = _CONTACT_STIFFNESS_BASE + _CONTACT_VELOCITY_GAIN * tip_z_speed
-        _inject_wrench(ft_node, _make_wrench(force_xyz=(0.0, 0.0, effective_stiffness * penetration)))
+        root_R_sensor = world.compute_forward_kinematics_np(root, sensor.root)[:3, :3]
+        force_in_sensor = root_R_sensor.T @ np.array(
+            [0.0, 0.0, effective_stiffness * penetration]
+        )
+        sensor.write_wrench(force_in_sensor, np.zeros(3))
 
         if on_tick is not None:
             on_tick(tip_z)
@@ -4704,23 +4715,24 @@ class TestForceTorqueSymbolNode:
         assert np.allclose(context.float_variable_data.data, 0)
 
 
+def _add_force_torque_sensor(world: World, frame) -> ForceTorqueSensor:
+    """Attach a force/torque sensor annotation rooted at ``frame`` to ``world``."""
+    with world.modify_world():
+        return ForceTorqueSensor(
+            name=PrefixedName("ft_sensor", "test"), root=frame, _world=world
+        )
+
+
 class TestAdmittanceCartesianPosition:
 
     def _build_task(self, world: World, **task_kwargs):
-        """Construct context, FT node and admittance task; run build()."""
+        """Construct context, FT sensor and admittance task; run build()."""
         context = MotionStatechartContext(world=world)
-        ft_node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=world.root,
-            name="ft",
-        )
-        context.float_variable_data.register_expression(ft_node.force)
-        context.float_variable_data.register_expression(ft_node.torque)
+        sensor = _add_force_torque_sensor(world, world.root)
         defaults = dict(
             root_link=world.root,
             tip_link=world.get_kinematic_structure_entity_by_name("tip"),
             goal_point=Point3(0, 0, 0, reference_frame=world.root),
-            ft_node=ft_node,
             mass=Vector3(x=1.0, y=1.0, z=1.0),
             damping=Vector3(x=20.0, y=20.0, z=20.0),
             stiffness=Vector3(),
@@ -4728,11 +4740,10 @@ class TestAdmittanceCartesianPosition:
         defaults.update(task_kwargs)
         task = AdmittanceCartesianPosition(**defaults)
         task.build(context)
-        return context, ft_node, task
+        return context, sensor, task
 
-    def _apply_force(self, context, ft_node, force_xyz):
-        _inject_wrench(ft_node, _make_wrench(force_xyz=force_xyz))
-        ft_node.on_tick(context)
+    def _apply_force(self, context, sensor, force_xyz):
+        sensor.write_wrench(np.array(force_xyz), np.zeros(3))
 
     def test_build_registers_admittance_state(self, prismatic_z_world):
         context, _, task = self._build_task(prismatic_z_world)
@@ -4744,8 +4755,8 @@ class TestAdmittanceCartesianPosition:
         assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
 
     def test_zero_force_keeps_state_at_zero(self, prismatic_z_world):
-        context, ft_node, task = self._build_task(prismatic_z_world)
-        self._apply_force(context, ft_node, (0.0, 0.0, 0.0))
+        context, sensor, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, sensor, (0.0, 0.0, 0.0))
         for _ in range(20):
             task.on_tick(context)
         data = context.float_variable_data.data
@@ -4753,8 +4764,8 @@ class TestAdmittanceCartesianPosition:
         assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
 
     def test_z_force_drives_z_correction(self, prismatic_z_world):
-        context, ft_node, task = self._build_task(prismatic_z_world)
-        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        context, sensor, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(10):
             task.on_tick(context)
         x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
@@ -4765,8 +4776,8 @@ class TestAdmittanceCartesianPosition:
     def test_steady_state_velocity_under_damping(self, prismatic_z_world):
         # stiffness=0, mass=1, damping=20, force=10
         # → steady-state velocity_z = force / damping = 0.5 m/s.
-        context, ft_node, task = self._build_task(prismatic_z_world)
-        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        context, sensor, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(50):
             task.on_tick(context)
         xd_a = context.float_variable_data.data[task._admittance_velocity_start : task._admittance_velocity_start + 3]
@@ -4775,7 +4786,7 @@ class TestAdmittanceCartesianPosition:
     def test_spring_pulls_correction_back_to_zero(self, prismatic_z_world):
         # stiffness>0 with no force pulls a non-zero offset back to zero
         # (damped spring).
-        context, ft_node, task = self._build_task(
+        context, sensor, task = self._build_task(
             prismatic_z_world,
             mass=Vector3(x=1.0, y=1.0, z=1.0),
             damping=Vector3(x=5.0, y=5.0, z=5.0),
@@ -4783,15 +4794,15 @@ class TestAdmittanceCartesianPosition:
         )
         # Inject an offset and let the spring relax.
         context.float_variable_data.set_value(task._admittance_position, [0.0, 0.0, 0.1])
-        self._apply_force(context, ft_node, (0.0, 0.0, 0.0))
+        self._apply_force(context, sensor, (0.0, 0.0, 0.0))
         for _ in range(200):
             task.on_tick(context)
         x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
         assert abs(x_a[2]) < 0.005
 
     def test_reset_zeros_state(self, prismatic_z_world):
-        context, ft_node, task = self._build_task(prismatic_z_world)
-        self._apply_force(context, ft_node, (0.0, 0.0, 10.0))
+        context, sensor, task = self._build_task(prismatic_z_world)
+        self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(5):
             task.on_tick(context)
         assert context.float_variable_data.data[task._admittance_position_start + 2] != 0
@@ -4802,18 +4813,11 @@ class TestAdmittanceCartesianPosition:
 
     def test_invalid_mass_raises(self, prismatic_z_world):
         context = MotionStatechartContext(world=prismatic_z_world)
-        ft_node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=prismatic_z_world.root,
-            name="ft",
-        )
-        context.float_variable_data.register_expression(ft_node.force)
-        context.float_variable_data.register_expression(ft_node.torque)
+        _add_force_torque_sensor(prismatic_z_world, prismatic_z_world.root)
         task = AdmittanceCartesianPosition(
             root_link=prismatic_z_world.root,
             tip_link=prismatic_z_world.get_kinematic_structure_entity_by_name("tip"),
             goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
-            ft_node=ft_node,
             mass=Vector3(x=1.0, y=1.0, z=0.0),
         )
         with pytest.raises(ValueError):
@@ -4822,11 +4826,13 @@ class TestAdmittanceCartesianPosition:
     def test_full_executor_drift_in_force_direction(
         self, prismatic_z_world, rclpy_node
     ):
-        """End-to-end: Ros2Executor + published wrench drives tip motion."""
+        """End-to-end: Ros2Executor + published wrench, fed into the sensor
+        annotation by the updater node, drives tip motion."""
         VizMarkerPublisher(_world=prismatic_z_world, node=rclpy_node).with_tf_publisher()
         tip = prismatic_z_world.get_kinematic_structure_entity_by_name("tip")
         topic = "/test_admittance/wrench"
-        ft_node = ForceTorqueSymbolNode(
+        _add_force_torque_sensor(prismatic_z_world, tip)
+        wrench_source = ForceTorqueSensorUpdater(
             topic_name=topic,
             reference_frame=tip,
             name="ft",
@@ -4835,14 +4841,13 @@ class TestAdmittanceCartesianPosition:
             root_link=prismatic_z_world.root,
             tip_link=tip,
             goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
-            ft_node=ft_node,
             mass=Vector3(x=1.0, y=1.0, z=1.0),
             damping=Vector3(x=20.0, y=20.0, z=20.0),
             stiffness=Vector3(),
             threshold=100.0,
         )
         msc = MotionStatechart()
-        msc.add_node(ft_node)
+        msc.add_node(wrench_source)
         msc.add_node(admittance)
 
         kin_sim = Ros2Executor(
@@ -4892,8 +4897,8 @@ def test_hsr_admittance_wipe_waypoints(hsr_world_setup, rclpy_node):
     ]
     waypoints = [Point3(x=x, y=y, z=z, reference_frame=root) for x, y, z in waypoint_coords]
 
-    ft_node = ForceTorqueSymbolNode(
-        topic_name="/test_hsr_admittance/wrench", reference_frame=root, name="ft"
+    force_torque_sensor = next(
+        s for s in robot.sensors if isinstance(s, ForceTorqueSensor)
     )
     sequence = Sequence([
         AdmittanceCartesianPosition(
@@ -4901,7 +4906,6 @@ def test_hsr_admittance_wipe_waypoints(hsr_world_setup, rclpy_node):
             root_link=root,
             tip_link=tip,
             goal_point=wp,
-            ft_node=ft_node,
             mass=Vector3(x=1.0, y=1.0, z=1.0),
             damping=Vector3(x=20.0, y=20.0, z=20.0),
             stiffness=Vector3(x=80.0, y=80.0, z=80.0),
@@ -4911,7 +4915,6 @@ def test_hsr_admittance_wipe_waypoints(hsr_world_setup, rclpy_node):
     ])
 
     msc = MotionStatechart()
-    msc.add_node(ft_node)
     msc.add_nodes(_hsr_wipe_collision_nodes(robot, gripper_bodies, table_body))
     msc.add_node(sequence)
     msc.add_node(EndMotion.when_true(sequence))
@@ -4924,7 +4927,8 @@ def test_hsr_admittance_wipe_waypoints(hsr_world_setup, rclpy_node):
     kin_sim.compile(motion_statechart=msc)
 
     tip_z_history, peak_penetration = _run_contact_wipe(
-        kin_sim, world, msc, ft_node, root, tip, table_top_z, fail_penetration=0.01
+        kin_sim, world, msc, force_torque_sensor, root, tip, table_top_z,
+        fail_penetration=0.01,
     )
 
     settled_min_z = min(tip_z_history[20:])
@@ -4967,15 +4971,14 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
         Point3(x=x, y=y, z=z, reference_frame=root) for x, y, z in waypoint_coords
     ]
 
-    ft_node = ForceTorqueSymbolNode(
-        topic_name="/test_hsr_wipe_goal/wrench", reference_frame=root, name="ft"
+    force_torque_sensor = next(
+        s for s in robot.sensors if isinstance(s, ForceTorqueSensor)
     )
     wipe_goal = WipeGoal(
         name="wipe",
         segments=[waypoints],
         tip_link=tip,
         root_link=root,
-        force_torque_node=ft_node,
     )
 
     msc = MotionStatechart()
@@ -4990,11 +4993,10 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
     )
     kin_sim.compile(motion_statechart=msc)
 
-    # The goal owns its wrench source; the strokes run as one inner sequence
-    # of approach -> lower -> wipe-sequence -> retract, alongside the tip-down
-    # alignment.
-    force_torque_child, strokes_node, *_ = wipe_goal.nodes
-    assert force_torque_child is ft_node
+    # No wrench source is added in simulation (the wrench is written directly),
+    # so the goal's first child is the strokes sequence:
+    # approach -> lower -> wipe-sequence -> retract, alongside the tip-down alignment.
+    strokes_node, *_ = wipe_goal.nodes
     assert isinstance(strokes_node, Sequence)
     approach_node, lower_node, wipe_sequence_node, retract_node = strokes_node.nodes
     assert isinstance(approach_node, CartesianPosition)
@@ -5017,7 +5019,7 @@ def test_hsr_wipe_goal_full_pipeline(hsr_world_setup, rclpy_node):
             lower_contact_z.append(tip_z)
 
     tip_z_history, peak_penetration = _run_contact_wipe(
-        kin_sim, world, msc, ft_node, root, tip, table_top_z,
+        kin_sim, world, msc, force_torque_sensor, root, tip, table_top_z,
         fail_penetration=0.015, on_tick=capture_contact,
     )
 
@@ -5053,18 +5055,12 @@ def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
     world = hsr_world_setup
     tip = world.get_kinematic_structure_entity_by_name("hand_gripper_tool_frame")
     root = world.root
-    ft_node = ForceTorqueSymbolNode(
-        topic_name="/test_wipe_goal_empty/wrench",
-        reference_frame=root,
-        name="ft",
-    )
 
     empty_goal = WipeGoal(
         name="wipe_empty",
         segments=[],
         tip_link=tip,
         root_link=root,
-        force_torque_node=ft_node,
     )
     empty_goal.expand(MotionStatechartContext(world=world))
     assert empty_goal.nodes == []
@@ -5074,7 +5070,6 @@ def test_wipe_goal_empty_segments_expands_to_nothing(hsr_world_setup):
         segments=[[], []],
         tip_link=tip,
         root_link=root,
-        force_torque_node=ft_node,
     )
     only_empty_waypoints.expand(MotionStatechartContext(world=world))
     assert only_empty_waypoints.nodes == []

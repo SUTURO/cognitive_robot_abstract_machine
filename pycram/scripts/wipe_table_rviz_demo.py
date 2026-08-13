@@ -30,7 +30,6 @@ import time
 
 import numpy as np
 import rclpy
-from geometry_msgs.msg import WrenchStamped
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
@@ -42,11 +41,9 @@ from giskardpy.motion_statechart.goals.templates import Sequence
 from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal
 from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.motion_statechart import MotionStatechart
-from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
-    ForceTorqueSymbolNode,
-)
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from giskardpy.ros_executor import Ros2Executor
+from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import WipeMode
@@ -142,21 +139,16 @@ def _table_top_world_z(world: World, table_body: Body) -> float:
 
 
 def _inject_contact_wrench(
-    ft_node: ForceTorqueSymbolNode, world: World, upward_force: float
+    sensor: ForceTorqueSensor, world: World, upward_force: float
 ) -> None:
     """Feed the contact model's world +z force to the wipe, expressed in the
-    ft node's reference frame -- the same frame the wrench compensation node
-    publishes in on the real robot."""
-    world_R_sensor = world.compute_forward_kinematics_np(
-        world.root, ft_node.reference_frame
-    )[:3, :3]
+    sensor's frame -- the same frame the wrench compensation node publishes in
+    on the real robot -- by writing it straight into the sensor's live wrench."""
+    world_R_sensor = world.compute_forward_kinematics_np(world.root, sensor.root)[
+        :3, :3
+    ]
     force = world_R_sensor.T @ np.array([0.0, 0.0, upward_force])
-    msg = WrenchStamped()
-    msg.wrench.force.x = float(force[0])
-    msg.wrench.force.y = float(force[1])
-    msg.wrench.force.z = float(force[2])
-    # Bypass the ROS subscription by setting the name-mangled latest msg.
-    setattr(ft_node, "_TopicSubscriberNode__last_msg", msg)
+    sensor.write_wrench(force, np.zeros(3))
 
 
 def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) -> None:
@@ -169,6 +161,7 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
         return
     tip = goal.tip_link
     table_top_z = _table_top_world_z(world, waypoints[0].reference_frame)
+    force_torque_sensor = ForceTorqueSensor.for_tip(world, tip)
 
     setup_start = time.perf_counter()
     msc = MotionStatechart()
@@ -218,7 +211,7 @@ def _run_wipe(world: World, goal: WipeGoal, ros_node: Node, tick_budget: int) ->
 
         penetration = max(0.0, table_top_z - tip_z)
         stiffness = CONTACT_STIFFNESS_BASE + CONTACT_VELOCITY_GAIN * tip_speed
-        _inject_contact_wrench(goal.force_torque_node, world, stiffness * penetration)
+        _inject_contact_wrench(force_torque_sensor, world, stiffness * penetration)
 
         tick_call_start = time.perf_counter()
         executor.tick()
