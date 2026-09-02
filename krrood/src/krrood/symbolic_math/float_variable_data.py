@@ -69,6 +69,15 @@ class FloatVariableData:
 
             variable.resolve = resolve_variable
 
+    def index_of(self, expression: SymbolicMathType) -> int:
+        """
+        :param expression: A previously registered expression.
+        :return: Index of the expression's first free variable in :attr:`data`.
+        """
+        if not hasattr(expression, hidden_index_name):
+            raise SymbolicMathExpressionNotRegisteredError(expression)
+        return getattr(expression, hidden_index_name)
+
     def set_value(
         self, expression: SymbolicMathType, value: float | list[float] | np.ndarray
     ):
@@ -78,10 +87,7 @@ class FloatVariableData:
         :param expression: The expression to set the values for.
         :param value: The new value(s) for the expression's free variables.
         """
-        if not hasattr(expression, hidden_index_name):
-            raise SymbolicMathExpressionNotRegisteredError(expression)
-
-        variable_index = getattr(expression, hidden_index_name)
+        variable_index = self.index_of(expression)
         if isinstance(value, (int, float)):
             self.data[variable_index] = value
         else:

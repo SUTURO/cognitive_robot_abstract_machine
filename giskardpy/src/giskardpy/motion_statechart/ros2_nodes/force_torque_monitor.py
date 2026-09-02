@@ -4,12 +4,7 @@ from typing import Optional
 import numpy as np
 from geometry_msgs.msg import WrenchStamped
 
-from krrood.symbolic_math.exceptions import (
-    SymbolicMathExpressionAlreadyRegisteredError,
-)
-
 from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
-from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
@@ -60,6 +55,7 @@ class ForceImpactMonitor(ForceTorqueNode):
     """
 
     threshold: float = field(kw_only=True)
+    """Force magnitude in N above which the observation turns true."""
 
     def on_tick(
         self, context: MotionStatechartContext
@@ -83,7 +79,10 @@ class ForceTorqueSensorUpdater(ForceTorqueNode):
     where the giskard server ticks the serialized chart; in simulation the wrench is
     written directly and this node stays inert (no publisher on the topic).
 
-    TODO merge cram and remove this
+    .. todo:: Remove once giskard lives inside cram. The node only exists because the
+        separate giskard server has to update its own world model from the chart;
+        :class:`~semantic_digital_twin.adapters.ros.force_torque_sensor_subscriber.ForceTorqueSensorSubscriber`
+        then becomes the single feeder, independent of any ticking motion.
     """
 
     reference_frame: KinematicStructureEntity = field(kw_only=True)
@@ -104,59 +103,4 @@ class ForceTorqueSensorUpdater(ForceTorqueNode):
         if not self.has_msg():
             return ObservationStateValues.UNKNOWN
         self._sensor.write_wrench(self.force_as_np(), self.torque_as_np())
-        return ObservationStateValues.UNKNOWN
-
-
-@dataclass(eq=False, repr=False)
-class ForceTorqueSymbolNode(ForceTorqueNode):
-    """
-    Subscribes to a wrench topic and exposes the latest force and torque as
-    symbolic ``Vector3`` expressions.
-
-    The data flow follows the ``float_variable_data`` pattern (analogous to
-    collision avoidance): each tick writes the latest wrench into
-    ``context.float_variable_data``; the QP solver picks up the new values
-    via the registered symbols on the next solve. Downstream tasks reference
-    force and torque directly in their constraint expressions.
-
-    The symbolic ``Vector3`` instances are created in ``__post_init__`` (not
-    in ``build``) so consumers may reference them during their own ``build``
-    phase regardless of node-add order.
-    """
-
-    reference_frame: KinematicStructureEntity = field(kw_only=True)
-    """The kinematic frame the wrench is measured in (e.g. the FT sensor link)."""
-
-    force: Vector3 = field(init=False, default=None)
-    """Symbolic ``Vector3`` carrying the latest force [fx, fy, fz]."""
-
-    torque: Vector3 = field(init=False, default=None)
-    """Symbolic ``Vector3`` carrying the latest torque [tx, ty, tz]."""
-
-    def __post_init__(self):
-        super().__post_init__()
-        self.force = Vector3.create_with_variables(f"{self.name}/force")
-        self.force.reference_frame = self.reference_frame
-        self.torque = Vector3.create_with_variables(f"{self.name}/torque")
-        self.torque.reference_frame = self.reference_frame
-
-    def build(self, context: MotionStatechartContext) -> NodeArtifacts:
-        artifacts = super().build(context)
-        # WipeGoal adds this node, so it is built both as a goal child and as a
-        # top-level node; register the symbols only once
-        for expression in (self.force, self.torque):
-            try:
-                context.float_variable_data.register_expression(expression)
-            except SymbolicMathExpressionAlreadyRegisteredError:
-                pass
-        return artifacts
-
-    def on_tick(
-        self, context: MotionStatechartContext
-    ) -> Optional[ObservationStateValues]:
-        super().on_tick(context)
-        if not self.has_msg():
-            return ObservationStateValues.UNKNOWN
-        context.float_variable_data.set_value(self.force, self.force_as_np())
-        context.float_variable_data.set_value(self.torque, self.torque_as_np())
         return ObservationStateValues.UNKNOWN

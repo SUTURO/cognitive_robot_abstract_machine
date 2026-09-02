@@ -481,6 +481,28 @@ def test_hsrb_semantic_annotation(hsr_world_setup):
     assert hsrb.torso is not None
 
 
+def test_arm_reach_and_base_footprint_are_sane(hsr_world_setup):
+    """The geometric reach model: the arm reaches most of a metre horizontally, past
+    its own base footprint, and measuring it leaves the world state untouched."""
+    hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+    positions_before = hsr_world_setup.state.positions.copy()
+
+    reach = hsrb.arms[0].maximum_reach()
+
+    assert 0.4 < reach < 1.0
+    assert 0.1 < hsrb.base.footprint_radius < 0.5
+    assert reach > hsrb.base.footprint_radius, "the arm must reach past its own base"
+    np.testing.assert_array_equal(hsr_world_setup.state.positions, positions_before)
+
+
+def test_maximum_reach_grows_with_denser_sampling(hsr_world_setup):
+    """The farthest reach sits at an intermediate joint angle, so sampling only the
+    joint limits under-measures it."""
+    hsrb = hsr_world_setup.get_semantic_annotations_by_type(HSRB)[0]
+
+    assert hsrb.arms[0].maximum_reach(2) < hsrb.arms[0].maximum_reach(5)
+
+
 def _wrist_force_torque_sensor(hsrb: HSRB) -> ForceTorqueSensor:
     return next(s for s in hsrb.sensors if isinstance(s, ForceTorqueSensor))
 

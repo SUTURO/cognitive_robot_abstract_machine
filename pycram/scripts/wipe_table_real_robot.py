@@ -14,7 +14,7 @@ from pycram.datastructures.enums import Arms, WipeMode
 from pycram.motion_executor import real_robot
 from pycram.plans.factories import execute_single
 from pycram.robot_plans.actions.core.wiping import WipeAction
-from pycram.robot_plans.motions.wipe_coverage import Reach
+from pycram.robot_plans.motions.wipe_coverage import Reach, WipeRegion
 from pycram.robot_plans.motions.wiping import WipeTableMotion
 
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
@@ -94,7 +94,7 @@ def build_wipe_motion(
     surface: Body,
     mode: WipeMode,
     sponge: Body,
-    region: tuple[float, float, float, float] | None = None,
+    region: WipeRegion | None = None,
     reach: Reach | None = None,
 ) -> WipeTableMotion:
     """The wipe both the real-robot script and the RViz demo run: collision

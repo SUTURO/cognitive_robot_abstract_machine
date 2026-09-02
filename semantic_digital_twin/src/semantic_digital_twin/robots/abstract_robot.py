@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
-import time
 from abc import abstractmethod, ABC
 from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import product
 
 import numpy as np
+
+from krrood.symbolic_math.symbolic_math import VariableParameters
 
 from typing_extensions import (
     Iterable,
@@ -22,7 +24,7 @@ from semantic_digital_twin.datastructures.definitions import JointStateType
 from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import NoJointStateWithType
-from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap, Derivatives
 from semantic_digital_twin.spatial_types.spatial_types import (
     Vector3,
     Quaternion,
@@ -204,6 +206,55 @@ class Arm(KinematicChain):
     Represents an arm of a robot, which is a kinematic chain with a specific tip body.
     An arm has a manipulators and potentially sensors.
     """
+
+    def maximum_reach(self, samples_per_degree_of_freedom: int = 5) -> float:
+        """
+        The largest horizontal distance between the robot's root and this arm's tool
+        frame, in m.
+
+        A purely kinematic upper bound: no inverse kinematics and no collision checking,
+        so a caller gets an optimistic reach that geometric planning can work with.
+
+        :param samples_per_degree_of_freedom: How many positions each degree of freedom
+            is sampled at. Interior samples are required because the farthest reach sits
+            at an intermediate joint angle rather than at a limit.
+        """
+        degrees_of_freedom = [
+            dof
+            for connection in self.connections
+            if isinstance(connection, ActiveConnection)
+            for dof in connection.active_dofs
+            if dof.has_position_limits
+        ]
+        root_P_tool = self._world.compose_forward_kinematics_expression(
+            self._robot.root, self.manipulator.tool_frame
+        ).to_position()
+        horizontal_distance = (
+            Vector3(x=root_P_tool.x, y=root_P_tool.y)
+            .norm()
+            .compile(
+                parameters=VariableParameters.from_lists(
+                    self._world.state.position_float_variables
+                )
+            )
+        )
+        samples = [
+            np.linspace(
+                dof.limits.lower.position,
+                dof.limits.upper.position,
+                samples_per_degree_of_freedom,
+            )
+            for dof in degrees_of_freedom
+        ]
+        initial_positions = self._world.state.positions.copy()
+        reach = 0.0
+        for configuration in product(*samples):
+            for dof, position in zip(degrees_of_freedom, configuration):
+                self._world.state[dof.id].position = position
+            reach = max(reach, horizontal_distance(self._world.state.positions).item())
+        self._world.state.set_derivative(Derivatives.position, initial_positions)
+        self._world.notify_state_change()
+        return reach
 
     def __hash__(self):
         """
@@ -417,11 +468,11 @@ class ForceTorqueSensor(Sensor):
     """Symbolic torque ``[tx, ty, tz]`` in the sensor frame; its live value lives in
     ``world.sensor_inputs``."""
 
-    _last_update_time: float | None = field(
-        init=False, default=None, compare=False, repr=False
+    has_received_wrench: bool = field(
+        init=False, default=False, compare=False, repr=False
     )
-    """Monotonic time of the most recent :meth:`write_wrench`, or ``None`` if no wrench
-    has arrived yet."""
+    """Whether at least one wrench reading has been written, so consumers can tell an
+    idle sensor from one measuring zero."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -444,15 +495,13 @@ class ForceTorqueSensor(Sensor):
 
         .. note:: Pull-only: this writes into ``world.sensor_inputs`` and returns; it
             never triggers a world state-change notification.
+
+        :param force: Measured force ``[fx, fy, fz]`` in the sensor frame.
+        :param torque: Measured torque ``[tx, ty, tz]`` in the sensor frame.
         """
         self._world.sensor_inputs.set_value(self.force, force)
         self._world.sensor_inputs.set_value(self.torque, torque)
-        self._last_update_time = time.monotonic()
-
-    @property
-    def has_received_wrench(self) -> bool:
-        """Whether at least one wrench reading has been written."""
-        return self._last_update_time is not None
+        self.has_received_wrench = True
 
     @classmethod
     def with_root(
@@ -561,6 +610,15 @@ class Base(KinematicChain):
     """
     Axis along which the robot manipulates
     """
+
+    @property
+    def footprint_radius(self) -> float:
+        """
+        Horizontal radius of the base, in m: how far it extends from its own origin, and
+        therefore how close that origin can be placed to an obstacle.
+        """
+        box = self.bounding_box
+        return max(box.depth, box.width) / 2.0
 
     @property
     def bounding_box(self) -> BoundingBox:

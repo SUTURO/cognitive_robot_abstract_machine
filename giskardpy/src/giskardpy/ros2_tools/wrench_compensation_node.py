@@ -183,8 +183,8 @@ class WrenchCompensationNode(Node):
 
     The output stays in the sensor frame (``header.frame_id`` unchanged), so a
     downstream consumer that rotates it itself (e.g. the admittance task's
-    ``goal_T_sensor``) keeps working unchanged. Point ``ForceTorqueSymbolNode``
-    at ``topic_out`` and its ``reference_frame`` at the sensor link.
+    ``goal_T_sensor``) keeps working unchanged. Point a wrench feeder at
+    ``topic_out`` and its ``reference_frame`` at the sensor link.
     """
 
     topic_in: str = RAW_WRENCH_TOPIC

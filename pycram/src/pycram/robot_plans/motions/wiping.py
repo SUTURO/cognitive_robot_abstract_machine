@@ -25,37 +25,30 @@ from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Table
 from semantic_digital_twin.spatial_types import Point3, Vector3
 from semantic_digital_twin.world_description.geometry import BoundingBox
-from semantic_digital_twin.world_description.world_entity import (
-    Body,
-    KinematicStructureEntity,
-)
+from semantic_digital_twin.world_description.world_entity import Body
 
 from pycram.datastructures.enums import Arms, WipeMode
 from pycram.robot_plans.motions.base import BaseMotion
-from pycram.robot_plans.motions.wipe_coverage import Reach
+from pycram.robot_plans.motions.wipe_coverage import Reach, WipeRegion
 from pycram.view_manager import ViewManager
 
 
-class MissingForceTorqueSensorError(Exception):
-    """Raised when the robot has no force/torque sensor annotation, so the wipe
-    has no frame to measure its contact wrench in."""
+class TableWithoutCollisionGeometryError(Exception):
+    """Raised when a table has no collision geometry, so the wipe cannot tell where
+    its surface is."""
 
-    def __init__(self, robot: object) -> None:
-        super().__init__(
-            f"Robot {robot} has no ForceTorqueSensor annotation; the wipe cannot "
-            "regulate contact force."
-        )
+    def __init__(self, table: Table) -> None:
+        super().__init__(f"Table {table.root.name} has no collision geometry.")
 
 
 @dataclass
 class WipeTableMotion(BaseMotion):
-    """Sweep the tool over a cleared table surface, regulating contact force with
-    the admittance controller, by building a single :class:`WipeGoal`.
+    """Sweep the tool over a cleared table surface, regulating contact force with the
+    admittance controller, by building a single :class:`WipeGoal`.
 
-    ``SPILL`` wipes a continuous serpentine over the surface; ``CRUMB`` pushes
-    every lane toward the +x edge and then sweeps once along that edge to gather
-    the piles into one corner. A ``reach`` from the coverage planner tapers each
-    lane to the arm's reach from where the base can stand."""
+    ``SPILL`` wipes a continuous serpentine over the surface; ``CRUMB`` pushes every
+    lane toward the +x edge and then sweeps once along that edge to gather the piles
+    into one corner."""
 
     table: Table
     """Table whose top surface is wiped (assumed cleared of clutter)."""
@@ -67,11 +60,11 @@ class WipeTableMotion(BaseMotion):
     """``SPILL`` (serpentine) or ``CRUMB`` (gather to a corner)."""
 
     tool: Body
-    """Sponge/tool body held by the gripper. Its frame follows the waypoints and
-    its footprint sets the lane spacing and margin."""
+    """Sponge/tool body held by the gripper. Its frame follows the waypoints and its
+    footprint sets the lane spacing and margin."""
 
-    region: tuple[float, float, float, float] | None = None
-    """``(min_x, max_x, min_y, max_y)`` sub-rectangle to wipe; ``None`` = whole top."""
+    region: WipeRegion | None = None
+    """Sub-rectangle of the top to wipe. ``None`` wipes the whole top."""
 
     reach: Reach | None = None
     """Where the base can stand and how far the arm reaches, from the coverage
@@ -87,13 +80,9 @@ class WipeTableMotion(BaseMotion):
         return
 
     @property
-    def _table_body(self) -> Body:
-        return self.table.root
-
-    @property
     def _tool_width(self) -> float:
-        """The tool's largest horizontal extent: the wipe holds its long side
-        across the strokes, so this is the coverage one lane provides."""
+        """The tool's largest horizontal extent: the wipe holds its long side across
+        the strokes, so this is the coverage one lane provides."""
         box = self.tool.collision.as_bounding_box_collection_in_frame(
             self.tool
         ).bounding_box()
@@ -101,31 +90,21 @@ class WipeTableMotion(BaseMotion):
 
     @property
     def lane_spacing(self) -> float:
-        """Half the tool width, so adjacent lanes overlap by 50% and every
-        surface point is covered by at least two strokes."""
+        """Half the tool width, so adjacent lanes overlap by 50% and every surface
+        point is covered by at least two strokes."""
         return self._tool_width / 2.0
 
     @property
     def surface_margin(self) -> float:
-        """Half the tool width, so the tool's edge reaches the table edge while
-        its centre stays inset."""
+        """Half the tool width, so the tool's edge reaches the table edge while its
+        centre stays inset."""
         return self._tool_width / 2.0
 
     @property
-    def _force_torque_frame(self) -> KinematicStructureEntity:
-        """The frame the compensated wrench is measured in, taken from the
-        robot's force/torque sensor annotation."""
-        for sensor in self.robot.sensors:
-            if isinstance(sensor, ForceTorqueSensor):
-                return sensor.root
-        raise MissingForceTorqueSensorError(self.robot.name)
-
-    @property
     def _motion_chart(self) -> WipeGoal:
-        force_torque_frame = self._force_torque_frame
         wrench_source = ForceTorqueSensorUpdater(
             topic_name=COMPENSATED_WRENCH_TOPIC,
-            reference_frame=force_torque_frame,
+            reference_frame=ForceTorqueSensor.for_tip(self.world, self.tool).root,
             name="wipe_ft",
         )
         collision = None
@@ -148,113 +127,76 @@ class WipeTableMotion(BaseMotion):
         )
 
     def _build_segments(self) -> list[WipeSegment]:
+        """The strokes to run, in order, each in the table's frame."""
         extent = self._wipe_extent()
-        top_z = extent.max_z
         margin = self.surface_margin
-        x_low = extent.min_x + margin
-        x_high = extent.max_x - margin
-        lane_y_values = self._lane_offsets(
-            extent.min_y + margin, extent.max_y - margin
-        )
-        lanes = [self._stroke_points(x_low, x_high, y, top_z) for y in lane_y_values]
+        lanes = [
+            self._stroke_points(
+                extent.min_x + margin, extent.max_x - margin, lane_y, extent.max_z
+            )
+            for lane_y in self._lane_offsets(
+                extent.min_y + margin, extent.max_y - margin
+            )
+        ]
         if self.reach is not None:
             lanes = [
-                [
-                    point
-                    for point in lane
-                    if self._distance_to_reach_segment(point) <= self.reach.radius
-                ]
-                for lane in lanes
+                [point for point in lane if self.reach.covers(point)] for lane in lanes
             ]
-        if self.mode == WipeMode.SPILL:
-            return self._absorb_segments(lanes)
-        return self._collect_segments(lanes)
-
-    def _distance_to_reach_segment(self, point: Point3) -> float:
-        """Table-frame xy distance from ``point`` to the base's standing line."""
-        (start_x, start_y), (end_x, end_y) = self.reach.segment
-        point_x, point_y = float(point.x), float(point.y)
-        segment_x, segment_y = end_x - start_x, end_y - start_y
-        length_squared = segment_x * segment_x + segment_y * segment_y
-        if length_squared == 0.0:
-            return math.hypot(point_x - start_x, point_y - start_y)
-        fraction = max(
-            0.0,
-            min(
-                1.0,
-                ((point_x - start_x) * segment_x + (point_y - start_y) * segment_y)
-                / length_squared,
-            ),
-        )
-        return math.hypot(
-            point_x - (start_x + fraction * segment_x),
-            point_y - (start_y + fraction * segment_y),
-        )
-
-    def _absorb_segments(self, lanes: list[list[Point3]]) -> list[WipeSegment]:
-        """One serpentine over the lanes: adjacent lanes run in opposite
-        x-directions and the tool slides straight from one to the next."""
-        waypoints: list[Point3] = []
-        for lane_index, lane in enumerate(lanes):
-            waypoints.extend(lane if lane_index % 2 == 0 else list(reversed(lane)))
-        return [waypoints] if waypoints else []
-
-    def _collect_segments(self, lanes: list[list[Point3]]) -> list[WipeSegment]:
-        """Every lane pushes its crumbs toward the +x edge, then one final sweep
-        runs along that edge through every lane's pile, gathering them into one
-        corner. The tool lifts between the lanes and before the sweep."""
         lanes = [lane for lane in lanes if lane]
+
+        if self.mode is WipeMode.SPILL:
+            # One serpentine: adjacent lanes run in opposite x-directions, so the tool
+            # slides straight from one into the next.
+            serpentine = [
+                point
+                for lane_index, lane in enumerate(lanes)
+                for point in (lane if lane_index % 2 == 0 else reversed(lane))
+            ]
+            return [serpentine] if serpentine else []
+
+        # Every lane pushes its crumbs toward the +x edge, then one final sweep runs
+        # along that edge through every lane's pile, gathering them into one corner.
         piles = [lane[-1] for lane in lanes]
-        segments: list[WipeSegment] = list(lanes)
-        if len(piles) >= 2:
-            segments.append(piles)
-        return segments
+        return lanes + [piles] if len(piles) >= 2 else lanes
 
     def _wipe_extent(self) -> BoundingBox:
-        """The table's collision extent in its own frame, clipped to ``region``
-        if set. The surface height is its ``max_z``."""
-        body = self._table_body
-        collection = body.collision.as_bounding_box_collection_in_frame(body)
+        """The table's collision extent in its own frame, clipped to :attr:`region` if
+        set. The surface height is its ``max_z``."""
+        table_body = self.table.root
+        collection = table_body.collision.as_bounding_box_collection_in_frame(
+            table_body
+        )
         if not collection.bounding_boxes:
-            raise ValueError(f"Table {body.name} has no collision geometry.")
+            raise TableWithoutCollisionGeometryError(self.table)
         extent = collection.bounding_box()
-        if self.region is not None:
-            min_x, max_x, min_y, max_y = self.region
-            extent = BoundingBox(
-                max(extent.min_x, min_x),
-                max(extent.min_y, min_y),
-                extent.min_z,
-                min(extent.max_x, max_x),
-                min(extent.max_y, max_y),
-                extent.max_z,
-                extent.origin,
-            )
-        return extent
+        if self.region is None:
+            return extent
+        return self.region.clip(extent)
 
     def _stroke_points(
         self, x_start: float, x_end: float, lane_y: float, top_z: float
     ) -> list[Point3]:
-        """Waypoints along one stroke, sampled at the lane spacing so the reach
-        taper and coverage share a uniform grid."""
+        """Waypoints along one stroke, sampled at the lane spacing so the reach taper
+        and the coverage share a uniform grid."""
         count = max(2, math.ceil(abs(x_end - x_start) / self.lane_spacing) + 1)
         return [
             Point3(
-                x=x_start + i / (count - 1) * (x_end - x_start),
+                x=x_start + index / (count - 1) * (x_end - x_start),
                 y=lane_y,
                 z=top_z,
-                reference_frame=self._table_body,
+                reference_frame=self.table.root,
             )
-            for i in range(count)
+            for index in range(count)
         ]
 
     def _lane_offsets(self, start: float, end: float) -> list[float]:
-        """Lane y-values evenly spanning ``start`` to ``end`` with a gap of at
-        most ``lane_spacing`` -- both ends included exactly once."""
+        """Lane y-values evenly spanning ``start`` to ``end`` with a gap of at most
+        :attr:`lane_spacing` -- both ends included exactly once."""
         span = end - start
         if span <= 0.0:
             return [start]
         lane_count = max(1, math.ceil(span / self.lane_spacing))
-        return [start + i * span / lane_count for i in range(lane_count + 1)]
+        return [start + index * span / lane_count for index in range(lane_count + 1)]
 
     def _approach_collision_rules(self) -> list[CollisionRule]:
         """Avoid all external collisions; the tool is bolted to the arm, so its
@@ -268,25 +210,20 @@ class WipeTableMotion(BaseMotion):
         ]
 
     def _contact_collision_rules(self) -> list[CollisionRule]:
-        """The approach rules plus the gripper and tool allowed onto the wiped
-        surface -- the base stays table-avoided."""
-        return self._approach_collision_rules() + [
-            AllowCollisionBetweenGroups(
-                body_group_a=self._gripper_and_tool_bodies(),
-                body_group_b=[self._table_body],
-            )
-        ]
-
-    def _gripper_and_tool_bodies(self) -> list[Body]:
-        """The gripper's own collision bodies plus the tool: the parts that may
-        rest on the wiped surface while pressing."""
+        """The approach rules plus the gripper's own collision bodies and the tool --
+        the parts that rest on the surface while pressing -- allowed onto the wiped
+        surface. The base stays table-avoided."""
         gripper = ViewManager.get_end_effector_view(self.arm, self.robot)
-        bodies = [
+        pressing_bodies = [
             entity
             for entity in self.world.get_kinematic_structure_entities_of_branch(
                 gripper.root
             )
             if isinstance(entity, Body) and entity.has_collision()
         ]
-        bodies.append(self.tool)
-        return bodies
+        return self._approach_collision_rules() + [
+            AllowCollisionBetweenGroups(
+                body_group_a=pressing_bodies + [self.tool],
+                body_group_b=[self.table.root],
+            )
+        ]

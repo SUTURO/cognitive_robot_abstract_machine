@@ -79,6 +79,7 @@ from giskardpy.motion_statechart.tasks.feature_functions import (
 from giskardpy.motion_statechart.tasks.admittance_tasks import (
     AdmittanceCartesianPosition,
     LowerUntilContact,
+    NonPositiveVirtualMassError,
 )
 from giskardpy.motion_statechart.goals.wipe_goals import WipeGoal
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList, JointState
@@ -96,7 +97,6 @@ from giskardpy.motion_statechart.test_nodes.test_nodes import (
 )
 from giskardpy.motion_statechart.ros2_nodes.force_torque_monitor import (
     ForceTorqueSensorUpdater,
-    ForceTorqueSymbolNode,
 )
 from giskardpy.ros_executor import Ros2Executor
 from giskardpy.qp.constraint import EqualityConstraint
@@ -4538,10 +4538,6 @@ def _make_wrench(force_xyz=(0.0, 0.0, 0.0), torque_xyz=(0.0, 0.0, 0.0)) -> Wrenc
     return msg
 
 
-def _inject_wrench(node: ForceTorqueSymbolNode, msg: WrenchStamped) -> None:
-    setattr(node, "_TopicSubscriberNode__last_msg", msg)
-
-
 def _add_wipe_table(world: World, name: str, top_z: float, thickness: float = 0.04) -> Body:
     """Add a 0.6 x 0.6 table whose top sits at ``top_z`` and return its body."""
     table_name = PrefixedName(name)
@@ -4650,71 +4646,6 @@ def prismatic_z_world() -> World:
     return world
 
 
-class TestForceTorqueSymbolNode:
-
-    def test_post_init_creates_force_and_torque_symbols(self, mini_world):
-        node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=mini_world.root,
-            name="ft",
-        )
-        assert isinstance(node.force, Vector3)
-        assert isinstance(node.torque, Vector3)
-        assert node.force.reference_frame is mini_world.root
-        assert node.torque.reference_frame is mini_world.root
-        assert len(node.force.free_variables()) == 3
-        assert len(node.torque.free_variables()) == 3
-
-    def test_register_and_set_value_round_trip(self, mini_world):
-        context = MotionStatechartContext(world=mini_world)
-        node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=mini_world.root,
-            name="ft",
-        )
-        context.float_variable_data.register_expression(node.force)
-        context.float_variable_data.register_expression(node.torque)
-        context.float_variable_data.set_value(node.force, [1.0, 2.0, 3.0])
-        context.float_variable_data.set_value(node.torque, [0.1, 0.2, 0.3])
-        assert node.force.x.evaluate() == pytest.approx(1.0)
-        assert node.force.y.evaluate() == pytest.approx(2.0)
-        assert node.force.z.evaluate() == pytest.approx(3.0)
-        assert node.torque.x.evaluate() == pytest.approx(0.1)
-        assert node.torque.y.evaluate() == pytest.approx(0.2)
-        assert node.torque.z.evaluate() == pytest.approx(0.3)
-
-    def test_on_tick_writes_wrench_into_data(self, mini_world):
-        context = MotionStatechartContext(world=mini_world)
-        node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=mini_world.root,
-            name="ft",
-        )
-        context.float_variable_data.register_expression(node.force)
-        context.float_variable_data.register_expression(node.torque)
-        _inject_wrench(
-            node, _make_wrench(force_xyz=(1.0, 2.0, 3.0), torque_xyz=(0.1, 0.2, 0.3))
-        )
-        state = node.on_tick(context)
-        assert state == ObservationStateValues.UNKNOWN
-        assert node.force.x.evaluate() == pytest.approx(1.0)
-        assert node.force.z.evaluate() == pytest.approx(3.0)
-        assert node.torque.y.evaluate() == pytest.approx(0.2)
-
-    def test_on_tick_without_message_returns_unknown(self, mini_world):
-        context = MotionStatechartContext(world=mini_world)
-        node = ForceTorqueSymbolNode(
-            topic_name="/test/wrench",
-            reference_frame=mini_world.root,
-            name="ft",
-        )
-        context.float_variable_data.register_expression(node.force)
-        context.float_variable_data.register_expression(node.torque)
-        state = node.on_tick(context)
-        assert state == ObservationStateValues.UNKNOWN
-        assert np.allclose(context.float_variable_data.data, 0)
-
-
 def _add_force_torque_sensor(world: World, frame) -> ForceTorqueSensor:
     """Attach a force/torque sensor annotation rooted at ``frame`` to ``world``."""
     with world.modify_world():
@@ -4745,33 +4676,86 @@ class TestAdmittanceCartesianPosition:
     def _apply_force(self, context, sensor, force_xyz):
         sensor.write_wrench(np.array(force_xyz), np.zeros(3))
 
+    def _offset_seen_by_the_qp(self, task) -> np.ndarray:
+        """The admittance offset as the QP reads it: out of the float-variable data,
+        through the registered symbol."""
+        return task._admittance_position.evaluate().flatten()[:3]
+
     def test_build_registers_admittance_state(self, prismatic_z_world):
         context, _, task = self._build_task(prismatic_z_world)
         assert isinstance(task._admittance_position, Vector3)
-        assert isinstance(task._admittance_velocity, Vector3)
-        assert task._admittance_velocity_start == task._admittance_position_start + 3
-        data = context.float_variable_data.data
-        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
-        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
+        start = context.float_variable_data.index_of(task._admittance_position)
+        assert np.allclose(context.float_variable_data.data[start : start + 3], 0)
+        assert np.allclose(task._state, 0), "offset and rate start at rest"
 
     def test_zero_force_keeps_state_at_zero(self, prismatic_z_world):
         context, sensor, task = self._build_task(prismatic_z_world)
         self._apply_force(context, sensor, (0.0, 0.0, 0.0))
         for _ in range(20):
             task.on_tick(context)
-        data = context.float_variable_data.data
-        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
-        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
+        assert np.allclose(task._state, 0)
 
     def test_z_force_drives_z_correction(self, prismatic_z_world):
         context, sensor, task = self._build_task(prismatic_z_world)
         self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(10):
             task.on_tick(context)
-        x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
+        x_a = task._state[:3]
         assert x_a[0] == pytest.approx(0.0, abs=1e-9)
         assert x_a[1] == pytest.approx(0.0, abs=1e-9)
         assert x_a[2] > 0.01
+        assert np.allclose(self._offset_seen_by_the_qp(task), x_a), (
+            "the QP must see the offset the task integrated"
+        )
+
+    def test_stiff_damping_converges_to_terminal_velocity(self, prismatic_z_world):
+        """With damping far beyond the bound an explicit damping term would survive
+        (``control_dt * damping / mass`` > 2), a constant force error must settle at
+        the terminal velocity ``force_error / damping`` instead of oscillating with
+        growing amplitude. This is the "sponge bounces off the table" regression."""
+        damping, desired_force = 100.0, 8.0
+        context, sensor, task = self._build_task(
+            prismatic_z_world,
+            damping=Vector3(x=damping, y=damping, z=damping),
+            desired_force=Vector3(z=desired_force),
+        )
+        self._apply_force(context, sensor, (0.0, 0.0, 0.0))
+        velocities = []
+        for _ in range(200):
+            task.on_tick(context)
+            velocities.append(task._state[5])
+
+        assert velocities[-1] == pytest.approx(-desired_force / damping, abs=1e-6)
+        assert all(
+            later <= earlier + 1e-12
+            for earlier, later in zip(velocities, velocities[1:])
+        ), "Velocity must approach the terminal value monotonically, not oscillate."
+
+    def test_press_against_contact_spring_settles_without_bouncing(
+        self, prismatic_z_world
+    ):
+        """Pressing with a desired force against a stiff unilateral contact (the wipe
+        scenario) must settle at the equilibrium penetration ``desired_force /
+        contact_stiffness`` without diverging."""
+        desired_force, contact_stiffness = 8.0, 2000.0
+        context, sensor, task = self._build_task(
+            prismatic_z_world,
+            damping=Vector3(x=100.0, y=100.0, z=100.0),
+            desired_force=Vector3(z=desired_force),
+        )
+        offsets = []
+        for _ in range(2000):
+            contact_force = contact_stiffness * max(0.0, -task._state[2])
+            self._apply_force(context, sensor, (0.0, 0.0, contact_force))
+            task.on_tick(context)
+            offsets.append(task._state[2])
+
+        equilibrium = -desired_force / contact_stiffness
+        assert offsets[-1] == pytest.approx(equilibrium, abs=1e-4)
+        assert min(offsets) > 10 * equilibrium, (
+            "The press dove far past the equilibrium penetration; the coupled "
+            "contact loop is unstable."
+        )
 
     def test_steady_state_velocity_under_damping(self, prismatic_z_world):
         # stiffness=0, mass=1, damping=20, force=10
@@ -4780,7 +4764,7 @@ class TestAdmittanceCartesianPosition:
         self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(50):
             task.on_tick(context)
-        xd_a = context.float_variable_data.data[task._admittance_velocity_start : task._admittance_velocity_start + 3]
+        xd_a = task._state[3:]
         assert xd_a[2] == pytest.approx(0.5, abs=0.05)
 
     def test_spring_pulls_correction_back_to_zero(self, prismatic_z_world):
@@ -4793,23 +4777,21 @@ class TestAdmittanceCartesianPosition:
             stiffness=Vector3(x=50.0, y=50.0, z=50.0),
         )
         # Inject an offset and let the spring relax.
-        context.float_variable_data.set_value(task._admittance_position, [0.0, 0.0, 0.1])
+        task._state[:3] = [0.0, 0.0, 0.1]
         self._apply_force(context, sensor, (0.0, 0.0, 0.0))
         for _ in range(200):
             task.on_tick(context)
-        x_a = context.float_variable_data.data[task._admittance_position_start : task._admittance_position_start + 3]
-        assert abs(x_a[2]) < 0.005
+        assert abs(task._state[2]) < 0.005
 
     def test_reset_zeros_state(self, prismatic_z_world):
         context, sensor, task = self._build_task(prismatic_z_world)
         self._apply_force(context, sensor, (0.0, 0.0, 10.0))
         for _ in range(5):
             task.on_tick(context)
-        assert context.float_variable_data.data[task._admittance_position_start + 2] != 0
+        assert task._state[2] != 0
         task.on_reset(context)
-        data = context.float_variable_data.data
-        assert np.allclose(data[task._admittance_position_start : task._admittance_position_start + 3], 0)
-        assert np.allclose(data[task._admittance_velocity_start : task._admittance_velocity_start + 3], 0)
+        assert np.allclose(task._state, 0)
+        assert np.allclose(self._offset_seen_by_the_qp(task), 0)
 
     def test_invalid_mass_raises(self, prismatic_z_world):
         context = MotionStatechartContext(world=prismatic_z_world)
@@ -4820,7 +4802,7 @@ class TestAdmittanceCartesianPosition:
             goal_point=Point3(0, 0, 0, reference_frame=prismatic_z_world.root),
             mass=Vector3(x=1.0, y=1.0, z=0.0),
         )
-        with pytest.raises(ValueError):
+        with pytest.raises(NonPositiveVirtualMassError):
             task.build(context)
 
     def test_full_executor_drift_in_force_direction(

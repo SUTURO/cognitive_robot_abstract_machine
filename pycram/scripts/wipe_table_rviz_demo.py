@@ -48,7 +48,7 @@ from semantic_digital_twin.robots.abstract_robot import ForceTorqueSensor
 from pycram.datastructures.dataclasses import Context
 from pycram.datastructures.enums import WipeMode
 from pycram.plans.factories import execute_single
-from pycram.robot_plans.motions.wipe_coverage import WipePass, plan_per_side_wipe
+from pycram.robot_plans.motions.wipe_coverage import WipeCoveragePlanner, WipePass
 from pycram.robot_plans.motions.wipe_markers import WipeMarkers
 
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
@@ -110,7 +110,7 @@ def _build_hsr_for_merge() -> World:
     return world
 
 
-def _build_lab_scene() -> tuple[World, HSRB]:
+def _build_lab_scene() -> tuple[World, HSRB, OmniDrive]:
     """The stand-in for ``fetch_world_from_service`` + synchronizers: the lab
     map with an HSR merged in at ``HSR_BASE_POSE``."""
     world = load_environment()
@@ -295,7 +295,9 @@ def main() -> None:
     table = Table(root=surface)
     try:
         while True:
-            passes = plan_per_side_wipe(world, table, robot_view, -0.03)
+            passes = WipeCoveragePlanner(
+                world, table, robot_view, reach_margin=-0.03
+            ).plan()
             print(f"reachable from {len(passes)} side(s); wiping each.")
             built, combined_markers = _plan_and_preview(
                 world, drive, surface, passes, context, arguments.mode,
@@ -305,7 +307,7 @@ def main() -> None:
             for index, (wipe_pass, goal) in enumerate(built):
                 _place_base(world, drive, wipe_pass.base_pose)
                 print(f"\npass {index + 1}/{len(built)}: {arguments.mode.name} wipe of "
-                      f"'{surface.name}' strip {tuple(round(v, 2) for v in wipe_pass.region)}, "
+                      f"'{surface.name}' strip {wipe_pass.region}, "
                       f"{PRESS_FORCE} N press.")
                 _run_wipe(world, goal, node, TICK_BUDGET)
             if not arguments.loop:

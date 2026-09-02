@@ -71,7 +71,7 @@ class WipeGoal(Parallel):
     with the strokes. ``None`` when the wrench is written directly (simulation and
     tests); required on the real robot, where the server ticks the serialized chart."""
 
-    desired_force: Vector3 | None = field(default=None, kw_only=True)
+    desired_force: Vector3 = field(default_factory=Vector3, kw_only=True)
     """Contact force the admittance balances, forwarded to every wipe task."""
 
     weight: float = field(default=DefaultWeights.WEIGHT_ABOVE_CA, kw_only=True)
@@ -106,7 +106,7 @@ class WipeGoal(Parallel):
         surface_frame = next(
             waypoint for segment in self.segments for waypoint in segment
         ).reference_frame
-        alignments = [
+        parallel_nodes = [
             AlignPlanes(
                 name=f"{self.name}/align_tip",
                 root_link=self.root_link,
@@ -127,8 +127,8 @@ class WipeGoal(Parallel):
             ),
         ]
         if self.collision is not None:
-            alignments.append(self.collision.avoidance)
-        for node in alignments:
+            parallel_nodes.append(self.collision.avoidance)
+        for node in parallel_nodes:
             self.add_node(node)
             node.end_condition = self._strokes.observation_variable
 
