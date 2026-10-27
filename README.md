@@ -33,7 +33,25 @@ workon cram-env
 deactivate
 ```
 
-### Install using UV 
+#### Optional: Setup your ROS Workspace
+To run the tests or use CRAM with a real robot you need to setup a ROS workspace with the dependencies. 
+The monorepo provides a shell script to setup the workspace for you. 
+```bash
+export OVERLAY_WS=$HOME/ros_ws
+./scripts/setup_ros_workspace.sh
+```
+This will create a ROS workspace in the folder specified in OVERLAY_WS
+
+### Install additional dependencies
+
+You need to install the following system dependencies:
+
+```bash
+sudo apt install -y graphviz graphviz-dev
+```
+
+
+### Install using UV
 
 To install the whole repo we use uv (https://github.com/astral-sh/uv), first to install uv:
 
@@ -48,6 +66,24 @@ then install packages:
 uv sync --active
 ```
 
+If you also want the development dependencies, run:
+
+```bash
+uv sync --extra dev --active 
+```
+
+`semantic_digital_twin`'s Drake-based IRIS/GCS features (and their tests, `test/semantic_digital_twin_test/test_worlds/test_gcs_polygons.py`) need the optional `iris` extra on top of that - it is layered on separately since Drake is a large, `semantic_digital_twin`-specific dependency:
+
+```bash
+uv sync --package semantic_digital_twin --extra iris --active --inexact
+```
+
+Running the test suite does not require any dataset-loading dependencies (Drake, py7zr, usd-core/pxr) - tests that need one of these skip cleanly when it is not installed. To actually load GraspClutter6D or ArtVIP datasets (or run their tests against the real packages), add the `datasets` extra the same way:
+
+```bash
+uv sync --package semantic_digital_twin --extra datasets --active --inexact
+```
+
 
 ### Alternative: Poetry
 
@@ -57,13 +93,20 @@ Install poetry if you haven't already:
 
 ```bash
 pip install poetry
-``` 
+```
 
 Install the CRAM package along with its dependencies:
 
-```bash 
+```bash
 poetry install
 ```
+
+## Browser visualization
+
+The workspace includes [CRAMERA](cramera/README.md) for live 3D visualization,
+recorded playback, EQL questions and plan/statechart inspection. Start `cramera`
+from the activated environment, then run an existing demo with
+`cramera-live path/to/demo.py`.
 
 ## To run tests
 
@@ -79,7 +122,17 @@ sudo bash .github/docker/setup_ros_workspace.sh && source ~/.bashrc
 pytest test/<package>_test
 ```
 
-e.g. `pytest test/pycram_test`
+e.g. `pytest test/coraplex_test`
+
+## Developer / Agent Tooling
+
+`.claude/` holds configuration for AI coding agents (Claude Code) working in
+this repository.
+
+- **[`.claude/skills/local-code-review/`](.claude/skills/local-code-review/SKILL.md)** -
+  reviews the current branch against upstream `main` for bugs and
+  `AGENTS.md` adherence, then hands back an approval-gated plan to fix every
+  finding (including adding missing tests) before you push.
 
 ## Contribution
 

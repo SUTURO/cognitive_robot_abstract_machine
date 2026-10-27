@@ -1,0 +1,656 @@
+import math
+import os
+import tracemalloc
+from importlib.resources import files
+from pathlib import Path
+
+import numpy as np
+import pytest
+import trimesh
+from PIL import Image
+from trimesh.visual import TextureVisuals
+from trimesh.visual.material import SimpleMaterial
+
+from krrood.adapters.json_serializer import from_json, to_json
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.geometry import (
+    Box,
+    Color,
+    Cylinder,
+    Mesh,
+    Scale,
+    Sphere,
+    SurfaceFinish,
+    Texture,
+)
+from semantic_digital_twin.world_description.mesh_file_storage import MeshFileStorage
+from semantic_digital_twin.world_description.world_entity import Body
+
+
+def test_recenter_origin_centers_bounding_box():
+    # A non-planar point cloud whose bounding box is offset from the origin.
+    mesh = Mesh.from_3d_points(
+        points_3d=[
+            Point3(0, 0, 0),
+            Point3(2, 0, 0),
+            Point3(0, 4, 0),
+            Point3(0, 0, 6),
+        ]
+    )
+    bounding_box = mesh.local_frame_bounding_box
+    expected_center = np.array(
+        [
+            (bounding_box.min_x + bounding_box.max_x) / 2,
+            (bounding_box.min_y + bounding_box.max_y) / 2,
+            (bounding_box.min_z + bounding_box.max_z) / 2,
+        ]
+    )
+
+    mesh.recenter_origin()
+
+    np.testing.assert_allclose(mesh.origin.position.to_np()[:3], -expected_center)
+
+
+def test_recenter_origin_preserves_existing_rotation():
+    # Recentering only moves the origin's translation; a pre-existing rotation must
+    # survive so the shape is not silently re-oriented.
+    mesh = Mesh.from_3d_points(
+        points_3d=[
+            Point3(0, 0, 0),
+            Point3(2, 0, 0),
+            Point3(0, 4, 0),
+            Point3(0, 0, 6),
+        ]
+    )
+    mesh.origin = HomogeneousTransformationMatrix.from_xyz_rpy(0, 0, 0, 0, 0, np.pi / 2)
+    expected_rotation = mesh.origin.rotation_matrix.to_np()
+
+    mesh.recenter_origin()
+
+    np.testing.assert_allclose(
+        mesh.origin.rotation_matrix.to_np(), expected_rotation, atol=1e-12
+    )
+
+
+def test_shape():
+    mesh = Mesh.from_ply_file(
+        ply_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair.ply",
+        ),
+        texture_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair_texture.png",
+        ),
+    )
+    assert mesh.filename.startswith("/tmp/")
+    assert mesh.filename.endswith(".obj")
+    assert len(mesh.mesh.visual.uv) == 8527
+
+
+def test_mesh_color_survives_serialization(tmp_path):
+    """
+    Per-vertex mesh color survives the to_json/from_json round-trip.
+
+    Color travels inside the serialized geometry (re-exported as OBJ, which the
+    collision loader and visualizer can read), so a receiver renders it without needing
+    the original mesh file.
+    """
+    source = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    source.visual.vertex_colors = np.tile([200, 50, 50, 255], (len(source.vertices), 1))
+
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="ply")
+    restored = Mesh.from_json(mesh.to_json())
+
+    assert restored.filename.endswith(".obj")
+    assert (restored.mesh.visual.vertex_colors[:, :3] == [200, 50, 50]).all()
+
+
+def test_mesh_color_is_lost_without_color_preserving_format(tmp_path):
+    """
+    A format that cannot store per-vertex color (STL) drops it on export.
+
+    The contrast to the PLY round-trip: without a color-preserving format the color
+    is lost.
+    """
+    source = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+    source.visual.vertex_colors = np.tile([200, 50, 50, 255], (len(source.vertices), 1))
+
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="stl")
+
+    assert not (mesh.mesh.visual.vertex_colors[:, :3] == [200, 50, 50]).all()
+
+
+# %% where an exported mesh file is written
+
+
+def test_exported_mesh_gets_a_directory_of_its_own():
+    """
+    An export writes into a directory holding nothing else, so the material file trimesh
+    writes beside the mesh belongs to that mesh alone and a consumer resolving the
+    material relative to the mesh finds the right one.
+    """
+    mesh = Mesh.from_ply_file(
+        ply_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair.ply",
+        ),
+        texture_file_path=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "ply",
+            "chair_texture.png",
+        ),
+    )
+
+    mesh_directory = Path(mesh.filename).parent
+    assert mesh_directory.parent.name.startswith(MeshFileStorage.root_prefix)
+    assert {path.suffix for path in mesh_directory.iterdir()} == {
+        ".obj",
+        ".mtl",
+        ".png",
+    }
+
+
+def test_exported_mesh_basenames_are_unique(tmp_path):
+    """
+    Two exports never share a file name, because a consumer identifies a mesh by that
+    name and would otherwise treat the second mesh as the first.
+    """
+    first = Mesh.from_trimesh(
+        mesh=trimesh.creation.box(extents=(1.0, 1.0, 1.0)), directory=tmp_path
+    )
+    second = Mesh.from_trimesh(
+        mesh=trimesh.creation.box(extents=(2.0, 2.0, 2.0)), directory=tmp_path
+    )
+
+    assert Path(first.filename).stem != Path(second.filename).stem
+
+
+def test_explicit_directory_overrides_session_root(tmp_path):
+    mesh = Mesh.from_trimesh(
+        mesh=trimesh.creation.box(extents=(1.0, 1.0, 1.0)), directory=tmp_path
+    )
+
+    assert Path(mesh.filename).parent.parent == tmp_path
+    assert MeshFileStorage.root_prefix not in mesh.filename
+
+
+def coplanar_triangles_with_shared_positions() -> trimesh.Trimesh:
+    """
+    Two triangles that repeat two vertex positions, each triangle in its own color.
+
+    Welding the duplicate positions would merge vertices carrying different colors, so
+    this geometry distinguishes a faithful reload from a processed one.
+    """
+    vertices = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    mesh = trimesh.Trimesh(
+        vertices=vertices, faces=np.array([[0, 1, 2], [3, 4, 5]]), process=False
+    )
+    mesh.visual.vertex_colors = np.array(
+        [[200, 50, 50, 255]] * 3 + [[50, 50, 200, 255]] * 3
+    )
+    return mesh
+
+
+def test_vertices_sharing_a_position_keep_their_own_colors(tmp_path):
+    """
+    Reloading a mesh must not weld vertices that share a position, because welding
+    collapses their differing colors into one.
+    """
+    source = coplanar_triangles_with_shared_positions()
+
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="obj")
+
+    np.testing.assert_array_equal(
+        np.asarray(mesh.mesh.visual.vertex_colors),
+        np.asarray(source.visual.vertex_colors),
+    )
+
+
+def test_per_vertex_colors_survive_serialization_unwelded(tmp_path):
+    """
+    Every per-vertex color survives ``to_json``/``from_json``, not just the subset that
+    happens to remain after duplicate positions are merged.
+    """
+    source = coplanar_triangles_with_shared_positions()
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="obj")
+
+    restored = Mesh.from_json(mesh.to_json())
+
+    np.testing.assert_array_equal(
+        np.asarray(restored.mesh.visual.vertex_colors),
+        np.asarray(source.visual.vertex_colors),
+    )
+
+
+def test_serialization_reproduces_the_same_mesh():
+    """
+    A deserialized mesh is the mesh that was serialized, not a differently tessellated
+    reading of the same file: same vertices, same faces, and the same answer to whether
+    it bounds a volume.
+    """
+    original = Mesh(
+        filename=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "stl",
+            "milk.stl",
+        )
+    )
+
+    restored = Mesh.from_json(original.to_json())
+
+    np.testing.assert_allclose(
+        np.asarray(restored.mesh.vertices),
+        np.asarray(original.mesh.vertices),
+        atol=1e-6,
+    )
+    np.testing.assert_array_equal(
+        np.asarray(restored.mesh.faces), np.asarray(original.mesh.faces)
+    )
+    assert restored.mesh.is_volume == original.mesh.is_volume
+
+
+def test_serialization_preserves_watertightness_of_a_closed_mesh():
+    """
+    Volume and boolean operations need a watertight mesh, so a closed mesh must still
+    bound a volume after a round-trip.
+    """
+    original = Mesh(
+        filename=os.path.join(
+            Path(files("semantic_digital_twin")).parent.parent,
+            "resources",
+            "stl",
+            "milk.stl",
+        )
+    )
+    assert original.mesh.is_volume
+
+    restored = Mesh.from_json(original.to_json())
+
+    assert restored.mesh.is_volume
+    np.testing.assert_allclose(restored.mesh.volume, original.mesh.volume, rtol=1e-6)
+
+
+def test_texture_defaults():
+    texture = Texture(file_path="/textures/wood.png")
+
+    assert texture.repeat == (1.0, 1.0)
+    assert texture.uniform is False
+
+
+def test_texture_survives_serialization():
+    """
+    A texture's fields survive the to_json/from_json round-trip, so a receiver renders
+    the same tiling as the sender without needing the original scene.
+    """
+    texture = Texture(file_path="/textures/wood.png", repeat=(2.0, 3.0), uniform=True)
+
+    restored = from_json(to_json(texture))
+
+    assert restored == texture
+
+
+def test_textured_primitive_survives_serialization():
+    """
+    A primitive shape carrying a texture round-trips through serialization with the
+    texture intact, rather than silently collapsing to its flat color.
+    """
+    box = Box(
+        scale=Scale(1.0, 1.0, 1.0), texture=Texture(file_path="/textures/marble.png")
+    )
+
+    restored = Box.from_json(box.to_json())
+
+    assert restored.texture == box.texture
+    assert restored == box
+
+
+# %% how a surface takes light
+
+
+SHAPE_CONSTRUCTORS = [
+    pytest.param(Box, id="box"),
+    pytest.param(Sphere, id="sphere"),
+    pytest.param(Cylinder, id="cylinder"),
+    pytest.param(Mesh.box, id="mesh"),
+]
+"""
+A no-argument callable per concrete shape class, since each reconstructs itself from
+JSON in its own way and the finish has to survive all of them.
+"""
+
+
+@pytest.mark.parametrize("build_shape", SHAPE_CONSTRUCTORS)
+def test_a_shape_states_no_finish_until_one_is_declared(build_shape):
+    """
+    An unannotated shape reports that its finish is unknown rather than defaulting to
+    one, so a reader can tell a surface nobody described from a surface described as
+    matte.
+    """
+    assert build_shape().finish is None
+
+
+@pytest.mark.parametrize("build_shape", SHAPE_CONSTRUCTORS)
+@pytest.mark.parametrize("finish", list(SurfaceFinish))
+def test_a_declared_finish_survives_serialization(build_shape, finish):
+    """
+    A shape's finish round-trips through serialization, so a receiver reads the same
+    light behaviour the sender declared.
+    """
+    shape = build_shape()
+    shape.finish = finish
+
+    restored = from_json(to_json(shape))
+
+    assert restored.finish is finish
+
+
+@pytest.mark.parametrize("build_shape", SHAPE_CONSTRUCTORS)
+def test_an_undeclared_finish_survives_serialization_as_undeclared(build_shape):
+    """
+    A shape whose finish was never declared keeps saying so after a round-trip, instead
+    of arriving with one the sender never stated.
+    """
+    restored = from_json(to_json(build_shape()))
+
+    assert restored.finish is None
+
+
+# %% the volume a shape encloses
+
+
+def test_box_volume():
+    assert Box(scale=Scale(0.5, 2.0, 3.0)).volume == pytest.approx(3.0)
+
+
+def test_sphere_volume():
+    assert Sphere(radius=2.0).volume == pytest.approx(4.0 / 3.0 * math.pi * 8.0)
+
+
+def test_cylinder_volume():
+    """
+    A cylinder's volume follows from the circle its width spans, not from the polygon
+    its mesh approximates that circle with.
+    """
+    cylinder = Cylinder(width=2.0, height=3.0)
+
+    assert cylinder.volume == pytest.approx(math.pi * 3.0)
+    assert cylinder.volume > cylinder.mesh.volume
+
+
+def test_mesh_volume(tmp_path):
+    source = trimesh.creation.box(extents=(1.0, 2.0, 4.0))
+
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="stl")
+
+    assert mesh.volume == pytest.approx(8.0)
+
+
+# %% the units a mesh file declares
+
+
+def collada_fixture_path(file_name: str) -> str:
+    """
+    :param file_name: The name of the COLLADA file inside the collada resources.
+    :return: The absolute path of that file.
+    """
+    return os.path.join(
+        Path(files("semantic_digital_twin")).parent.parent,
+        "resources",
+        "collada",
+        file_name,
+    )
+
+
+def test_mesh_declaring_centimeters_loads_in_meters():
+    """
+    A mesh file stating that its coordinates are centimeters loads at its real size.
+
+    The world is in meters throughout, so a file measuring its cube as 100 across in
+    centimeters must arrive as a cube of one meter.
+    """
+    mesh = Mesh(filename=collada_fixture_path("centimeter_cube.dae"))
+
+    assert mesh.mesh.extents == pytest.approx([1.0, 1.0, 1.0])
+
+
+def test_mesh_declaring_no_units_is_taken_as_meters():
+    """
+    A mesh file that states no units is read as it is written.
+
+    Without a declaration there is nothing to convert from, so the coordinates are
+    already the meters the world expects.
+    """
+    mesh = Mesh(filename=collada_fixture_path("unitless_cube.dae"))
+
+    assert mesh.mesh.extents == pytest.approx([100.0, 100.0, 100.0])
+
+
+def test_declared_units_compose_with_the_meshs_own_scale():
+    """
+    A mesh keeps scaling by its own :attr:`~Mesh.scale` on top of the file's units.
+
+    The two are independent: the file says what its numbers mean, the shape says how
+    much to resize the result.
+    """
+    mesh = Mesh(
+        filename=collada_fixture_path("centimeter_cube.dae"), scale=Scale(2, 2, 2)
+    )
+
+    assert mesh.mesh.extents == pytest.approx([2.0, 2.0, 2.0])
+
+
+def test_stl_without_unit_metadata_loads_unchanged(tmp_path):
+    """
+    An STL carries no unit metadata at all, which must not be mistaken for a conversion
+    request.
+    """
+    source = trimesh.creation.box(extents=(1.0, 2.0, 4.0))
+
+    mesh = Mesh.from_trimesh(mesh=source, directory=tmp_path, file_type="stl")
+
+    assert mesh.mesh.extents == pytest.approx([1.0, 2.0, 4.0])
+
+
+# %% expressing a shape's mesh in another frame
+
+
+def test_mesh_in_frame_applies_the_owning_bodys_world_transform():
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        world.add_kinematic_structure_entity(root)
+        obstacle = Body(name=PrefixedName("obstacle"))
+        world.add_connection(
+            FixedConnection(
+                root,
+                child=obstacle,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=2.0, y=0.0, z=0.0, reference_frame=root
+                ),
+            )
+        )
+        shape = Box(scale=Scale(1.0, 1.0, 1.0))
+        obstacle.collision.append(shape)
+
+    world_mesh = shape.mesh_in_frame(root)
+
+    np.testing.assert_allclose(
+        world_mesh.bounds, shape.mesh.bounds + np.array([2.0, 0.0, 0.0])
+    )
+
+
+def test_mesh_in_frame_in_the_shapes_own_frame_matches_its_local_mesh():
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("map"))
+        world.add_kinematic_structure_entity(root)
+        obstacle = Body(name=PrefixedName("obstacle"))
+        world.add_connection(FixedConnection.create_with_dofs(world, root, obstacle))
+        shape = Box(scale=Scale(1.0, 1.0, 1.0))
+        obstacle.collision.append(shape)
+
+    world_mesh = shape.mesh_in_frame(obstacle)
+
+    np.testing.assert_allclose(world_mesh.bounds, shape.mesh.bounds)
+
+
+# %% json round trips
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        Sphere(radius=0.3),
+        Cylinder(width=0.2, height=0.4),
+        Box(scale=Scale(1.0, 2.0, 3.0)),
+        Box(
+            scale=Scale(1.0, 1.0, 1.0),
+            color=Color(0.1, 0.2, 0.3, 0.4),
+            texture=Texture(file_path="/textures/wood.png"),
+        ),
+    ],
+)
+def test_a_shape_survives_a_json_round_trip(shape):
+    """
+    Shapes are read back by the same code that writes them, so what one half spells and
+    the other half looks for can drift apart with nothing else noticing.
+    """
+    payload = shape.to_json()
+
+    restored = from_json(payload)
+
+    assert restored == shape
+    assert restored.to_json() == payload
+
+
+# %% a prism of equilateral cross-section
+
+PRISM_SIDE = 0.04
+"""
+Side of the triangular cross-section of the prism a test builds.
+"""
+
+PRISM_HEIGHT = 0.03
+"""
+Height of the prism a test builds.
+"""
+
+MESH_FILE_PRECISION = 1e-6
+"""
+How closely a mesh written to a file keeps its coordinates, in metres.
+"""
+
+
+def test_a_triangular_prism_has_the_side_and_height_it_is_built_with():
+    prism = Mesh.triangular_prism(side=PRISM_SIDE, height=PRISM_HEIGHT)
+    lower, upper = prism.mesh.bounds
+
+    np.testing.assert_allclose(
+        upper[1] - lower[1], PRISM_SIDE, atol=MESH_FILE_PRECISION
+    )
+    np.testing.assert_allclose(
+        upper[2] - lower[2], PRISM_HEIGHT, atol=MESH_FILE_PRECISION
+    )
+    np.testing.assert_allclose(
+        upper[0] - lower[0], PRISM_SIDE * math.sqrt(3) / 2, atol=MESH_FILE_PRECISION
+    )
+
+
+def test_a_triangular_prism_is_centred_on_its_bounding_box():
+    """
+    Centred on its bounding box rather than its centroid, the flat face and the apex
+    stand equally far from the middle, so two fingers closing along x meet both.
+    """
+    prism = Mesh.triangular_prism(side=PRISM_SIDE, height=PRISM_HEIGHT)
+    lower, upper = prism.mesh.bounds
+
+    np.testing.assert_allclose(
+        (lower + upper) / 2, np.zeros(3), atol=MESH_FILE_PRECISION
+    )
+
+
+def test_a_triangular_prism_points_its_apex_along_x():
+    prism = Mesh.triangular_prism(side=PRISM_SIDE, height=PRISM_HEIGHT)
+    vertices = prism.mesh.vertices
+    apex_x = vertices[:, 0].max()
+    face_x = vertices[:, 0].min()
+
+    assert np.sum(np.isclose(vertices[:, 0], apex_x)) < np.sum(
+        np.isclose(vertices[:, 0], face_x)
+    )
+
+
+# %% whether a mesh file is textured
+
+
+@pytest.fixture
+def two_textured_parts(tmp_path) -> Path:
+    """
+    :return: A file holding two boxes, each painted with a texture of its own.
+    """
+    scene = trimesh.Scene()
+    for index in range(2):
+        box = trimesh.creation.box(extents=(1.0, 1.0, 1.0))
+        box.apply_translation((2.0 * index, 0.0, 0.0))
+        generator = np.random.default_rng(index)
+        image = Image.fromarray(
+            generator.integers(0, 255, (1024, 1024, 3), dtype=np.uint8)
+        )
+        box.visual = TextureVisuals(
+            uv=generator.random((len(box.vertices), 2)),
+            material=SimpleMaterial(image=image),
+        )
+        scene.add_geometry(box, geom_name=f"part_{index}")
+    path = tmp_path / "two_textured_parts.glb"
+    scene.export(path)
+    return path
+
+
+def test_a_file_painting_its_parts_with_textures_is_textured(two_textured_parts):
+    assert Mesh(filename=str(two_textured_parts)).is_textured
+
+
+def test_a_file_without_textures_is_not_textured(tmp_path):
+    path = tmp_path / "box.stl"
+    trimesh.creation.box(extents=(1.0, 1.0, 1.0)).export(path)
+
+    assert not Mesh(filename=str(path)).is_textured
+
+
+def test_telling_a_file_textured_does_not_merge_the_textures_of_its_parts(
+    two_textured_parts,
+):
+    """
+    Merging the parts of a file into one mesh packs their textures into one image, so
+    telling whether the file is textured must not merge them.
+    """
+    tracemalloc.start()
+    trimesh.load_mesh(str(two_textured_parts), process=False)
+    _, merging_peak = tracemalloc.get_traced_memory()
+    tracemalloc.reset_peak()
+    Mesh(filename=str(two_textured_parts)).is_textured
+    _, checking_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert checking_peak < merging_peak / 2

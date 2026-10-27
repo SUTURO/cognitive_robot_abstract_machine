@@ -1,0 +1,318 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import timedelta
+
+from typing_extensions import TYPE_CHECKING
+
+from giskardpy.motion_statechart.exceptions import (
+    CollisionViolatedError,
+    NoProgressError,
+)
+from krrood.exceptions import DataclassException
+from semantic_digital_twin.robots.robot_parts import Arm, EndEffector
+from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.world_description.world_entity import Body
+
+if TYPE_CHECKING:
+    from coraplex.validation.goal_validator import MultiJointPositionGoalValidator
+    from coraplex.language import LanguageNode
+    from coraplex.plans.underspecified import UnderspecifiedNode
+    from semantic_digital_twin.datastructures.definitions import StaticJointState
+
+
+@dataclass
+class PlanFailure(DataclassException):
+    """
+    Base class for all exceptions that are related to plan errors.
+    Can also be raised directly as a generic plan failure.
+    """
+
+    def error_message(self) -> str:
+        return "Plan failed."
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+# %% what a plan can recover from
+
+
+@dataclass
+class MotionMadeNoProgress(PlanFailure):
+    """
+    Raised when a motion stopped approaching its goal.
+
+    The chart cancels itself with a
+    :class:`~giskardpy.motion_statechart.exceptions.NoProgressError`, which says this
+    attempt did not work rather than that the plan cannot go on. Wrapping it where it
+    crosses into a plan is what lets a plan choose an alternative by catching
+    :class:`PlanFailure` alone.
+    """
+
+    no_progress: NoProgressError
+    """
+    The stall the motion reported, which names the tasks that stopped converging.
+    """
+
+    def error_message(self) -> str:
+        return self.no_progress.error_message()
+
+    def suggest_correction(self) -> str:
+        return self.no_progress.suggest_correction()
+
+
+@dataclass
+class MotionExceededSimulationTimeLimit(PlanFailure):
+    """
+    Raised when a simulated motion ran for longer than any motion is allowed to.
+
+    The chart's stall monitor ends a motion that stopped approaching its goal, but one
+    that keeps creeping towards it, or that is held and so never counts as stalled, would
+    tick forever without this limit.
+    """
+
+    time_limit: timedelta
+    """
+    The simulated time the motion was allowed.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The motion did not end within {self.time_limit.total_seconds()} s of "
+            f"simulated time."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that every goal of the motion can be reached and that nothing holds "
+            "the chart, or raise GiskardExecutable.simulation_time_limit for a motion "
+            "that is meant to take this long."
+        )
+
+
+@dataclass
+class MotionViolatedCollisionAvoidance(PlanFailure):
+    """
+    Raised when a motion brought bodies closer to each other than collision avoidance
+    allows.
+
+    Like :class:`MotionMadeNoProgress`, this says the attempt did not work from where it
+    started rather than that the plan cannot go on, so a plan can try another candidate
+    by catching :class:`PlanFailure` alone.
+    """
+
+    violation: CollisionViolatedError
+    """
+    The violation the motion reported, which names the body pairs that came too close.
+    """
+
+    def error_message(self) -> str:
+        return self.violation.error_message()
+
+    def suggest_correction(self) -> str:
+        return self.violation.suggest_correction()
+
+
+@dataclass
+class EmptyUnderspecified(PlanFailure):
+    """
+    Raised when a plan is empty.
+    """
+
+
+@dataclass
+class CandidateLimitReached(EmptyUnderspecified):
+    """
+    Raised when an underspecified step has tried as many candidates as it may without
+    one of them succeeding.
+    """
+
+    node: UnderspecifiedNode
+    """
+    The step that gave up.
+    """
+
+    candidate_limit: int
+    """
+    How many candidates it was allowed to try.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.node} tried {self.candidate_limit} candidates without one of them "
+            f"succeeding."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Allow more candidates, through the step's own limit or the context's "
+            "candidates_to_try, or check whether any candidate can succeed at all."
+        )
+
+
+@dataclass
+class AllChildrenFailed(PlanFailure):
+    """
+    Thrown when all children of a plan node failed.
+    """
+
+    language_node: LanguageNode
+    """
+    The language node where all children failed.
+    """
+
+    def error_message(self) -> str:
+        return f"All children of {self.language_node} failed"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class RepetitionsExhausted(PlanFailure):
+    """
+    Thrown when a repeating plan node ran out of attempts.
+    """
+
+    language_node: LanguageNode
+    """
+    The repeating node whose children never succeeded.
+    """
+
+    maximum_repetitions: int
+    """
+    How many attempts were allowed.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.language_node} attempted its children {self.maximum_repetitions} "
+            f"times without succeeding."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Allow more repetitions, or check whether the children can succeed at all "
+            "from the state each attempt starts in."
+        )
+
+
+@dataclass
+class PlanCancelled(PlanFailure):
+    """
+    Thrown when a monitor cancelled the plan it was watching.
+    """
+
+    language_node: LanguageNode
+    """
+    The node whose monitor cancelled the plan.
+    """
+
+    def error_message(self) -> str:
+        return f"The monitor of {self.language_node} cancelled the plan."
+
+    def suggest_correction(self) -> str:
+        return (
+            "The world is no longer in the state the rest of the plan assumed, so plan "
+            "again from the state the robot is in now."
+        )
+
+
+@dataclass
+class RobotInCollision(PlanFailure):
+    """Thrown when the robot is in collision with the environment."""
+
+    def error_message(self) -> str:
+        return "The robot is in collision with the environment."
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class ConfigurationNotReached(PlanFailure):
+    """"""
+
+    goal_validator: MultiJointPositionGoalValidator
+    """
+    The goal validator that was used to check if the goal was reached.
+    """
+    configuration_type: StaticJointState
+    """
+    The configuration type that should be reached.
+    """
+
+    def error_message(self) -> str:
+        return f"Configuration type: {self.configuration_type.name} not reached"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class NavigationGoalNotReachedError(PlanFailure):
+    """
+    Thrown when the navigation goal is not reached.
+    """
+
+    current_pose: Pose
+    """
+    The current pose of the robot.
+    """
+    goal_pose: Pose
+    """
+    The goal pose of the robot.
+    """
+
+    def error_message(self) -> str:
+        return f"Navigation goal not reached. Current pose: {self.current_pose}, goal pose: {self.goal_pose}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class BodyUnfetchable(PlanFailure):
+    """
+    Raised when a body cannot be fetched from an arm.
+    """
+
+    body: Body
+    """
+    The body that cannot be fetched.
+    """
+
+    arm: Arm
+    """
+    The arm from which the body cannot be fetched.
+    """
+
+    def error_message(self) -> str:
+        return f"Body {self.body} not fetchable from arm {self.arm}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class EndEffectorDidNotReachTarget(PlanFailure):
+    """
+    Raised when an end effector did not reach its target during a motion
+    """
+
+    end_effector: EndEffector
+    """
+    The end effector that did not reach its target.
+    """
+
+    target: Pose
+    """
+    The target pose that the end effector did not reach.
+    """
+
+    def error_message(self) -> str:
+        return f"EndEffector {self.end_effector} did not reach target {self.target}"
+
+    def suggest_correction(self) -> str:
+        return ""

@@ -1,0 +1,191 @@
+import numpy as np
+import pytest
+
+from krrood.entity_query_language.backends import ProbabilisticBackend
+from krrood.entity_query_language.factories import a, an
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
+from krrood.parametrization.model_registries import DictRegistry
+from krrood.parametrization.parameterizer import UnderspecifiedParameters
+from probabilistic_model.probabilistic_circuit.relational.relational_probabilistic_circuit import (
+    RelationalProbabilisticCircuit,
+)
+from probabilistic_model.probabilistic_circuit.rx.helper import fully_factorized
+from random_events.set import Set
+from random_events.variable import Symbolic
+from ..dataset import ormatic_interface  # type: ignore
+from ..dataset.example_classes import (
+    ApproachSceneObject,
+    NestedAction,
+    KRROODPose,
+    KRROODPosition,
+    KRROODOrientation,
+    SceneRoom,
+    SceneObject,
+    SceneObjectType,
+    MissingBaseClass,
+    ExampleInt,
+    ExampleString,
+)
+from ..dataset.semantic_world_like_classes import Body
+
+
+def test_an_entity_carrying_an_enum_keeps_that_enums_members_as_its_domain():
+    """
+    A polymorphic enum column says only that some enum is stored in it, so the concrete
+    enum has to come from the value standing there; without it the variable describing
+    the entity's kind has no members to be conditioned on.
+    """
+    action = an(ApproachSceneObject)(
+        target=SceneObject(type=SceneObjectType.TABLE), speed=...
+    )
+
+    parameters = UnderspecifiedParameters(action)
+
+    [kind] = [
+        variable
+        for name, variable in parameters.variables.items()
+        if name.endswith(".type")
+    ]
+    assert kind.domain == Set.from_iterable(SceneObjectType)
+
+
+@pytest.fixture
+def scenario():
+    objects = [
+        SceneObject(type=SceneObjectType.TABLE),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
+        SceneObject(type=SceneObjectType.CHAIR),
+    ]
+    room = SceneRoom(
+        position=KRROODPosition(x=2.0, y=1.0, z=0.0),
+        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+        objects=objects[:3],
+    )
+    room2 = SceneRoom(
+        position=KRROODPosition(x=4.0, y=3.0, z=0.0),
+        orientation=KRROODOrientation(x=0.0, y=0.0, z=0.0, w=1.0),
+        objects=objects,
+    )
+    feature_extractor = FeatureExtractor.from_instances([room])
+    return room, room2, feature_extractor
+
+
+def test_features_extraction():
+    action = a(NestedAction)(
+        pose=a(KRROODPose)(
+            position=a(KRROODPosition)(x=2.0, y=..., z=...),
+            orientation=a(KRROODOrientation)(x=..., y=..., z=..., w=...),
+        ),
+        obj=Body(name="body"),
+    )
+
+    parameters = UnderspecifiedParameters(action)
+    fully_factorized_circuit = fully_factorized(parameters.variables.values())
+    assert len(parameters.truncation_assignments_from_krrood_variables) == 0
+
+    probabilistic_registry = DictRegistry({NestedAction: fully_factorized_circuit})
+
+    np.random.seed(69)
+    backend = ProbabilisticBackend(probabilistic_registry, number_of_samples=50)
+    samples = list(backend.evaluate(action))
+
+    assert all(
+        [sample.pose.position.x == samples[0].pose.position.x for sample in samples]
+    )
+    feature_extractor = FeatureExtractor.from_instances(samples)
+    dataframe = feature_extractor.create_dataframe(samples)
+
+    assert [
+        dataframe[column].dtype in (np.float64, np.int64)
+        for column in dataframe.columns
+    ]
+    assert dataframe.shape == (len(samples), len(feature_extractor.features))
+
+
+def test_feature_extraction_with_aggregations(scenario):
+    room, room2, feature_extractor = scenario
+    relational_probabilistic_circuit = RelationalProbabilisticCircuit()
+    relational_probabilistic_circuit.fit([room, room2])
+
+    room_query = a(SceneRoom)(
+        position=a(KRROODPosition)(x=..., y=..., z=...),
+        orientation=a(KRROODOrientation)(x=..., y=..., z=..., w=...),
+        objects=[a(SceneObject)(type=...) for _ in range(4)],
+    )
+    room_query.resolve()
+    model = relational_probabilistic_circuit.ground(room_query)
+    model = model.simplify()
+
+    assert model.is_valid()
+
+
+def test_create_dataframe_with_aggregations(scenario):
+    room, room2, feature_extractor = scenario
+    dataframe = feature_extractor.create_dataframe([room, room2])
+    assert dataframe.shape == (2, len(feature_extractor.features))
+    assert dataframe.columns.tolist() == feature_extractor.features
+    assert dataframe.iloc[0, 1] == room.position.x
+    assert dataframe.iloc[1, 1] == room2.position.x
+
+
+def test_apply_mapping_with_aggregations(scenario):
+    room, room2, feature_extractor = scenario
+    mapping = feature_extractor.apply_mapping(room)
+    assert len(mapping) == 11
+    assert mapping[10] == 3  # total count
+
+
+def test_aggregation_features_flatten_the_features_of_every_exchangeable_part(
+    scenario,
+):
+    room, room2, feature_extractor = scenario
+    assert feature_extractor.aggregation_features == set(
+        feature_extractor.exchangeable_features["objects"]
+    )
+
+
+def test_dataframe_preprocessing(scenario):
+    room, room2, feature_extractor = scenario
+    dataframe = feature_extractor.create_dataframe([room, room2])
+    preprocessed_df = feature_extractor.preprocess_dataframe(dataframe)
+    assert preprocessed_df.shape == (2, len(feature_extractor.features))
+    assert preprocessed_df.columns.tolist() == feature_extractor.features
+    assert preprocessed_df.iloc[0, 0] == room.type_in_need_of_preprocessing
+    assert preprocessed_df.iloc[1, 0] == room2.type_in_need_of_preprocessing
+    assert preprocessed_df.iat[0, 0] == 0  # 0 for False, 1 for True
+    assert preprocessed_df.iat[1, 0] == 0  # 0 for False, 1 for True
+
+
+def test_missing_inheritance_from_mixin():
+    instance = MissingBaseClass([ExampleInt(1), ExampleInt(1), ExampleInt(1)])
+    result = FeatureExtractor.from_instances([instance])
+    assert result.features == []
+
+
+def test_feature_extractor_on_non_compatible_attribute_types():
+    instance = ExampleString("test")
+    extractor = FeatureExtractor.from_instances([instance])
+    assert extractor.features == []
+
+
+def test_iterable_literal_with_enum_feature_uses_symbolic_variable():
+    query = a(SceneRoom)(
+        position=a(KRROODPosition)(x=..., y=..., z=...),
+        orientation=a(KRROODOrientation)(x=..., y=..., z=..., w=...),
+        objects=[SceneObject(type=SceneObjectType.TABLE)],
+    )
+    parameters = UnderspecifiedParameters(query)
+    type_variables = [
+        var for name, var in parameters.variables.items() if name.endswith(".type")
+    ]
+    assert type_variables
+    assert all(isinstance(var, Symbolic) for var in type_variables)
+
+
+def test_feature_extractor_on_unique_parts_with_none():
+    instance = NestedAction(obj=Body(name="test"), pose=None)
+    feature_extractor = FeatureExtractor.from_instances([instance])
+    assert (
+        len(feature_extractor.features) == 1
+    )  # None gets filtered out though it is unique part

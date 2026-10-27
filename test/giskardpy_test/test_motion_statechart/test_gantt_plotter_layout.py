@@ -13,7 +13,7 @@ from giskardpy.motion_statechart.graph_node import EndMotion
 from giskardpy.motion_statechart.plotters.gantt_chart_plotter import (
     HistoryGanttChartPlotter,
 )
-from giskardpy.motion_statechart.test_nodes.test_nodes import (
+from giskardpy.motion_statechart.nodes_for_testing.nodes_for_testing import (
     TestNestedGoal,
     ConstTrueNode,
 )
@@ -22,8 +22,8 @@ from semantic_digital_twin.world import World
 
 def _axes_width_in(ax: plt.Axes) -> float:
     """
-    Return the drawable width of an axes in inches based on its position box,
-    excluding figure margins and avoiding text extents influencing the result.
+    Return the drawable width of an axes in inches based on its position box, excluding
+    figure margins and avoiding text extents influencing the result.
     """
     fig = ax.figure
     fig.canvas.draw()
@@ -93,6 +93,31 @@ def test_main_and_final_widths_control_cycles(monkeypatch, ticks):
     )
 
 
+def test_final_column_placed_right_of_main_axis(monkeypatch):
+    msc = MotionStatechart()
+    counter = CountControlCycles(control_cycles=4)
+    msc.add_node(counter)
+    msc.add_node(EndMotion.when_true(counter))
+
+    kin = Executor(context=MotionStatechartContext(world=World()))
+    kin.compile(msc)
+    kin.tick_until_end()
+
+    plotter = HistoryGanttChartPlotter(msc, context=None, second_width_in_cm=2.0)
+    axes = _render_and_capture_axes(plotter, monkeypatch)
+    ax_main, ax_final = axes["main"], axes["final"]
+
+    fig = ax_main.figure
+    fig.canvas.draw()
+    main_box, final_box = ax_main.get_position(), ax_final.get_position()
+    gap_in_inches = (final_box.x0 - main_box.x1) * fig.get_figwidth()
+
+    assert gap_in_inches == pytest.approx(plotter.gap_between_axes_in_inches, abs=1e-6)
+    assert final_box.y0 == pytest.approx(main_box.y0, abs=1e-6)
+    assert final_box.y1 == pytest.approx(main_box.y1, abs=1e-6)
+    assert ax_final.get_ylim() == ax_main.get_ylim()
+
+
 def test_long_labels_not_clipped_on_right(monkeypatch):
     msc = MotionStatechart()
     # Create a few nodes with long names
@@ -144,7 +169,9 @@ def test_x_axis_units_control_cycles_vs_seconds(monkeypatch):
     assert ax_main_seconds.get_xlabel() == "Time [s]"
     # Upper xlim should equal total_cycles * dt
     total_cycles = msc.history.history[-1].control_cycle
-    expected_span = total_cycles * context.qp_controller_config.control_dt
+    expected_span = (
+        total_cycles * context.qp_controller_config.control_time_step
+    ).total_seconds()
     assert ax_main_seconds.get_xlim()[1] == pytest.approx(
         expected_span, rel=1e-6, abs=1e-6
     )

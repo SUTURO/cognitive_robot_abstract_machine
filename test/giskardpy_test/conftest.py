@@ -1,24 +1,284 @@
+# %% ORM interfaces
+
+# Built before the imports below, which read a mapped datastructure: pytest imports every
+# conftest of a run before calling any hook, so a hook would fire too late. The build runs
+# once per process and never on an xdist worker.
+from ..orm_interface_build import regenerate_orm_interfaces
+
+regenerate_orm_interfaces()
+
+
+import numpy as np
 import pytest
 
+from giskardpy.middleware.ros2.utils.utils import load_xacro
+from giskardpy.middleware.ros2.utils.utils_for_tests import GiskardTester
+from giskardpy.motion_statechart.graph_node import EndMotion
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import (
+    SetSeedConfiguration,
+    SetOdometry,
+)
+from giskardpy.motion_statechart.motion_statechart import MotionStatechart
+from krrood.symbolic_math.symbolic_math import trinary_logic_and
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.spatial_types import Vector3
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
+from semantic_digital_twin.spatial_types import Vector3, HomogeneousTransformationMatrix
+from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
-    RevoluteConnection,
+    FixedConnection,
+    PrismaticConnection,
 )
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     Body,
 )
+from semantic_digital_twin.robots.pr2 import PR2Joint
 
 
 @pytest.fixture()
-def mini_world():
+def better_pr2_pose():
+    return {
+        PR2Joint.RIGHT_SHOULDER_PAN: -1.7125,
+        PR2Joint.RIGHT_SHOULDER_LIFT: -0.25672,
+        PR2Joint.RIGHT_UPPER_ARM_ROLL: -1.46335,
+        PR2Joint.RIGHT_ELBOW_FLEX: -2.12,
+        PR2Joint.RIGHT_FOREARM_ROLL: 1.76632,
+        PR2Joint.RIGHT_WRIST_FLEX: -0.10001,
+        PR2Joint.RIGHT_WRIST_ROLL: 0.05106,
+        PR2Joint.LEFT_SHOULDER_PAN: 1.9652,
+        PR2Joint.LEFT_SHOULDER_LIFT: -0.26499,
+        PR2Joint.LEFT_UPPER_ARM_ROLL: 1.3837,
+        PR2Joint.LEFT_ELBOW_FLEX: -2.12,
+        PR2Joint.LEFT_FOREARM_ROLL: 16.99,
+        PR2Joint.LEFT_WRIST_FLEX: -0.10001,
+        PR2Joint.LEFT_WRIST_ROLL: 0,
+        PR2Joint.TORSO_LIFT: 0.2,
+        PR2Joint.LEFT_GRIPPER_LEFT_FINGER: 0.55,
+        PR2Joint.RIGHT_GRIPPER_LEFT_FINGER: 0.55,
+        PR2Joint.HEAD_PAN: 0,
+        PR2Joint.HEAD_TILT: 0,
+    }
+
+
+@pytest.fixture(scope="function")
+def pr2_with_box(pr2_world_copy) -> World:
+    with pr2_world_copy.modify_world():
+        box = Body(
+            name=PrefixedName("box"),
+            visual=ShapeCollection(shapes=[Box(scale=Scale(1, 1, 1))]),
+            collision=ShapeCollection(shapes=[Box(scale=Scale(1, 1, 1))]),
+        )
+        root_C_box = FixedConnection(
+            parent=pr2_world_copy.root,
+            child=box,
+            parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=1.2, z=0.3, reference_frame=pr2_world_copy.root
+            ),
+        )
+        pr2_world_copy.add_connection(root_C_box)
+    return pr2_world_copy
+
+
+@pytest.fixture()
+def giskard_factory(init_rospy, robot: GiskardTester):
+    def _create_giskard(seed_joint_state: dict[str, float]) -> GiskardTester:
+        parse_seed_joint_state = {
+            robot.api.world.get_connection_by_name(name): target
+            for name, target in seed_joint_state.items()
+        }
+        msc = MotionStatechart()
+
+        initial_config = SetSeedConfiguration(
+            name="initial configuration",
+            seed_configuration=JointState.from_mapping(parse_seed_joint_state),
+        )
+        msc.add_node(initial_config)
+
+        if robot.has_odometry_joint():
+            base_goal = HomogeneousTransformationMatrix(
+                reference_frame=robot.api.world.root
+            )
+            base_pose_reached = SetOdometry(name="initial pose", base_pose=base_goal)
+            msc.add_node(base_pose_reached)
+            done = trinary_logic_and(
+                initial_config.observation_variable,
+                base_pose_reached.observation_variable,
+            )
+        else:
+            done = initial_config.observation_variable
+        end = EndMotion(name="end")
+        msc.add_node(end)
+        end.start_condition = done
+        robot.api.execute(msc)
+        return robot
+
+    return _create_giskard
+
+
+@pytest.fixture()
+def giskard(giskard_factory, default_joint_state):
+    return giskard_factory(default_joint_state)
+
+
+@pytest.fixture()
+def giskard_better_pose(giskard_factory, better_pose):
+    return giskard_factory(better_pose)
+
+
+@pytest.fixture()
+def kitchen_setup(giskard_better_pose: GiskardTester) -> GiskardTester:
+    giskard_better_pose.default_env_name = "iai_kitchen"
+    kitchen_urdf = load_xacro(
+        "package://iai_kitchen/urdf_obj/iai_kitchen_python.urdf.xacro"
+    )
+    giskard_better_pose.add_urdf_to_world(
+        name=giskard_better_pose.default_env_name,
+        urdf=kitchen_urdf,
+        pose=HomogeneousTransformationMatrix(
+            reference_frame=giskard_better_pose.api.world.root
+        ),
+    )
+    return giskard_better_pose
+
+
+@pytest.fixture()
+def apartment_setup(giskard_better_pose: GiskardTester) -> GiskardTester:
+    giskard_better_pose.default_env_name = "iai_apartment"
+    kitchen_urdf = load_xacro("package://iai_apartment/urdf/apartment.urdf")
+    giskard_better_pose.add_urdf_to_world(
+        name=giskard_better_pose.default_env_name,
+        urdf=kitchen_urdf,
+        pose=HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=1.5,
+            y=1.4,
+            yaw=np.pi,
+            reference_frame=giskard_better_pose.api.world.root,
+        ),
+    )
+    return giskard_better_pose
+
+
+def _symmetric_prismatic_limits(
+    position: float | None,
+    velocity: float,
+    jerk: float | None = None,
+    acceleration: float | None = None,
+) -> DegreeOfFreedomLimits:
+    """
+    Builds symmetric prismatic degree-of-freedom limits.
+
+    :param position: Position limit, ``None`` for a joint without position limits.
+    :param velocity: Velocity limit.
+    :param jerk: Jerk limit, ``None`` for a joint without one.
+    :param acceleration: Acceleration limit, ``None`` for a joint without one.
+    :return: Limits mirrored around zero.
+    """
+    return DegreeOfFreedomLimits(
+        lower=DerivativeMap(
+            position=None if position is None else -position,
+            velocity=-velocity,
+            acceleration=None if acceleration is None else -acceleration,
+            jerk=None if jerk is None else -jerk,
+        ),
+        upper=DerivativeMap(
+            position=position,
+            velocity=velocity,
+            acceleration=acceleration,
+            jerk=jerk,
+        ),
+    )
+
+
+def _make_prismatic_world(dof_limits: list[DegreeOfFreedomLimits]) -> World:
+    """
+    Builds a world with one Z-axis prismatic connection per given degree-of-freedom
+    limit set.
+    """
     world = World()
     with world.modify_world():
-        body = Body(name=PrefixedName("root"))
-        body2 = Body(name=PrefixedName("tip"))
-        connection = RevoluteConnection.create_with_dofs(
-            world=world, parent=body, child=body2, axis=Vector3.Z()
-        )
-        world.add_connection(connection)
+        map_body = Body(name=PrefixedName("map"))
+        for index, limits in enumerate(dof_limits):
+            child = Body(
+                name=PrefixedName("robot" if index == 0 else f"robot{index + 1}")
+            )
+            dof = DegreeOfFreedom(limits=limits, has_hardware_interface=True)
+            world.add_degree_of_freedom(dof)
+            world.add_connection(
+                PrismaticConnection(
+                    parent=map_body, child=child, raw_dof=dof, axis=Vector3.Z()
+                )
+            )
+    MinimalRobot.from_world(world)
     return world
+
+
+@pytest.fixture()
+def prismatic_bot():
+    return _make_prismatic_world([_symmetric_prismatic_limits(1, 1)])
+
+
+@pytest.fixture()
+def prismatic_bot2():
+    return _make_prismatic_world(
+        [_symmetric_prismatic_limits(1, 1), _symmetric_prismatic_limits(0.5, 0.5)]
+    )
+
+
+@pytest.fixture()
+def prismatic_bot_with_jerk_limit():
+    return _make_prismatic_world([_symmetric_prismatic_limits(1, 1, jerk=40)])
+
+
+@pytest.fixture()
+def prismatic_world_no_position_limits():
+    return _make_prismatic_world([_symmetric_prismatic_limits(None, 1)])
+
+
+JERK_LIMIT_TOO_LOW_FOR_SHORT_HORIZONS = 1.0
+"""
+A jerk limit with which a joint needs dozens of time steps at 20 Hz to brake from a
+velocity of 1 to rest.
+"""
+
+ACCELERATION_LIMIT = 2.0
+"""
+An acceleration limit well below what the default braking time implies for a velocity
+limit of 1.
+"""
+
+
+@pytest.fixture(
+    params=[2, None], ids=["with_position_limits", "without_position_limits"]
+)
+def prismatic_world_with_acceleration_limit(request):
+    """
+    A prismatic joint with an acceleration limit of its own, with and without position
+    limits.
+    """
+    return _make_prismatic_world(
+        [_symmetric_prismatic_limits(request.param, 1, acceleration=ACCELERATION_LIMIT)]
+    )
+
+
+@pytest.fixture(
+    params=[1, None], ids=["with_position_limits", "without_position_limits"]
+)
+def prismatic_world_with_low_jerk_limit(request):
+    """
+    A prismatic joint whose own jerk limit is too low to brake from its velocity limit
+    within a short prediction horizon, with and without position limits.
+    """
+    return _make_prismatic_world(
+        [
+            _symmetric_prismatic_limits(
+                request.param, 1, jerk=JERK_LIMIT_TOO_LOW_FOR_SHORT_HORIZONS
+            )
+        ]
+    )

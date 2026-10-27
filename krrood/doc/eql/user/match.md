@@ -13,33 +13,67 @@ kernelspec:
 
 # Structural Pattern Matching
 
-EQL provides a powerful and concise API for building nested structural queries using `match_variable` and `match`. This allows you to describe complex object relationships in a declarative way that mirrors the structure of your data.
+EQL provides a powerful and concise API for building nested structural queries using `an()` (and
+`the()`). When you pass a **type** to `an()`/`the()`, it builds a structural *match* — letting you
+describe complex object relationships in a declarative way that mirrors the structure of your data.
+(When you pass a *symbolic expression* instead, `an()`/`the()` act as result quantifiers — see
+[Result Quantifiers](result_quantifiers.md).)
 
-## The `match()` Function
+## Describing a pattern with `an(Type)`
 
-The `match()` function describes a pattern for an object's attributes. You can specify both the expected type and the values for its fields.
+Calling `an()` with a *type* describes a pattern for an object's attributes. You can specify both
+the expected type and the values for its fields.
 
 ```python
-from krrood.entity_query_language.factories import match
+from krrood.entity_query_language.factories import an
 
 # Describe a robot named 'R2D2'
-robot_pattern = match(ExampleRobot)(name="R2D2")
+robot_pattern = an(ExampleRobot)(name="R2D2")
 ```
 
-## The `match_variable()` Function
+## A match reads like an instance
 
-While `match()` describes a pattern, `match_variable()` in addition binds to a specific domain.
+A match stands for the instance it describes, so the operations you would write on that
+instance are available on the match itself and build symbolic expressions: reading an
+attribute, indexing, comparing and arithmetic.
 
 ```python
-from krrood.entity_query_language.factories import match_variable
+robot = an(ExampleRobot)(name="R2D2").from_(world.robots)
+
+robot.where(robot.battery >= 50)   # an attribute of the matched instance
+robot.where(robot == known_robot)  # the instance itself
+```
+
+The **first** parentheses after `an(Type)` always state the pattern, so a matched class
+whose instances are callable is called through a **second** pair - and an empty pattern
+still takes its own:
+
+```python
+adder = an(ExampleAdder)(offset=1)   # the pattern
+adder.where(adder(10) == 11)         # calling the matched instance
+
+an(ExampleAdder)()(10)               # no pattern, still called through the second pair
+```
+
+A second pattern is a mistake the language still catches: a matched class whose instances
+are not callable raises `CalledMatchMultipleTimes`, or `CalledMatchAfterResolution` once
+the match has been lowered.
+
+## Binding to a domain with `.from_()`
+
+Chaining `.from_(domain)` after the call binds the match to a specific set of candidate objects.
+
+```python
+from krrood.entity_query_language.factories import an, a
 
 # Create a variable for any 'Robot' in the 'world.robots' domain that matches the pattern
-r = match_variable(ExampleRobot, domain=world.robots)(name="R2D2")
+r = an(ExampleRobot)(name="R2D2").from_(world.robots)
 ```
 
 ```{hint}
-Use `match_variable` as the entry point for your structural queries when needing to specify a domain, and
-use `match` for nested child attributes.
+Use `an(Type)(...).from_(domain)` as the entry point for your structural queries when you need to
+specify a domain, and `an(Type)` for nested child attributes. Use `the(...)` instead of `an(...)`
+when exactly one solution is expected.
 ```
 
 ## Nested Matching
@@ -48,14 +82,15 @@ The real power of the match API comes from nesting. You can describe deeply nest
 
 ```python
 # Match a connection whose parent is a ExampleContainer named 'C1' and child is a ExampleHandle named 'H1'
-fixed_connection = match_variable(FixedConnection, domain=world.connections)(
-    parent=match(ExampleContainer)(name="C1"),
-    child=match(ExampleHandle)(name="H1")
-)
+fixed_connection = a(FixedConnection)(
+    parent=an(ExampleContainer)(name="C1"),
+    child=an(ExampleHandle)(name="H1")
+).from_(world.connections)
 ```
 
 ```{note}
-`match_variable` is syntactic sugar. Under the hood, it creates a {py:func}`~krrood.entity_query_language.factories.variable`,
+`.from_(domain)` is syntactic sugar. Under the hood, it sets the match's domain, which is later used
+to create a {py:func}`~krrood.entity_query_language.factories.variable`,
  selects it using {py:func}`~krrood.entity_query_language.factories.entity` and automatically adds the corresponding {py:meth}`~krrood.entity_query_language.query.query.Query.where` clauses.
 ```
 
@@ -65,7 +100,7 @@ This example demonstrates how to find a complex structural relationship using ne
 
 ```{code-cell} ipython3
 from dataclasses import dataclass
-from krrood.entity_query_language.factories import match_variable, match, entity, the, Symbol
+from krrood.entity_query_language.factories import an, entity, the, Symbol
 
 @dataclass
 class ExampleBody(Symbol):
@@ -88,21 +123,20 @@ class ExampleConnection(Symbol):
 c1, h1 = ExampleContainer("Bin"), ExampleHandle("Grip")
 world_connections = [ExampleConnection(c1, h1)]
 
-# 1. Define the structural match
+# 1. Define the structural match (exactly one expected, so build it with `the`)
 # We are looking for a connection between 'Bin' and 'Grip'
-conn = match_variable(ExampleConnection, domain=world_connections)(
-    parent=match(ExampleContainer)(name="Bin"),
-    child=match(ExampleHandle)(name="Grip")
-)
+conn = the(ExampleConnection)(
+    parent=an(ExampleContainer)(name="Bin"),
+    child=an(ExampleHandle)(name="Grip")
+).from_(world_connections)
 
-# 2. Build and execute the query
-query = the(entity(conn))
-result = query.first()
+# 2. Execute the query
+result = conn.first()
 
 print(f"Found connection: {result.parent.name} <-> {result.child.name}")
 ```
 
 ## API Reference
-- {py:func}`~krrood.entity_query_language.factories.match`
-- {py:func}`~krrood.entity_query_language.factories.match_variable`
+- {py:func}`~krrood.entity_query_language.factories.an`
+- {py:func}`~krrood.entity_query_language.factories.the`
 - {py:class}`~krrood.entity_query_language.query.match.Match`

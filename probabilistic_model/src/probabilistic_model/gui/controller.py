@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 import json
 
 from probabilistic_model.probabilistic_model import ProbabilisticModel
+from probabilistic_model.query_results import Mode
 from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
     ProbabilisticCircuit,
 )
@@ -32,7 +33,9 @@ class ModelController:
 
     def __post_init__(self):
         """
-        Initializes the controller. If a model is provided, sets it.
+        Initializes the controller.
+
+        If a model is provided, sets it.
         """
         if self.model:
             self.set_model(self.model)
@@ -92,14 +95,14 @@ class ModelController:
             return self.model
 
         try:
-            conditioned_model, probability = self.model.truncated(evidence)
-            if probability == 0:
+            truncation = self.model.truncated(evidence)
+            if truncation.probability == 0:
                 return None
-            return conditioned_model
+            return truncation.distribution
         except Exception:
             return None
 
-    def calculate_mode(self, evidence: Event) -> Optional[Tuple[Event, float]]:
+    def calculate_mode(self, evidence: Event) -> Optional[Mode]:
         """
         Calculates the mode of the model given evidence.
         """
@@ -111,10 +114,11 @@ class ModelController:
             return self.model.mode()
 
         try:
-            conditioned_model, probability = self.model.truncated(evidence)
-            if probability == 0:
+            truncation = self.model.truncated(evidence)
+            if truncation.probability == 0:
                 return None
-            return conditioned_model.mode()
+            return truncation.distribution.mode()
+
         except Exception:
             return None
 

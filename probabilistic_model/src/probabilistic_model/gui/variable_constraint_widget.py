@@ -33,6 +33,7 @@ from random_events.set import Set, SetElement
 class NumericIntervalWidget(QWidget):
     """
     A widget representing a single interval for a numeric variable.
+
     Includes spin boxes for precise input and a range slider for visual adjustment.
     """
 
@@ -502,7 +503,8 @@ class VariableConstraintWidget(QFrame):
 
     def _get_variable_bounds(self, variable: Variable) -> Tuple[float, float]:
         """
-        Calculates the minimum and maximum bounds for the variable based on its domain and priors.
+        Calculates the minimum and maximum bounds for the variable based on its domain
+        and priors.
         """
         # Default to domain
         try:
@@ -588,8 +590,9 @@ class VariableConstraintWidget(QFrame):
     def set_read_only(self, read_only: bool):
         """
         Sets the widget to read-only mode.
-        In read-only mode, the user cannot change the variable or its constraints,
-        but can still view them (and scroll if necessary).
+
+        In read-only mode, the user cannot change the variable or its constraints, but
+        can still view them (and scroll if necessary).
         """
         self._read_only = read_only
         self.variable_combo.setEnabled(not read_only)
@@ -632,12 +635,14 @@ class VariableConstraintWidget(QFrame):
             for widget in self.interval_widgets:
                 values = widget.value()
                 low, high = min(values), max(values)
-                intervals.append(SimpleInterval(low, high, Bound.CLOSED, Bound.CLOSED))
+                intervals.append(
+                    SimpleInterval.from_data(low, high, Bound.CLOSED, Bound.CLOSED)
+                )
 
             if not intervals:
                 return variable, variable.domain
 
-            return variable, Interval(*intervals)
+            return variable, Interval.from_simple_sets(*intervals)
         elif isinstance(variable, Symbolic):
             list_widget: QListWidget = self.constraint_widget
             selected_items = list_widget.selectedItems()
@@ -652,8 +657,8 @@ class VariableConstraintWidget(QFrame):
             if not matched_elements:
                 return variable, Set()  # Empty set
 
-            return variable, Set(
-                *[SetElement(e, all_elements) for e in matched_elements]
+            return variable, Set.from_simple_sets(
+                *[SetElement.from_data(e, all_elements) for e in matched_elements]
             )
 
         return None

@@ -46,7 +46,7 @@ class Apple(Produce):
 
 ```
 
-Semantic annotations are world entities, so it needs to have a unique ´PrefixedName`. You can either provide it directly
+Semantic annotations are world entities, so it needs a name. You can either provide it directly
 when creating the semantic annotation or let semantic_digital_twin generate a unique name for you. 
 
 ```{code-cell} ipython3
@@ -103,12 +103,12 @@ class ProduceBox(HasCaseAsRootBody):
     produces: List[Produce] = field(default_factory=list)
     
     @classproperty
-    def hole_direction(self) -> Vector3:
+    def _hole_direction_axis(self) -> Vector3:
         return Vector3.Z()
 ```
  
 This is our first semantic annotation! They need to be dataclasses, because it makes it trivial to create datastructures which can be used 
-by [KRROOD's ORMatic](https://github.com/code-iai/krrood/tree/main/src/krrood/ormatic) to automatically create ORM tables from python classes. 
+by [KRROOD's ORMatic](https://cram2.github.io/cognitive_robot_abstract_machine/krrood/ormatic/intro.html) to automatically create ORM tables from python classes. 
 Furthermore they need to have the `eq=False` flag, because otherwise the hash function defined in the `SemanticAnnotation` base class would be overridden.
 
 ```{code-cell} ipython3
@@ -116,7 +116,7 @@ with world.modify_world():
     # To create a hollowed out box in this case we use the ProduceBox.create_with_new_body_in_world method. 
     # To learn more about how cool SemanticAnnotationFactories are, please visit the appropriate guide!
     produce_box_with_apples = ProduceBox.create_with_new_body_in_world(
-        name=PrefixedName("produce_box_with_apples"),
+        name="produce_box_with_apples",
         scale=Scale(1.0, 1.0, 0.3),
         world=world,
         world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=0.3),
@@ -140,7 +140,7 @@ To demonstrate this, let's first create another ProduceBox, but which is empty t
 ```{code-cell} ipython3
 with world.modify_world():
     empty_produce_box = ProduceBox.create_with_new_body_in_world(
-        name=PrefixedName("empty_produce_box"),
+        name="empty_produce_box",
         scale=Scale(1.0, 1.0, 0.3),
         world=world,
         world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=0.3),

@@ -1,14 +1,16 @@
+import copy
 import enum
 from abc import abstractmethod
+from dataclasses import dataclass, field
 from typing import assert_never
 
-import random_events_lib as rl
-from typing_extensions import Self, Dict, Any, Optional, Iterable, Type
+from typing_extensions import Self, Any, Optional, Iterable, Type, Union
 
+import random_events_lib as rl
 from random_events.interval import reals, Interval, closed, singleton, SimpleInterval
 from random_events.set import Set, SetElement
 from random_events.sigma_algebra import AbstractCompositeSet
-from random_events.utils import SubclassJSONSerializer, CPPWrapper
+from random_events.utils import CPPWrapper
 
 compatible_types = (
     int,
@@ -18,7 +20,8 @@ compatible_types = (
 )  # types that can be expressed variable
 
 
-class Variable(SubclassJSONSerializer, CPPWrapper):
+@dataclass
+class Variable(CPPWrapper):
     """
     Parent class for all random variables.
     """
@@ -28,42 +31,36 @@ class Variable(SubclassJSONSerializer, CPPWrapper):
     The name of the variable.
     """
 
-    domain: AbstractCompositeSet
+    domain: AbstractCompositeSet = field(kw_only=True, default=None)
     """
     The domain of the variable.
+
+    The domain is a composite set that can be used to create values of the variable.
     """
 
-    def __init__(self, name: str, domain: AbstractCompositeSet):
-        """
-        Construct a new random variable.
-
-        :param name: The name of the variable.
-        :param domain: The domain of the variable.
-        """
-        self.name = name
-        self.domain = domain
-
     def __lt__(self, other: Self) -> bool:
-        return self._cpp_object < other._cpp_object
+        return self.cpp_object < other.cpp_object
 
     def __hash__(self) -> int:
         return self.name.__hash__()
 
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> Self:
+        """
+        Variables are immutable, so a deep copy shares them.
+
+        :param memo: The objects already copied during this deep copy, by their id.
+        :return: This variable.
+        """
+        return self
+
     def __eq__(self, other):
-        return self._cpp_object == other._cpp_object
+        return self.cpp_object == other.cpp_object
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name}, {self.domain})"
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.name})"
-
-    def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "name": self.name, "domain": self.domain.to_json()}
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any]) -> Self:
-        return cls(data["name"], AbstractCompositeSet.from_json(data["domain"]))
 
     @property
     @abstractmethod
@@ -90,6 +87,7 @@ class Variable(SubclassJSONSerializer, CPPWrapper):
     def make_value(self, value: Any) -> AbstractCompositeSet:
         """
         Create a value of the domain from an arbitrary value.
+
         This method tries to parse the value and wrap it in a composite set.
 
         :param value: The value.
@@ -98,6 +96,7 @@ class Variable(SubclassJSONSerializer, CPPWrapper):
         raise NotImplementedError
 
 
+@dataclass(eq=False, repr=False)
 class Continuous(Variable):
     """
     Class for continuous random variables.
@@ -105,22 +104,18 @@ class Continuous(Variable):
     The domain of a continuous variable is the real line.
     """
 
-    def __init__(self, name: str, *args, **kwargs):
-        """
-        Construct a continuous variable.
+    domain: Interval = field(kw_only=True, default=reals())
 
-        :param name: The name.
-        """
-        super().__init__(name, reals())
-
-        self._cpp_object = rl.Continuous(self.name)
+    def __post_init__(self):
+        self.cpp_object = rl.Continuous(self.name)
 
     @property
     def is_numeric(self):
         return True
 
-    def _from_cpp(self, cpp_object):
-        return self.__class__(cpp_object.name)
+    @classmethod
+    def _from_cpp(cls, cpp_object):
+        return cls(cpp_object.name)
 
     def make_value(self, value: Any) -> Interval:
         if isinstance(value, (int, float)):
@@ -135,6 +130,7 @@ class Continuous(Variable):
             raise ValueError(f"Value {value} cannot be parsed to an interval.")
 
 
+@dataclass(eq=False, repr=False)
 class Symbolic(Variable):
     """
     Class for unordered, finite, discrete random variables.
@@ -142,30 +138,24 @@ class Symbolic(Variable):
     The domain of a symbolic variable is a set.
     """
 
-    domain: Set
+    domain: Set = field(kw_only=True)
 
-    def __init__(self, name: Optional[str], domain: Set):
-        """
-        Construct a symbolic variable.
-
-        :param name: The name.
-        :param domain: The domain of the variable.
-        """
-        # TODO this deepcopy here needs investigation.
-        #  The bug seems to be that not doing a deepcopy here destroys the domain as soon as the object is deleted.
-        super().__init__(name, domain.__deepcopy__())
-
-        self._cpp_object = rl.Symbolic(self.name, self.domain._cpp_object)
+    def __post_init__(self):
+        self.domain = copy.deepcopy(self.domain)
+        self.cpp_object = rl.Symbolic(self.name, self.domain.cpp_object)
 
     @property
     def is_numeric(self):
         return False
 
-    def _from_cpp(self, cpp_object):
-        return self.__class__(cpp_object.name, self.domain._from_cpp(cpp_object.domain))
+    @classmethod
+    def _from_cpp(cls, cpp_object):
+        return cls(
+            name=cpp_object.name, domain=cpp_object.domain._from_cpp(cpp_object.domain)
+        )
 
     def make_value(self, value) -> Set:
-        if not isinstance(value, Iterable):
+        if self.names_one_element(value):
             value = [value]
 
         parsed_value = []
@@ -189,9 +179,25 @@ class Symbolic(Variable):
                     )
                 parsed_value += matches
 
-        return Set(*parsed_value)
+        return Set.from_simple_sets(*parsed_value)
+
+    @staticmethod
+    def names_one_element(value: Any) -> bool:
+        """
+        Whether a value stands for one element of this variable's domain rather than for
+        a collection of them.
+
+        A string is one value rather than the characters it iterates as, which is what a
+        member of a string-valued enum is; so is anything that is not iterable at all,
+        and an element itself.
+
+        :param value: The value given where this variable's value is expected.
+        :return: Whether it names one element.
+        """
+        return isinstance(value, (str, SetElement)) or not isinstance(value, Iterable)
 
 
+@dataclass(eq=False, repr=False)
 class Integer(Variable):
     """
     Class for ordered, discrete random variables.
@@ -199,22 +205,18 @@ class Integer(Variable):
     The domain of an integer variable is the number line.
     """
 
-    def __init__(self, name: str, domain: AbstractCompositeSet = reals()):
-        """
-        Construct an integer variable.
-        :param name: The name.
-        :param domain: The domain of the variable.
-        """
-        super().__init__(name, reals())
+    domain: Interval = field(kw_only=True, default=reals())
 
-        self._cpp_object = rl.Integer(self.name)
+    def __post_init__(self):
+        self.cpp_object = rl.Integer(self.name)
 
     @property
     def is_numeric(self):
         return True
 
-    def _from_cpp(self, cpp_object):
-        return self.__class__(cpp_object.name)
+    @classmethod
+    def _from_cpp(cls, cpp_object):
+        return cls(name=cpp_object.name)
 
     def make_value(self, value: Any) -> Interval:
         return Continuous.make_value(self, value)
@@ -229,9 +231,9 @@ def variable_from_name_and_type(name: str, type_: Type) -> Variable:
     :return: The created variable
     """
     if issubclass(type_, enum.Enum):
-        result = Symbolic(name, Set.from_iterable(type_))
+        result = Symbolic(name=name, domain=Set.from_iterable(type_))
     elif issubclass(type_, bool):
-        result = Symbolic(name, Set.from_iterable([True, False]))
+        result = Symbolic(name=name, domain=Set.from_iterable([True, False]))
     elif issubclass(type_, int):
         result = Integer(name)
     elif issubclass(type_, float):
@@ -240,3 +242,29 @@ def variable_from_name_and_type(name: str, type_: Type) -> Variable:
         assert_never((name, type_))
 
     return result
+
+
+def most_appropriate_variable_type(
+    union: Iterable[Type],
+) -> Optional[Type[Union[*compatible_types]]]:
+    """
+    Get the most appropriate type for a random events variable from a union of types.
+    The most appropriate type is the one, where the mathematical interpretation as set
+    has the highest cardinality.
+
+    :param union: The union of types.
+    :return: The most appropriate type.
+    """
+    if float in union:
+        return float
+
+    elif int in union:
+        return int
+
+    elif enum.Enum in union:
+        return enum.Enum
+
+    elif bool in union:
+        return bool
+    else:
+        return None

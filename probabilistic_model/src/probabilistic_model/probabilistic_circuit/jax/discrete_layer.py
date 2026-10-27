@@ -1,30 +1,22 @@
-from typing import Tuple, Type, List, Dict, Any
+from typing import Dict, Any
 
-from random_events.set import SetElement
-from random_events.variable import Symbolic, Variable
-from sortedcontainers import SortedSet
-from typing_extensions import Self, Optional
+from jaxtyping import Array
+
+from typing_extensions import Self
 
 import jax
-from probabilistic_model.probabilistic_circuit.jax import NXConverterLayer
-from probabilistic_model.probabilistic_circuit.jax.inner_layer import InputLayer
+from probabilistic_model.probabilistic_circuit.jax.inner_layer import (
+    DifferentiableInputLayer,
+)
 import jax.numpy as jnp
 
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import Unit
-from probabilistic_model.distributions import SymbolicDistribution
-import tqdm
-import numpy as np
-from probabilistic_model.probabilistic_circuit.rx.probabilistic_circuit import (
-    ProbabilisticCircuit as NXProbabilisticCircuit,
-    UnivariateDiscreteLeaf,
-)
 
-from probabilistic_model.utils import MissingDict
+class DifferentiableDiscreteLayer(DifferentiableInputLayer):
+    """
+    A layer that represents discrete distributions over a single variable.
+    """
 
-
-class DiscreteLayer(InputLayer):
-
-    log_probabilities: jnp.array
+    log_probabilities: Array
     """
     The logarithm of probability for each state of the variable.
     
@@ -35,56 +27,23 @@ class DiscreteLayer(InputLayer):
         super().__init__(variable)
         self.log_probabilities = log_probabilities
 
-    @classmethod
-    def nx_classes(cls) -> Tuple[Type, ...]:
-        return (SymbolicDistribution,)
-
     def validate(self):
         return True
 
     @property
-    def log_normalization_constant(self) -> jnp.array:
+    def log_normalization_constant(self) -> Array:
         return jax.scipy.special.logsumexp(self.log_probabilities, axis=1)
 
     @property
-    def normalized_log_probabilities(self) -> jnp.array:
+    def normalized_log_probabilities(self) -> Array:
         return self.log_probabilities - self.log_normalization_constant[:, None]
 
     @property
     def number_of_nodes(self) -> int:
         return self.log_probabilities.shape[0]
 
-    def log_likelihood_of_nodes_single(self, x: jnp.array) -> jnp.array:
-        return self.normalized_log_probabilities[:, x.astype(int)][:, 0]
-
-    @classmethod
-    def create_layer_from_nodes_with_same_type_and_scope(
-        cls,
-        nodes: List[UnivariateDiscreteLeaf],
-        child_layers: List[NXConverterLayer],
-        progress_bar: bool = True,
-    ) -> NXConverterLayer:
-        hash_remap = {hash(node): index for index, node in enumerate(nodes)}
-
-        variable: Symbolic = nodes[0].variable
-
-        parameters = np.zeros((len(nodes), len(variable.domain.simple_sets)))
-
-        for node in (
-            tqdm.tqdm(
-                nodes, desc=f"Creating discrete layer for variable {variable.name}"
-            )
-            if progress_bar
-            else nodes
-        ):
-            for state, value in node.distribution.probabilities.items():
-                parameters[hash_remap[hash(node)], state] = value
-
-        result = cls(
-            nodes[0].probabilistic_circuit.variables.index(variable),
-            jnp.log(parameters),
-        )
-        return NXConverterLayer(result, nodes, hash_remap)
+    def log_likelihood_of_nodes_of_value(self, value: Array) -> Array:
+        return self.normalized_log_probabilities[:, value.astype(int)][:, 0]
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -94,40 +53,5 @@ class DiscreteLayer(InputLayer):
         }
 
     @classmethod
-    def _from_json(cls, data: Dict[str, Any]) -> Self:
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         return cls(data["variable"], jnp.array(data["log_probabilities"]))
-
-    def to_nx(
-        self,
-        variables: SortedSet[Variable],
-        result: NXProbabilisticCircuit,
-        progress_bar: Optional[tqdm.tqdm] = None,
-    ) -> List[Unit]:
-
-        variable = variables[self.variable]
-
-        if progress_bar:
-            progress_bar.set_postfix_str(
-                f"Creating discrete distributions for variable {variable.name}"
-            )
-
-        nodes = [
-            UnivariateDiscreteLeaf(
-                SymbolicDistribution(
-                    variable,
-                    MissingDict(
-                        float,
-                        {
-                            state: value.item()
-                            for state, value in enumerate(log_probabilities)
-                        },
-                    ),
-                ),
-                probabilistic_circuit=result,
-            )
-            for log_probabilities in jnp.exp(self.normalized_log_probabilities)
-        ]
-
-        if progress_bar:
-            progress_bar.update(self.number_of_nodes)
-        return nodes

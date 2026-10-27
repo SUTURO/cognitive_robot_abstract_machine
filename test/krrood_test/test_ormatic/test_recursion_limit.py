@@ -1,13 +1,13 @@
 import sys
 
-from krrood.ormatic.dao import to_dao
+from krrood.ormatic.data_access_objects.helper import to_dao
 from ..dataset.example_classes import Person
 from ..dataset.ormatic_interface import PersonDAO
 
 
 def test_deep_person_chain_to_dao():
     """
-    Test if to_dao hits recursion limits
+    Test if to_dao hits recursion limits.
     """
     python_recursion_limit = sys.getrecursionlimit()
     limit = 1500
@@ -37,7 +37,7 @@ def test_deep_person_chain_to_dao():
 
 def test_deep_person_chain_from_dao():
     """
-    Test if from_dao hits recursion limits
+    Test if from_dao hits recursion limits.
     """
     python_recursion_limit = sys.getrecursionlimit()
     limit = 1500

@@ -23,11 +23,11 @@ class PrePushDoor(Goal):
     door_handle: Body
     reference_linear_velocity: float = 0.1
     reference_angular_velocity: float = 0.5
-    weight: float = DefaultWeights.WEIGHT_BELOW_CA
+    weight: float = DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
 
     def __post_init__(self):
         """
-        The objective is to push the object until desired rotation is reached
+        The objective is to push the object until desired rotation is reached.
         """
         object_joint_name = self.door_object.get_first_parent_connection_of_type(
             ActiveConnection1DOF
@@ -59,7 +59,7 @@ class PrePushDoor(Goal):
         door_Pose_tip = context.world._forward_kinematic_manager.compose_expression(
             self.door_object, self.tip_link
         )
-        door_P_tip = door_Pose_tip.to_position()
+        door_P_tip = door_Pose_tip.position
         dist, door_P_nearest = sm.distance_point_to_plane(
             door_P_tip, door_V_v2, door_V_v1
         )
@@ -76,7 +76,7 @@ class PrePushDoor(Goal):
         push_door_task = Task(name="pre push door")
         self.add_task(push_door_task)
         push_door_task.add_point_goal_constraints(
-            frame_P_current=root_T_tip.to_position(),
+            frame_P_current=root_T_tip.position,
             frame_P_goal=Point3.from_iterable(root_P_nearest_in_rotated_door),
             reference_velocity=self.reference_linear_velocity,
             weight=self.weight,

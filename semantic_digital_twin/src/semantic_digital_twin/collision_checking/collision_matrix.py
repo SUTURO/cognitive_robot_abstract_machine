@@ -7,7 +7,13 @@ from typing import Dict, Any
 
 from typing_extensions import Tuple, TYPE_CHECKING, Self
 
-from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
+from krrood.adapters.json_serializer import (
+    SubclassJSONSerializer,
+    to_json,
+    from_json,
+    list_like_classes,
+)
+from krrood.class_diagrams.attribute_introspector import DataclassOnlyIntrospector
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -16,7 +22,7 @@ from semantic_digital_twin.exceptions import (
     InvalidBodiesInCollisionCheckError,
     BodyHasNoGeometryError,
 )
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, WorldEntityWithID
 
 if TYPE_CHECKING:
     from semantic_digital_twin.collision_checking.collision_groups import CollisionGroup
@@ -37,22 +43,37 @@ class CollisionCheck(SubclassJSONSerializer):
     """
     Second body in the collision check.
     """
+
     distance: float | None = None
     """
     Minimum distance to check for collisions.
     """
 
+    def copy_for_world(self, world: World) -> Self:
+        return CollisionCheck(
+            body_a=world.get_world_entity_with_id_by_id(self.body_a.id),
+            body_b=world.get_world_entity_with_id_by_id(self.body_b.id),
+            distance=self.distance,
+        )
+
     @classmethod
-    def create_and_validate(
+    def create_for_bodies_with_collision(
         cls, body_a: Body, body_b: Body, distance: float | None = None
     ) -> Self:
         """
-        Creates a CollisionCheck instance and validates its properties.
+        Creates a CollisionCheck instance for two bodies that are already known to have
+        collision geometry, for example because they come from
+        :attr:`World.bodies_with_collision`.
+
         Makes sure body_a and body_b are sorted properly.
+        .. note:: Inspecting the geometry of a body builds a mesh of every collision
+            shape, so a caller that covers every body pair would pay for it
+            quadratically. Use :meth:`create_and_validate` where the bodies were not
+            filtered yet.
         :param body_a: First body in the collision check.
         :param body_b: Second body in the collision check.
         :param distance: Minimum distance to check for collisions.
-        :return: Validated CollisionCheck instance.
+        :return: CollisionCheck instance with sorted bodies.
         """
         self = cls(body_a=body_a, body_b=body_b, distance=distance)
         if self.distance is not None and self.distance < 0:
@@ -60,13 +81,29 @@ class CollisionCheck(SubclassJSONSerializer):
 
         if self.body_a == self.body_b:
             raise InvalidBodiesInCollisionCheckError(self)
+        self.sort_bodies()
+        return self
 
+    @classmethod
+    def create_and_validate(
+        cls, body_a: Body, body_b: Body, distance: float | None = None
+    ) -> Self:
+        """
+        Creates a CollisionCheck instance and validates its properties, including that
+        both bodies have collision geometry.
+
+        Makes sure body_a and body_b are sorted properly.
+        :param body_a: First body in the collision check.
+        :param body_b: Second body in the collision check.
+        :param distance: Minimum distance to check for collisions.
+        :return: Validated CollisionCheck instance.
+        """
+        self = cls.create_for_bodies_with_collision(body_a, body_b, distance)
         if not self.body_a.has_collision():
             raise BodyHasNoGeometryError(self)
 
         if not self.body_b.has_collision():
             raise BodyHasNoGeometryError(self)
-        self.sort_bodies()
         return self
 
     def __repr__(self):
@@ -85,20 +122,20 @@ class CollisionCheck(SubclassJSONSerializer):
         if self.body_a.id > self.body_b.id:
             self.body_a, self.body_b = self.body_b, self.body_a
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         return {
-            **super().to_json(),
-            "body_a": to_json(self.body_a.id),
-            "body_b": to_json(self.body_b.id),
-            "distance": to_json(self.distance),
+            **super().to_json(**kwargs),
+            "body_a": to_json(self.body_a.id, **kwargs),
+            "body_b": to_json(self.body_b.id, **kwargs),
+            "distance": to_json(self.distance, **kwargs),
         }
 
     @classmethod
     def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
         return cls(
-            body_a=tracker.get_world_entity_with_id(id=from_json(data["body_a"])),
-            body_b=tracker.get_world_entity_with_id(id=from_json(data["body_b"])),
+            body_a=tracker.get(from_json(data["body_a"])),
+            body_b=tracker.get(from_json(data["body_b"])),
             distance=data["distance"],
         )
 
@@ -106,7 +143,9 @@ class CollisionCheck(SubclassJSONSerializer):
 @dataclass
 class CollisionMatrix:
     """
-    Describes a matrix in sparse format by storing only unique pairs of bodies with collision checks.
+    Describes a matrix in sparse format by storing only unique pairs of bodies with
+    collision checks.
+
     This is the input for collision checking algorithms.
     .. note:: CollisionRule objects are the intended way to modify collision matrices.
     """
@@ -127,10 +166,14 @@ class CollisionMatrix:
         return hash(id(self))
 
     def apply_buffer(self, buffer: float):
-        for collision in self.collision_checks:
-            collision.distance = (
-                collision.distance + buffer if collision.distance else None
+        self.collision_checks = {
+            CollisionCheck(
+                check.body_a,
+                check.body_b,
+                check.distance + buffer if check.distance is not None else None,
             )
+            for check in self.collision_checks
+        }
 
     @classmethod
     def create_all_checks(cls, distance: float, world: World) -> Self:
@@ -142,7 +185,15 @@ class CollisionMatrix:
         )
 
     def add_collision_checks(self, collision_checks: set[CollisionCheck]):
-        self.collision_checks |= collision_checks
+        """
+        Adds collision checks to the matrix.
+
+        A check for a body pair the matrix already contains replaces the distance of
+        that pair.
+        """
+        self.collision_checks = (
+            self.collision_checks - collision_checks
+        ) | collision_checks
 
     def remove_collision_checks(self, collision_checks: set[CollisionCheck]):
         self.collision_checks -= collision_checks
@@ -152,9 +203,11 @@ class CollisionMatrix:
     ) -> bool:
         """
         Checks if any combination of bodies between groups is in the collision matrix.
+
         :param group_a: The first collision group.
         :param group_b: The second collision group.
-        :return: True if any combination of bodies between the groups is in the collision matrix, False otherwise.
+        :return: True if any combination of bodies between the groups is in the
+            collision matrix, False otherwise.
         """
         return any(
             CollisionCheck.create_and_validate(body_a, body_b) in self.collision_checks
@@ -166,10 +219,11 @@ class CollisionMatrix:
 class CollisionRule(ABC):
     """
     Base class for collision rules.
+
     They modify collision matrices by adding or removing collision checks.
     """
 
-    _last_world_model_version: int = field(init=False, default=-1)
+    _last_world_model_version: int = field(init=False, default=-1, compare=False)
     """
     Used to prevent updating the collision matrix when the world model has not changed.
     """
@@ -188,7 +242,9 @@ class CollisionRule(ABC):
 
     def update(self, world: World):
         """
-        Updates the collision rule based on the current state of the world, if the world model has changed.
+        Updates the collision rule based on the current state of the world, if the world
+        model has changed.
+
         :param world: The world used for updating
         """
         if self.is_up_to_date(world):
@@ -200,6 +256,7 @@ class CollisionRule(ABC):
     def _update(self, world: World):
         """
         Specific update logic for the collision rule.
+
         :param world: The world used for updating.
         """
 
@@ -207,7 +264,8 @@ class CollisionRule(ABC):
 @dataclass
 class MaxAvoidedCollisionsRule(ABC):
     """
-    Base class for collision rules that define the maximum number of collisions that can be avoided for a given body.
+    Base class for collision rules that define the maximum number of collisions that can
+    be avoided for a given body.
     """
 
     @abstractmethod
@@ -221,7 +279,8 @@ class MaxAvoidedCollisionsRule(ABC):
 @dataclass
 class DefaultMaxAvoidedCollisions(MaxAvoidedCollisionsRule):
     """
-    Default implementation of MaxAvoidedCollisionsRule that sets the maximum number of avoided collisions to 1 for all bodies.
+    Default implementation of MaxAvoidedCollisionsRule that sets the maximum number of
+    avoided collisions to 1 for all bodies.
     """
 
     def get_max_avoided_collisions(self, body: Body) -> int | None:
@@ -231,13 +290,15 @@ class DefaultMaxAvoidedCollisions(MaxAvoidedCollisionsRule):
 @dataclass
 class MaxAvoidedCollisionsOverride(MaxAvoidedCollisionsRule, SubclassJSONSerializer):
     """
-    Implementation of MaxAvoidedCollisionsRule that overrides the maximum number of avoided collisions for specific bodies.
+    Implementation of MaxAvoidedCollisionsRule that overrides the maximum number of
+    avoided collisions for specific bodies.
     """
 
     value: int
     """
     Maximum number of avoided collisions for the given bodies.
     """
+
     bodies: set[Body]
     """
     Bodies for which the maximum number of avoided collisions is overridden.
@@ -248,11 +309,13 @@ class MaxAvoidedCollisionsOverride(MaxAvoidedCollisionsRule, SubclassJSONSeriali
             return None
         return self.value
 
-    def to_json(self) -> Dict[str, Any]:
+    def to_json(self, **kwargs) -> Dict[str, Any]:
         return {
-            **super().to_json(),
+            **super().to_json(**kwargs),
             "value": self.value,
-            "bodies": to_json({b.id for b in self.bodies} if self.bodies else None),
+            "bodies": to_json(
+                {b.id for b in self.bodies} if self.bodies else None, **kwargs
+            ),
         }
 
     @classmethod
@@ -261,8 +324,5 @@ class MaxAvoidedCollisionsOverride(MaxAvoidedCollisionsRule, SubclassJSONSeriali
         body_subset_ids = from_json(data["bodies"], **kwargs)
         body_subset = None
         if body_subset_ids is not None:
-            body_subset = {
-                tracker.get_world_entity_with_id(id=body_id)
-                for body_id in body_subset_ids
-            }
+            body_subset = {tracker.get(body_id) for body_id in body_subset_ids}
         return cls(value=data["value"], bodies=body_subset)

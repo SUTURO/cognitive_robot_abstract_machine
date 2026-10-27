@@ -5,7 +5,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, TYPE_CHECKING, TypeVar
 
-import rclpy
 from geometry_msgs.msg import (
     PoseStamped,
     Vector3Stamped,
@@ -18,6 +17,8 @@ from rclpy.time import Time
 from tf2_py import InvalidArgumentException
 from tf2_ros import Buffer, TransformListener
 
+from semantic_digital_twin.adapters.ros.ros2_node import HasROS2Node
+
 if TYPE_CHECKING:
     from networkx import MultiDiGraph
 
@@ -29,19 +30,27 @@ TransformableMsg = TypeVar(
 
 
 @dataclass
-class TFWrapper:
+class TFWrapper(HasROS2Node):
     """
     A wrapper for ROS2's very beautiful tf library.
     """
 
-    node: rclpy.node.Node = None
-    """The ROS2 node that this TFWrapper is associated with."""
     tf_buffer_size: Optional[Duration] = None
-    """The size of the tf buffer. If None, the default buffer size is used."""
+    """
+    The size of the tf buffer.
+
+    If None, the default buffer size is used.
+    """
+
     tf_buffer: Buffer = field(init=False)
-    """The tf buffer used by this TFWrapper."""
+    """
+    The tf buffer used by this TFWrapper.
+    """
+
     tf_listener: TransformListener = field(init=False)
-    """The tf listener used by this TFWrapper."""
+    """
+    The tf listener used by this TFWrapper.
+    """
 
     def __post_init__(self):
         self.tf_buffer = Buffer(self.tf_buffer_size)
@@ -83,6 +92,7 @@ class TFWrapper:
     def get_full_frame_names(self, frame_name: str) -> List[str]:
         """
         Search for namespaced frames that include frame_name.
+
         :param frame_name: The frame name to search for.
         :return: A list of frames that include frame_name.
         """
@@ -104,6 +114,7 @@ class TFWrapper:
     def get_tf_frames(self) -> List[str]:
         """
         Get all frames in the tf buffer.
+
         :return: A list of frames.
         """
         return self.tf_buffer._getFrameStrings()
@@ -113,6 +124,7 @@ class TFWrapper:
     ) -> bool:
         """
         Wait for a transform to become available.
+
         :param target_frame: The target frame.
         :param source_frame: The source frame.
         :param time: The time at which the transform is requested.
@@ -130,6 +142,7 @@ class TFWrapper:
     ) -> TransformStamped:
         """
         Look up a transform between two frames.
+
         :param target_frame: The target frame.
         :param source_frame: The source frame.
         :param time: The time at which the transform is requested.
@@ -154,6 +167,7 @@ class TFWrapper:
     ) -> TransformableMsg:
         """
         Transforms a message into a different target frame.
+
         :param target_frame: The target frame.
         :param msg: The message to transform.
         :param timeout: The maximum time to wait for the transform.
@@ -175,6 +189,7 @@ class TFWrapper:
     ) -> PoseStamped:
         """
         Transforms a pose stamped into a different target frame.
+
         :param target_frame: The target frame.
         :param pose: The pose to transform.
         :param timeout: The maximum time to wait for the transform.
@@ -193,6 +208,7 @@ class TFWrapper:
     ) -> Vector3Stamped:
         """
         Transforms a vector stamped into a different target frame.
+
         :param target_frame: The target frame.
         :param vector: The vector to transform.
         :param timeout: The maximum time to wait for the transform.
@@ -211,6 +227,7 @@ class TFWrapper:
     ) -> QuaternionStamped:
         """
         Transforms a quaternion stamped into a different target frame.
+
         :param target_frame: The target frame.
         :param quaternion: The quaternion to transform.
         :param timeout: The maximum time to wait for the transform.
@@ -230,6 +247,7 @@ class TFWrapper:
     ) -> PointStamped:
         """
         Transforms a point stamped into a different target frame.
+
         :param target_frame: The target frame.
         :param point: The point to transform.
         :param timeout: The maximum time to wait for the transform.
@@ -248,6 +266,7 @@ class TFWrapper:
     ) -> PoseStamped:
         """
         Look up a pose between two frames.
+
         :param target_frame: The target frame.
         :param source_frame: The source frame.
         :param time: The time at which the transform is requested.
@@ -265,6 +284,7 @@ class TFWrapper:
     ) -> PointStamped:
         """
         Look up a point between two frames.
+
         :param target_frame: The target frame.
         :param source_frame: The source frame.
         :param time: The time at which the transform is requested.

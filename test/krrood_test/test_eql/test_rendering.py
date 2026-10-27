@@ -5,7 +5,7 @@ import pytest
 from krrood.entity_query_language.query_graph import QueryGraph
 
 try:
-    from krrood.rustworkx_utils import GraphVisualizer
+    from krrood.rustworkx_utils.graph_visualizer import GraphVisualizer
 except ImportError:
     GraphVisualizer = None
 
@@ -52,7 +52,7 @@ def test_render_rx_graph_as_igraph_simple(handles_and_containers_world):
     drawers = list(rule.evaluate())
     if os.path.exists("pdf_graph.pdf"):
         os.remove("pdf_graph.pdf")
-    QueryGraph(rule).visualize()
+    QueryGraph(rule).visualize(filename="pdf_graph.pdf")
     assert os.path.exists("pdf_graph.pdf")
     os.remove("pdf_graph.pdf")
 
@@ -100,6 +100,6 @@ def test_render_rx_graph_as_igraph_complex(doors_and_drawers_world):
     results = list(rule.evaluate())
     if os.path.exists("pdf_graph.pdf"):
         os.remove("pdf_graph.pdf")
-    QueryGraph(rule).visualize()
+    QueryGraph(rule).visualize(filename="pdf_graph.pdf")
     assert os.path.exists("pdf_graph.pdf")
     os.remove("pdf_graph.pdf")

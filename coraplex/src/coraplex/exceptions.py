@@ -1,0 +1,510 @@
+from __future__ import annotations
+
+from abc import ABC
+from dataclasses import dataclass
+from typing_extensions import Optional, TYPE_CHECKING, Type
+
+from krrood.entity_query_language.factories import ConditionType, get_false_statements
+from krrood.exceptions import DataclassException
+from coraplex.datastructures.enums import (
+    ExecutionType,
+    VisualizationBackend,
+    VisualizationOption,
+)
+from coraplex.plans.failures import PlanFailure
+
+if TYPE_CHECKING:
+    from coraplex.plans.designator import Designator
+    from coraplex.plans.plan_node import PlanNode
+    from coraplex.robot_plans.actions.base import ActionDescription
+    from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
+    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+    from semantic_digital_twin.world_description.world_entity import (
+        SemanticAnnotation,
+    )
+
+
+# %% visualization
+@dataclass
+class UnknownVisualizationOption(DataclassException):
+    """
+    A configuration value does not name a supported visualization option.
+    """
+
+    variable: VisualizationOption
+    """
+    The environment setting containing the unknown value.
+    """
+
+    value: str
+    """
+    The rejected value.
+    """
+
+    def error_message(self) -> str:
+        """
+        Identify the rejected environment setting and value.
+        """
+        return f"Unknown visualization option {self.variable}={self.value!r}."
+
+    def suggest_correction(self) -> str:
+        """
+        Describe how to select a supported renderer configuration.
+        """
+        return "Choose a supported visualization backend or Rerun mode."
+
+
+@dataclass
+class VisualizationBackendUnavailable(DataclassException):
+    """
+    A selected renderer has no available provider.
+    """
+
+    backend: VisualizationBackend
+    """
+    The renderer that could not be started.
+    """
+
+    def error_message(self) -> str:
+        """
+        Identify the renderer whose provider could not be loaded.
+        """
+        return f"Visualization backend {self.backend.value!r} is unavailable."
+
+    def suggest_correction(self) -> str:
+        """
+        Describe how to make the selected provider available.
+        """
+        return "Install the selected visualization provider or select another backend."
+
+
+# %% plan execution
+@dataclass
+class ContextIsUnavailable(DataclassException):
+    """
+    Raised when an instance that tries to access the context of a plan has no reference
+    to the plan.
+
+    Most likely raised when an action created a subplan without calling
+    `ActionDescription.add_subplan`
+    """
+
+    instance: Designator
+    """
+    The instance where the plan node is None.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.instance} has no plan node."
+
+    def suggest_correction(self) -> str:
+        return (
+            "did you forget to call `add_subplan` when creating plans inside actions?"
+        )
+
+
+@dataclass
+class CannotMatchOnType(DataclassException):
+    """
+    Raised when a plan transformation is bound to a type that is neither a plan node nor
+    a designator, leaving no rule by which it could select the nodes it rewrites.
+    """
+
+    transformation: Type
+    """
+    The transformation class that carries the binding.
+    """
+
+    matched_type: Type
+    """
+    The type it is bound to.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.transformation.__name__} is bound to {self.matched_type}, which is "
+            f"neither a plan node nor a designator."
+        )
+
+    def suggest_correction(self) -> str:
+        return "bind the transformation to a plan node type or a designator type"
+
+
+@dataclass
+class CannotInsertBesideRoot(DataclassException):
+    """
+    Raised when a node is to be inserted before or after the root node, which has no
+    parent that could hold the new sibling.
+    """
+
+    root: PlanNode
+    """
+    The root node that was given as the reference node.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.root} is the root of the plan and has no parent to hold a sibling."
+        )
+
+    def suggest_correction(self) -> str:
+        return "insert the node as the last child of the root instead"
+
+
+@dataclass
+class NodeNotInPlanTree(DataclassException):
+    """
+    Raised when the nodes before a node are asked for, but the node cannot be reached
+    from the root of its plan.
+    """
+
+    node: PlanNode
+    """
+    The node that is not part of its plan's tree.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.node} cannot be reached from the root of its plan."
+
+    def suggest_correction(self) -> str:
+        return "add the node below the plan's root before asking what precedes it"
+
+
+@dataclass
+class ReachHasNoFinalApproach(DataclassException):
+    """
+    Raised when the final approach of a reach is asked for, but no tool center point
+    motion lies below the reach's node.
+    """
+
+    plan_node: PlanNode
+    """
+    The node of the reach.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.plan_node} has no tool center point motion below it."
+
+    def suggest_correction(self) -> str:
+        return "ask for the final approach only once the reach has been expanded"
+
+
+@dataclass
+class GraspHasNoClosingMotion(DataclassException):
+    """
+    Raised when the motion a grasp closes with is asked for, but no gripper motion that
+    shuts the gripper lies below the grasp's node.
+    """
+
+    plan_node: PlanNode
+    """
+    The node of the grasp.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.plan_node} has no motion closing the gripper below it."
+
+    def suggest_correction(self) -> str:
+        return "ask for the closing motion only once the grasp has been expanded"
+
+
+@dataclass
+class MissingWaypoints(DataclassException):
+    """
+    Raised when a waypoint motion or tool action produced no waypoints to follow.
+    """
+
+    instance: Designator
+    """
+    The designator that has no waypoints.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.instance} has no waypoints to follow."
+
+    def suggest_correction(self) -> str:
+        return "ensure the motion sequence samples at least one point."
+
+
+@dataclass
+class WipingTargetMissing(DataclassException):
+    """
+    Raised when a wiping action is created without a surface to wipe.
+    """
+
+    instance: Designator
+    """
+    The wiping action that has no target.
+    """
+
+    def error_message(self) -> str:
+        return f"{self.instance} has neither a container nor a target pose."
+
+    def suggest_correction(self) -> str:
+        return "provide either a container body or a target pose to wipe."
+
+
+@dataclass
+class MissingToolFrame(DataclassException):
+    """
+    Raised when no tool frame is available for the requested arm.
+    """
+
+    arm: Arm
+    """
+    The arm whose tool frame was requested.
+    """
+
+    robot: AbstractRobot
+    """
+    The robot whose arm was searched.
+    """
+
+    def error_message(self) -> str:
+        return f"no tool frame available for arm {self.arm} of {self.robot}"
+
+    def suggest_correction(self) -> str:
+        return "ensure the arm's end effector defines a tool frame."
+
+
+@dataclass
+class ConditionNotSatisfied(PlanFailure):
+
+    pre_condition: bool
+    action: Type[ActionDescription]
+    condition: ConditionType
+
+    def error_message(self) -> str:
+        prefix = "Pre" if self.pre_condition else "Post"
+        if isinstance(self.condition, bool):
+            return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied"
+        false_statements = get_false_statements(self.condition)
+        return f"{prefix}-Condition for Action '{self.action.__name__}' is not satisfied, following statements could not be satisfied: {[s._name_ for s in false_statements]}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class ObjectIsNotHeld(DataclassException):
+    """
+    Raised when a place is asked for an object that no arm holds and no pick-up before
+    it is going to take.
+    """
+
+    object_designator: HasGraspCandidates
+    """
+    The object that was to be placed.
+    """
+
+    def error_message(self) -> str:
+        return f"no arm holds {self.object_designator.name} to place it."
+
+    def suggest_correction(self) -> str:
+        return "place the object after a pick-up of it."
+
+
+@dataclass
+class FingerWidthNeedsPhysics(DataclassException):
+    """
+    Raised when fingers are sent to a width while the execution is not physically
+    simulated.
+    """
+
+    execution_type: Optional[ExecutionType]
+    """
+    The execution type the motion was performed under.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"closing the fingers to a width has no effect under "
+            f"{self.execution_type}"
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Perform the plan inside a PhysicallySimulatedRobot or on the real robot, "
+            "where the fingers meet the object. Where the world is only moved "
+            "kinematically, a held object hangs off the tool frame and a gripper state "
+            "of its own is enough: use MoveGripperMotion instead."
+        )
+
+
+@dataclass
+class UnknownExecutionType(DataclassException):
+    """
+    Raised when an executable is run with an execution type it does not handle.
+    """
+
+    execution_type: ExecutionType
+    """
+    The execution type that is not supported.
+    """
+
+    def error_message(self) -> str:
+        return f"Unknown execution type: {self.execution_type}"
+
+    def suggest_correction(self) -> str:
+        return ""
+
+
+@dataclass
+class PerceptionException(DataclassException, ABC):
+    """
+    Represents a custom exception specific to perception-related errors.
+    """
+
+
+@dataclass
+class PerceptionExceptionWithSemanticAnnotation(PerceptionException, ABC):
+    """
+    For PerceptionExceptions that name the annotation the perception was about.
+    """
+
+    semantic_annotation: Type[SemanticAnnotation]
+    """
+    The annotation the perception was about.
+    """
+
+
+@dataclass
+class PerceivedObjectNotInWorld(PerceptionExceptionWithSemanticAnnotation):
+    """
+    Raised when a detection names an object the world does not hold, so there is nothing
+    to write the perceived pose to.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The world holds no {self.semantic_annotation.__name__} the perceived pose "
+            f"could be written to."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "spawn the object before detecting it, and annotate it with the semantic "
+            "annotation that was queried."
+        )
+
+
+@dataclass
+class AmbiguousDetection(PerceptionExceptionWithSemanticAnnotation):
+    """
+    Raised when a detection's annotation describes several bodies, so the perceived pose
+    cannot be assigned to one of them.
+    """
+
+    body_count: int
+    """
+    How many distinct bodies the annotation described.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"{self.semantic_annotation.__name__} describes {self.body_count} bodies in "
+            f"the world."
+        )
+
+    def suggest_correction(self) -> str:
+        return "narrow the query's semantic annotation so it names a single object."
+
+
+@dataclass
+class NothingDetected(PerceptionExceptionWithSemanticAnnotation):
+    """
+    Raised when a perception source answers a query without reporting any object.
+
+    Treated as a failure rather than an empty answer: a plan that carried on would act on
+    the pose the object was spawned with while believing perception had confirmed it.
+    """
+
+    def error_message(self) -> str:
+        return f"The perception source reported no {self.semantic_annotation.__name__}."
+
+    def suggest_correction(self) -> str:
+        return (
+            "check that the object is in view and that the pipeline's crop and plane "
+            "parameters cover it."
+        )
+
+
+@dataclass
+class UnidentifiedDetections(PerceptionExceptionWithSemanticAnnotation):
+    """
+    Raised when a perception source reports several candidates it cannot tell apart.
+
+    A pipeline that localizes without classifying gives no way to choose between them,
+    so the choice is refused rather than made arbitrarily.
+    """
+
+    candidate_count: int
+    """
+    How many indistinguishable candidates were reported.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The perception source reported {self.candidate_count} candidates for "
+            f"{self.semantic_annotation.__name__} and none of them carry a class label."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "add a classifying annotator to the perception pipeline, or narrow what is "
+            "in view so a single object is reported."
+        )
+
+
+@dataclass
+class PerceptionSourceUnavailable(PerceptionException):
+    """
+    Raised when the perception pipeline does not answer within the configured timeout.
+    """
+
+    action_name: str
+    """
+    The action the source was expected on.
+    """
+
+    def error_message(self) -> str:
+        return f"No perception source is serving '{self.action_name}'."
+
+    def suggest_correction(self) -> str:
+        return "start the perception pipeline before running the plan."
+
+
+@dataclass
+class NoFloorBelowRobot(DataclassException):
+    """
+    Raised when a robot that has to plan its way over a floor stands over none.
+    """
+
+    robot: AbstractRobot
+    """
+    The robot that stands over no floor.
+    """
+
+    def error_message(self) -> str:
+        return f"'{self.robot.name}' does not stand over any annotated floor."
+
+    def suggest_correction(self) -> str:
+        return (
+            "annotate the surface the robot drives on as a Floor, or move the robot "
+            "onto one that is already annotated."
+        )
+
+
+@dataclass
+class NotOnASingleLevelException(DataclassException):
+    """
+    Raised when an entity is detected to be on None or multiple levels at the same time.
+    """
+
+    message: str
+
+    def error_message(self) -> str:
+        return self.message
+
+    def suggest_correction(self) -> str:
+        return f"Move the robot to a recognized level"

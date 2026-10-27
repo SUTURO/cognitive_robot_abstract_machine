@@ -1,49 +1,132 @@
+import gc
+import os
+import subprocess
+import sys
+import threading
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from uuid import UUID, uuid4
 
 import numpy as np
 import pytest
 from numpy.testing import assert_raises
+from typing_extensions import Optional, Tuple, Type
 
+from semantic_digital_twin.adapters.urdf import URDFParser
+from semantic_digital_twin.callbacks.callback import (
+    ModelChangeCallback,
+    StateChangeCallback,
+)
+from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import (
     DuplicateWorldEntityError,
+    MismatchingPublishChangesAttribute,
     UsageError,
     MissingWorldModificationContextError,
     DofNotInWorldStateError,
     WrongWorldModelVersion,
     NonMonotonicTimeError,
+    BrokenWorldModificationHistoryError,
+    WorldEntityNotFoundError,
+    WorldEntityWithIDBelongsToAnotherWorld,
+    AlreadyBelongsToAWorldError,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Handle
+from semantic_digital_twin.robots.minimal_robot import MinimalRobot
+from semantic_digital_twin.robots.pr2 import PR2, PR2Joint
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Handle,
+    Milk,
+    Drawer,
+)
 from semantic_digital_twin.spatial_types import Vector3
 from semantic_digital_twin.spatial_types.derivatives import Derivatives, DerivativeMap
 
 # from semantic_digital_twin.spatial_types.math import rotation_matrix_from_rpy
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
+    Pose2D,
     RotationMatrix,
-    Point3,
 )
-from semantic_digital_twin.testing import world_setup
+from semantic_digital_twin.testing import StateChangeCounter, world_setup
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     PrismaticConnection,
     RevoluteConnection,
     Connection6DoF,
+    DifferentialDrive,
     FixedConnection,
     OmniDrive,
+    WheeledDrive,
 )
-from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.degree_of_freedom import (
+    DegreeOfFreedom,
+    DegreeOfFreedomLimits,
+)
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
     Actuator,
     WorldEntityWithClassBasedID,
+    WorldEntityWithID,
 )
-from semantic_digital_twin.world_description.world_state import WorldStateTrajectory
+from semantic_digital_twin.world_description.world_modification import (
+    AttributeUpdateModification,
+)
+from semantic_digital_twin.world_description.world_state import (
+    WorldStateTrajectory,
+    WorldState,
+)
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
     WorldStateTrajectoryPlotter,
 )
+
+
+def test_create_with_root_body_names_the_root_from_a_given_prefixed_name():
+    world = World.create_with_root_body("kitchen")
+    assert world.root.name == PrefixedName("kitchen")
+
+
+def test_create_with_root_body_defaults_the_root_name_to_map():
+    world = World.create_with_root_body()
+    assert world.root.name == PrefixedName("map")
+
+
+def test_force_root_name_renames_the_root_body():
+    world = World.create_with_root_body("map")
+    world.force_root_name(PrefixedName("odom"))
+    assert world.root.name == PrefixedName("odom")
+
+
+def test_force_root_name_preserves_root_identity_and_children(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    root_id = world.root.id
+    bf_connection_before = world.get_connection(world.root, bf)
+
+    world.force_root_name(PrefixedName("new_root", prefix="world"))
+
+    assert world.root.id == root_id
+    assert world.root.name == PrefixedName("new_root", prefix="world")
+    assert world.get_connection(world.root, bf) is bf_connection_before
+    assert world.get_kinematic_structure_entity_by_name(PrefixedName("bf")) is bf
+
+
+def test_force_root_name_records_an_attribute_update_modification():
+    world = World.create_with_root_body("map")
+    root_id = world.root.id
+
+    world.force_root_name(PrefixedName("odom"))
+
+    last_block = world._model_manager.model_modification_blocks[-1]
+    attribute_updates = [
+        modification
+        for modification in last_block.modifications
+        if isinstance(modification, AttributeUpdateModification)
+        and modification.entity_id == root_id
+    ]
+    assert len(attribute_updates) == 1
 
 
 def test_set_state(world_setup):
@@ -57,14 +140,16 @@ def test_set_state(world_setup):
     c3: Connection6DoF = world.get_connection(world.root, bf)
     transform = RotationMatrix.from_rpy(1, 0, 0).to_np()
     transform[0, 3] = 69
-    c3.origin = transform
+    c3.origin = HomogeneousTransformationMatrix(
+        data=transform, reference_frame=world.root, child_frame=bf
+    )
     assert np.allclose(world.compute_forward_kinematics_np(world.root, bf), transform)
 
-    world.set_positions_1DOF_connection({c1: 2})
+    JointState.from_mapping({c1: 2}).apply_to(world)
     assert c1.position == 2.0
 
     transform[0, 3] += c1.position
-    assert np.allclose(l2.global_pose.to_np(), transform)
+    assert np.allclose(l2.global_transform.to_np(), transform)
 
 
 def test_construction(world_setup):
@@ -194,6 +279,92 @@ def test_nested_with_blocks_illegal_state(world_setup):
         world.add_connection(connection2)
 
 
+# %% batching state changes
+
+
+def test_batching_state_changes_announces_them_once(world_setup):
+    world, l1, l2, _, _, _ = world_setup
+    prismatic_connection = world.get_connection(l1, l2)
+    counter = StateChangeCounter(_world=world)
+
+    with world.batch_state_changes():
+        prismatic_connection.position = 1.0
+        prismatic_connection.position = 2.0
+
+    assert counter.count == 1
+    assert prismatic_connection.position == 2.0
+
+
+def test_state_changes_outside_a_batch_are_announced_individually(world_setup):
+    world, l1, l2, _, _, _ = world_setup
+    prismatic_connection = world.get_connection(l1, l2)
+    counter = StateChangeCounter(_world=world)
+
+    prismatic_connection.position = 1.0
+    prismatic_connection.position = 2.0
+
+    assert counter.count == 2
+
+
+def test_batching_without_a_state_change_announces_nothing(world_setup):
+    world, _, _, _, _, _ = world_setup
+    counter = StateChangeCounter(_world=world)
+
+    with world.batch_state_changes():
+        pass
+
+    assert counter.count == 0
+
+
+def test_nested_batches_of_state_changes_announce_them_once(world_setup):
+    world, l1, l2, _, _, _ = world_setup
+    prismatic_connection = world.get_connection(l1, l2)
+    counter = StateChangeCounter(_world=world)
+
+    with world.batch_state_changes():
+        prismatic_connection.position = 1.0
+        with world.batch_state_changes():
+            prismatic_connection.position = 2.0
+        assert counter.count == 0
+
+    assert counter.count == 1
+
+
+def test_batching_state_changes_forwards_its_publish_changes(world_setup):
+    world, l1, l2, _, _, _ = world_setup
+    prismatic_connection = world.get_connection(l1, l2)
+    counter = StateChangeCounter(_world=world)
+
+    with world.batch_state_changes(publish_changes=False):
+        prismatic_connection.position = 1.0
+
+    assert counter.count == 1
+    assert counter.publish_changes_of_last_call is False
+
+
+def test_a_nested_batch_disagreeing_about_publishing_is_rejected(world_setup):
+    world, _, _, _, _, _ = world_setup
+
+    with pytest.raises(MismatchingPublishChangesAttribute):
+        with world.batch_state_changes(publish_changes=False):
+            with world.batch_state_changes(publish_changes=True):
+                pass
+
+
+def test_a_batch_interrupted_by_an_error_still_announces_its_changes(world_setup):
+    world, l1, l2, _, _, _ = world_setup
+    prismatic_connection = world.get_connection(l1, l2)
+    counter = StateChangeCounter(_world=world)
+
+    with pytest.raises(ZeroDivisionError):
+        with world.batch_state_changes():
+            prismatic_connection.position = 1.0
+            raise ZeroDivisionError
+
+    assert counter.count == 1
+    assert prismatic_connection.position == 1.0
+
+
 def test_compute_fk_connection6dof(world_setup):
     world, _, _, bf, _, _ = world_setup
     fk = world.compute_forward_kinematics_np(world.root, bf)
@@ -224,10 +395,10 @@ def test_compute_fk(world_setup):
 
     connection: PrismaticConnection = world.get_connection(r1, r2)
 
-    state_memory_id = id(world.state.data)
+    state_memory_id = id(world.state._data)
     world.state[connection.dof.id].position = 1.0
     world.notify_state_change()
-    assert state_memory_id == id(world.state.data)
+    assert state_memory_id == id(world.state._data)
     fk = world.compute_forward_kinematics_np(l2, r2)
     assert np.allclose(
         fk,
@@ -272,9 +443,87 @@ def test_compute_fk_expression(world_setup):
     np.testing.assert_array_almost_equal(fk, fk2)
 
 
+# %% forward kinematics expressions and recompilation
+
+
+def test_compose_forward_kinematics_expression_returns_an_independent_copy(world_setup):
+    """
+    Callers get their own expression, so mutating it cannot corrupt the manager's
+    internal cache or what a later caller receives.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    original = world.compose_forward_kinematics_expression(world.root, r2)
+    original_pose = original.evaluate()
+
+    original.child_frame = None
+    original[0, 3] = 99.0
+
+    fresh = world.compose_forward_kinematics_expression(world.root, r2)
+    assert fresh.child_frame is r2
+    np.testing.assert_array_almost_equal(fresh.evaluate(), original_pose)
+
+
+def test_compose_forward_kinematics_expression_reports_its_free_variables(world_setup):
+    """
+    The copy handed to callers keeps its degrees of freedom resolvable, even once the
+    caller drops every other reference to the expression it came from.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(r1, r2)
+
+    expression = world.compose_forward_kinematics_expression(world.root, r2)
+    gc.collect()
+
+    assert connection.dof.variables.position in expression.free_variables()
+
+
+def test_move_branch_compiles_forward_kinematics_once(world_setup):
+    """
+    Re-parenting rebuilds the forward kinematics for the resulting structure only.
+
+    It used to compile twice: once defensively before computing the preserved pose, and
+    once when the modification block closed. The first is redundant whenever the
+    structure has not changed since the last compilation.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    manager = world._forward_kinematic_manager
+    compilations = []
+    original_compile = manager.compile
+
+    def counting_compile():
+        compilations.append(None)
+        original_compile()
+
+    manager.compile = counting_compile
+    try:
+        world.move_branch(r2, bf)
+    finally:
+        manager.compile = original_compile
+
+    assert len(compilations) == 1
+
+
+def test_update_forward_kinematics_refreshes_values_without_a_model_change(world_setup):
+    """
+    Only the recompilation is skipped when the structure is unchanged; the computed
+    poses are refreshed either way, because degree-of-freedom state can move without any
+    model change.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(r1, r2)
+
+    world.state[connection.dof.id].position = 1.0
+    world.update_forward_kinematics()
+
+    expected = world.compose_forward_kinematics_expression(world.root, r2).evaluate()
+    np.testing.assert_array_almost_equal(
+        world.compute_forward_kinematics_np(world.root, r2), expected
+    )
+
+
 def test_apply_control_commands(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
-    state_memory_id = id(world.state.data)
+    state_memory_id = id(world.state._data)
     connection: PrismaticConnection = world.get_connection(r1, r2)
     cmd = np.array([100.0, 0, 0, 0, 0, 0, 0, 0])
     dt = 0.1
@@ -284,7 +533,7 @@ def test_apply_control_commands(world_setup):
     assert world.state[connection.dof.id].velocity == 100.0 * dt * dt
     assert world.state[connection.dof.id].position == 100.0 * dt * dt * dt
     # the state should reuse the same memory
-    assert state_memory_id == id(world.state.data)
+    assert state_memory_id == id(world.state._data)
 
 
 def test_compute_relative_pose(world_setup):
@@ -307,15 +556,41 @@ def test_compute_relative_pose(world_setup):
     np.testing.assert_array_almost_equal(relative_pose.to_np(), expected_pose.to_np())
 
 
+def test_transform_a_pose_2d(world_setup):
+    """
+    A Pose2D carries no z, roll or pitch, so transforming one answers with the
+    transformed 3D pose flattened back onto the target frame's plane.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(l1, l2)
+    world.state[connection.dof.id].position = 1.0
+    world.notify_state_change()
+
+    pose_2d = Pose2D.from_xy_yaw(x=2.0, y=0.5, yaw=0.3, reference_frame=l2)
+
+    relative_pose_2d = world.transform(pose_2d, l1)
+
+    assert isinstance(relative_pose_2d, Pose2D)
+    assert relative_pose_2d.reference_frame == l1
+    np.testing.assert_array_almost_equal(
+        relative_pose_2d.to_np(),
+        Pose2D.from_pose(world.transform(pose_2d.pose, l1)).to_np(),
+    )
+
+
 def test_compute_relative_pose_both(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
-    world.get_connection(world.root, bf).origin = np.array(
-        [
-            [0.0, -1.0, 0.0, 1.0],
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
+    world.get_connection(world.root, bf).origin = HomogeneousTransformationMatrix(
+        data=np.array(
+            [
+                [0.0, -1.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        reference_frame=world.root,
+        child_frame=bf,
     )
     world.notify_state_change()
 
@@ -432,8 +707,8 @@ def test_merge_world(world_setup, pr2_world_copy):
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
     assert l_shoulder_pan_joint in world.connections
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
 
 
 def test_merge_with_connection(world_setup, pr2_world_copy):
@@ -456,7 +731,10 @@ def test_merge_with_connection(world_setup, pr2_world_copy):
 
     origin = HomogeneousTransformationMatrix(pose)
 
-    connection = pr2_world_copy.get_connection_by_name("l_gripper_l_finger_joint")
+    connection = pr2_world_copy.get_connection_by_name(
+        PR2Joint.LEFT_GRIPPER_LEFT_FINGER
+    )
+    connection_dof_id = connection.dof.id
     pr2_world_copy.state[connection.dof.id].position = 0.55
     pr2_world_copy.notify_state_change()
     expected_fk = pr2_world_copy.compute_forward_kinematics(
@@ -473,9 +751,9 @@ def test_merge_with_connection(world_setup, pr2_world_copy):
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
     assert new_connection in world.connections
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
-    assert world.state[connection.dof.id].position == 0.55
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
+    assert world.state[connection_dof_id].position == 0.55
     assert world.compute_forward_kinematics_np(world.root, base_link)[
         0, 3
     ] == pytest.approx(1.0, abs=1e-6)
@@ -483,6 +761,40 @@ def test_merge_with_connection(world_setup, pr2_world_copy):
         connection.parent, connection.child
     ).to_np()
     assert np.allclose(actual_fk, expected_fk)
+
+
+def test_merge_world_with_connection_worldless_parent():
+    world1 = World()
+    b1 = Body(name=PrefixedName("b1"))
+
+    world2 = World()
+    b2 = Body(name=PrefixedName("b2"))
+
+    with world2.modify_world():
+        world2.add_body(b2)
+
+    b1_C_b2 = FixedConnection(parent=b1, child=b2)
+    world1.merge_world(world2, b1_C_b2)
+
+    assert b1_C_b2 in world1.connections
+    assert b2 in world1.bodies
+
+
+def test_merge_world_with_connection_worldless_child():
+    world1 = World()
+    b1 = Body(name=PrefixedName("b1"))
+
+    world2 = World()
+    b2 = Body(name=PrefixedName("b2"))
+
+    with world2.modify_world():
+        world2.add_body(b2)
+
+    b2_C_b1 = FixedConnection(parent=b2, child=b1)
+    world1.merge_world(world2, b2_C_b1)
+
+    assert b2_C_b1 in world1.connections
+    assert b2 in world1.bodies
 
 
 def test_merge_with_pose(world_setup, pr2_world_copy):
@@ -507,8 +819,8 @@ def test_merge_with_pose(world_setup, pr2_world_copy):
 
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
     assert world.compute_forward_kinematics_np(world.root, base_link)[
         0, 3
     ] == pytest.approx(1.0, abs=1e-6)
@@ -528,9 +840,6 @@ def test_merge_with_pose_rotation(world_setup, pr2_world_copy):
         torso_lift_link,
         pr2_world_copy.get_kinematic_structure_entity_by_name("r_shoulder_pan_link"),
     )
-    base_footprint = pr2_world_copy.get_kinematic_structure_entity_by_name(
-        "base_footprint"
-    )
 
     # Rotation is 90 degrees around z-axis, translation is 1 along x-axis
     pose = np.array(
@@ -544,10 +853,12 @@ def test_merge_with_pose_rotation(world_setup, pr2_world_copy):
 
     world.merge_world_at_pose(pr2_world_copy, HomogeneousTransformationMatrix(pose))
 
+    base_footprint = world.get_kinematic_structure_entity_by_name("base_footprint")
+
     assert base_link in world.kinematic_structure_entities
     assert r_gripper_tool_frame in world.kinematic_structure_entities
-    assert torso_lift_link._world == world
-    assert r_shoulder_pan_joint._world == world
+    assert torso_lift_link in world.bodies
+    assert r_shoulder_pan_joint in world.connections
     fk_base = world.compute_forward_kinematics_np(world.root, base_footprint)
     assert fk_base[0, 3] == pytest.approx(1.0, abs=1e-6)
     assert fk_base[1, 3] == pytest.approx(1.0, abs=1e-6)
@@ -591,6 +902,24 @@ def test_remove_connection(world_setup):
             world.remove_connection(world.get_connection(r1, r2))
 
 
+def test_remove_branch_from_world(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    parent_connection = world.get_connection(bf, r1)
+    inner_connection = world.get_connection(r1, r2)
+
+    world.remove_branch_from_world(r1)
+
+    # The whole r-branch and the connection attaching it to its parent are gone.
+    assert r1 not in world.kinematic_structure_entities
+    assert r2 not in world.kinematic_structure_entities
+    assert parent_connection not in world.connections
+    assert inner_connection not in world.connections
+
+    # The rest of the world is untouched.
+    for remaining in (world.root, bf, l1, l2):
+        assert remaining in world.kinematic_structure_entities
+
+
 def test_kinematic_structure_entity_hash(world_setup):
     _, l1, _, _, _, _ = world_setup
     assert hash(l1) == hash(l1.id)
@@ -621,18 +950,50 @@ def test_copy_world(world_setup):
         original_bf_con.parent, original_bf_con.child
     )
     assert id(copy_connection) != id(original_bf_con)
-    bf.parent_connection.origin = np.array(
-        [[1, 0, 0, 1.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    bf.parent_connection.origin = HomogeneousTransformationMatrix(
+        data=np.array([[1, 0, 0, 1.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]),
+        reference_frame=bf.parent_connection.parent,
+        child_frame=bf,
     )
     assert (
         float(
-            world_copy.get_kinematic_structure_entity_by_name("bf").global_pose.to_np()[
-                0, 3
-            ]
+            world_copy.get_kinematic_structure_entity_by_name(
+                "bf"
+            ).global_transform.to_np()[0, 3]
         )
         == 0.0
     )
-    assert float(bf.global_pose.to_np()[0, 3]) == 1.5
+    assert float(bf.global_transform.to_np()[0, 3]) == 1.5
+
+    assert set(world_copy._world_entity_hash_table.keys()) == set(
+        world._world_entity_hash_table.keys()
+    )
+
+
+def test_copy_big_world():
+    pr2_world = URDFParser.from_file(
+        file_path="package://iai_pr2_description/robots/pr2_with_ft2_cableguide.xacro"
+    ).parse()
+    PR2.from_world(pr2_world)
+    apartment_world = URDFParser.from_file(
+        os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "..",
+            "..",
+            "coraplex",
+            "resources",
+            "worlds",
+            "apartment.urdf",
+        )
+    ).parse()
+
+    apartment_world.merge_world(pr2_world)
+    apartment_world_copy = deepcopy(apartment_world)
+
+    assert set(apartment_world._world_entity_hash_table.keys()) == set(
+        apartment_world_copy._world_entity_hash_table.keys()
+    )
 
 
 def test_copy_world_state(world_setup):
@@ -644,6 +1005,63 @@ def test_copy_world_state(world_setup):
 
     assert world.get_connection(r1, r2).position == 1.0
     assert world_copy.get_connection(r1, r2).position == 1.0
+
+
+def test_merge_state_skips_dofs_missing_in_self():
+    world = World()
+    shared_dof, other_only_dof = uuid4(), uuid4()
+
+    state_self = WorldState(_world=world)
+    state_self._add_dof(shared_dof)
+    state_other = WorldState(_world=world)
+    state_other._add_dof(shared_dof)
+    state_other._add_dof(other_only_dof)
+    state_other[shared_dof].position = 4.2
+    state_other[other_only_dof].position = 13.37
+
+    with pytest.raises(DofNotInWorldStateError):
+        state_self.merge_state(state_other)
+
+
+def test_world_state_keys_does_not_expose_internal_list(world_setup):
+    world, *_ = world_setup
+    state = world.state
+    length_before = len(state)
+
+    keys = state.keys()
+    try:
+        keys.append(uuid4())
+    except AttributeError:
+        pass
+
+    assert len(state) == length_before
+
+
+def test_world_state_equality_is_order_independent():
+    world = World()  # only needed for the lock
+    dof_a, dof_b = uuid4(), uuid4()
+
+    state_1 = WorldState(_world=world)
+    state_1._add_dof(dof_a)
+    state_1._add_dof(dof_b)
+    state_2 = WorldState(_world=world)
+    state_2._add_dof(dof_b)
+    state_2._add_dof(dof_a)
+
+    for state in (state_1, state_2):
+        state[dof_a].position = 1.0
+        state[dof_b].position = 2.0
+
+    assert state_1 == state_2
+
+
+def test_world_str_contains_class_name():
+    """
+    world.py:486 uses self.__class__.name (the dataclass field default, None) instead of
+    the class name, so every world stringifies as 'None v...'.
+    """
+    world = World()
+    assert "World" in str(world)
 
 
 def test_world_state_item_not_set_yet(world_setup):
@@ -679,7 +1097,7 @@ def test_copy_dof(world_setup):
 
 def test_copy_pr2_world_state_reset(pr2_world_state_reset):
     pr2_world_state_reset.state[
-        pr2_world_state_reset.get_degree_of_freedom_by_name("torso_lift_joint").id
+        pr2_world_state_reset.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
     ].position = 0.3
     pr2_world_state_reset.notify_state_change()
     pr2_copy = deepcopy(pr2_world_state_reset)
@@ -693,7 +1111,9 @@ def test_copy_pr2_world_state_reset_connection_origin(pr2_world_state_reset):
         pr2_body = pr2_world_state_reset.get_kinematic_structure_entity_by_id(body.id)
         pr2_copy_body = pr2_copy.get_kinematic_structure_entity_by_id(body.id)
         np.testing.assert_array_almost_equal(
-            pr2_body.global_pose.to_np(), pr2_copy_body.global_pose.to_np(), decimal=4
+            pr2_body.global_transform.to_np(),
+            pr2_copy_body.global_transform.to_np(),
+            decimal=4,
         )
 
 
@@ -717,16 +1137,16 @@ def test_world_same_body_but_different_in_memory(world_setup):
 
 def test_copy_pr2(pr2_world_state_reset):
     pr2_world_state_reset.state[
-        pr2_world_state_reset.get_degree_of_freedom_by_name("torso_lift_joint").id
+        pr2_world_state_reset.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
     ].position = 0.3
     pr2_world_state_reset.notify_state_change()
     pr2_copy = deepcopy(pr2_world_state_reset)
     assert pr2_world_state_reset.get_kinematic_structure_entity_by_name(
         "head_tilt_link"
-    ).global_pose.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
+    ).global_transform.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
     assert pr2_copy.get_kinematic_structure_entity_by_name(
         "head_tilt_link"
-    ).global_pose.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
+    ).global_transform.to_np()[2, 3] == pytest.approx(1.472, abs=1e-3)
 
 
 def test_copy_connections(pr2_world_state_reset):
@@ -738,30 +1158,389 @@ def test_copy_connections(pr2_world_state_reset):
             connection.origin.to_np(), pr2_copy_connection.origin.to_np(), decimal=3
         )
     pr2_copy.state[
-        pr2_copy.get_degree_of_freedom_by_name("torso_lift_joint").id
+        pr2_copy.get_degree_of_freedom_by_name(PR2Joint.TORSO_LIFT).id
     ].position = 0.3
     pr2_copy.notify_state_change()
+    original_torso_state = pr2_world_state_reset.get_connection_by_name(
+        PR2Joint.TORSO_LIFT
+    ).origin
+    copied_and_updated_torso_state = pr2_copy.get_connection_by_name(
+        PR2Joint.TORSO_LIFT
+    ).origin
 
     assert_raises(
         AssertionError,
         np.testing.assert_array_almost_equal,
-        pr2_world_state_reset.get_connection_by_name("torso_lift_joint").origin.to_np(),
-        pr2_copy.get_connection_by_name("torso_lift_joint").origin.to_np(),
+        original_torso_state,
+        copied_and_updated_torso_state,
     )
+
+
+def test_omnidrive_translation_dofs_get_translation_limits():
+    world = World()
+    root = Body(name=PrefixedName("root", prefix="review"))
+    base = Body(name=PrefixedName("base", prefix="review"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(root)
+        world.add_kinematic_structure_entity(base)
+        drive = OmniDrive.create_with_dofs(
+            world=world,
+            parent=root,
+            child=base,
+            translation_velocity_limits=0.6,
+            rotation_velocity_limits=0.5,
+        )
+        world.add_connection(drive)
+
+    assert drive.x_velocity.limits.upper.velocity == pytest.approx(0.6)
+    assert drive.y_velocity.limits.upper.velocity == pytest.approx(0.6)
+    assert drive.yaw.limits.upper.velocity == pytest.approx(0.5)
+
+
+def test_bug_05_has_collision_respects_volume_threshold():
+    """
+    world_entity.py:487-497: Body.has_collision documents and accepts volume/ surface
+    thresholds but ignores them entirely.
+    """
+    tiny_body = Body(name=PrefixedName("tiny", prefix="review"))
+    collision = Box(
+        scale=Scale(0.001, 0.001, 0.001),
+        origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=tiny_body),
+    )
+    tiny_body.collision = ShapeCollection([collision], reference_frame=tiny_body)
+    # volume = 1e-9 m^3, far below the documented default threshold of 1.001e-6 m^3
+    assert tiny_body.has_collision() is False
+
+
+def create_body_with_box(name: str, scale: Scale) -> Body:
+    """
+    A body whose only collision shape is a box of the given scale.
+    """
+    body = Body(name=PrefixedName(name, prefix="review"))
+    collision = Box(
+        scale=scale,
+        origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+    )
+    body.collision = ShapeCollection([collision], reference_frame=body)
+    return body
+
+
+def test_shape_of_sufficient_volume_needs_no_mesh(monkeypatch):
+    """
+    A shape big enough to be checked is recognised from its own volume, without building
+    the mesh that only stands in for it.
+    """
+    body = create_body_with_box("chunky", Scale(0.1, 0.1, 0.1))
+
+    def refuse_to_build_mesh(self):
+        raise AssertionError("the mesh was built to answer has_collision")
+
+    monkeypatch.setattr(Box, "mesh", property(refuse_to_build_mesh))
+
+    assert body.has_collision() is True
+
+
+def test_flat_shape_is_recognised_by_its_surface():
+    """
+    A shape without volume still counts as collision geometry if its surface is large
+    enough, which is the case the surface threshold exists for.
+    """
+    flat_body = create_body_with_box("flat", Scale(1.0, 1.0, 0.0))
+
+    assert flat_body.collision[0].volume == 0
+    assert flat_body.has_collision() is True
 
 
 def test_copy_two_times(pr2_world_state_reset):
     pr2_copy = deepcopy(pr2_world_state_reset)
     pr2_copy_2 = deepcopy(pr2_copy)
+    pr2_copy_3 = deepcopy(pr2_copy_2)
     for connection in pr2_world_state_reset.connections:
         pr2_copy_connection = pr2_copy_2.get_connection_by_name(connection.name)
+        pr2_copy_3_connection = pr2_copy_3.get_connection_by_name(connection.name)
         assert connection.name == pr2_copy_connection.name
+        assert connection.name == pr2_copy_3_connection.name
+
+
+def test_copy_drawer(apartment_world_copy):
+    [handle] = apartment_world_copy.get_semantic_annotations_by_type(Handle)
+    [drawer] = apartment_world_copy.get_semantic_annotations_by_type(Drawer)
+
+    apartment_copy = deepcopy(apartment_world_copy)
+    copied_handle = apartment_copy.get_semantic_annotation_by_name(handle.name)
+    copied_drawer = apartment_copy.get_semantic_annotation_by_name(drawer.name)
+    assert copied_handle == handle
+    assert copied_drawer == drawer
 
 
 def test_copy_id(pr2_world_state_reset):
     pr2_copy = deepcopy(pr2_world_state_reset)
     for body in pr2_world_state_reset.bodies:
         assert body.id == pr2_copy.get_kinematic_structure_entity_by_name(body.name).id
+
+
+def test_rebind_body(world_setup):
+    """
+    A directly-held body reference is rebound onto the target world's own body, found by
+    id rather than by identity or name.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    assert world_copy.rebind_world_entities(l1) is world_copy.get_body_by_name(l1.name)
+
+
+def test_rebind_connection(world_setup):
+    """
+    A connection is rebound to the connection of the other world between the same parent
+    and child.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    connection = world.get_connection(l1, l2)
+    assert world_copy.rebind_world_entities(connection) is world_copy.get_connection(
+        world_copy.get_body_by_name(l1.name), world_copy.get_body_by_name(l2.name)
+    )
+
+
+def test_rebind_nested_dataclass(world_setup):
+    """
+    A world entity nested in a dataclass field is rebound, and sibling fields keep their
+    values.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+
+    @dataclass
+    class BodyReference:
+        body: Body
+        label: str
+
+    rebound = world_copy.rebind_world_entities(BodyReference(body=l1, label="target"))
+    assert rebound.body is world_copy.get_body_by_name(l1.name)
+    assert rebound.label == "target"
+
+
+def test_rebind_list_and_plain_value(world_setup):
+    """
+    A list rebinds elementwise, and a value holding no world entity keeps its value.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+
+    assert world_copy.rebind_world_entities([l1, l2, "not a world entity"]) == [
+        world_copy.get_body_by_name(l1.name),
+        world_copy.get_body_by_name(l2.name),
+        "not a world entity",
+    ]
+    assert world_copy.rebind_world_entities(1.5) == 1.5
+
+
+def test_rebind_leaves_an_entity_this_world_does_not_contain(world_setup):
+    """
+    An entity the target world does not contain is left as it is, since it is not that
+    world's state to rebind.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    assert World().rebind_world_entities(l1) is l1
+
+
+def test_lookup_by_id_finds_an_annotation_sharing_a_hash_table_key(world_setup):
+    """
+    An annotation stays findable by its id after a later annotation of the same type
+    over the same entities takes over its key in the world's hash table.
+
+    A semantic annotation hashes by its content, so both annotations land on one key and
+    only the last one added remains in the table, while both remain part of the world.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    first, second = Handle(root=l1), Handle(root=l1)
+    with world.modify_world():
+        world.add_semantic_annotation(first)
+        world.add_semantic_annotation(second)
+
+    assert first.id != second.id
+    assert hash(first) == hash(second)
+    assert world.get_world_entity_with_id_by_id(first.id) is first
+    assert world.get_world_entity_with_id_by_id(second.id) is second
+
+
+def test_rebind_annotation_sharing_a_hash_table_key(world_setup):
+    """
+    An annotation whose hash table key a later same-content annotation took over is
+    still rebound onto the target world's own instance, rather than left pointing at the
+    world it came from.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    first, second = Handle(root=l1), Handle(root=l1)
+    with world.modify_world():
+        world.add_semantic_annotation(first)
+        world.add_semantic_annotation(second)
+    world_copy = deepcopy(world)
+
+    rebound = world_copy.rebind_world_entities(first)
+    assert rebound.id == first.id
+    assert rebound._world is world_copy
+
+
+def test_rebound_annotation_sharing_a_hash_table_key_can_modify_the_copy(world_setup):
+    """
+    A rebound annotation whose hash table key a same-content annotation took over is
+    usable for modifying the world it was rebound into.
+
+    Model modification is what a rebound reference is needed for, and what a reference
+    left pointing at the world it came from fails at, with a `MismatchingWorld`.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    first, second = Handle(root=l1), Handle(root=l1)
+    with world.modify_world():
+        world.add_semantic_annotation(first)
+        world.add_semantic_annotation(second)
+    world_copy = deepcopy(world)
+
+    rebound = world_copy.rebind_world_entities(first)
+    new_parent = world_copy.get_body_by_name(r1.name)
+    world_copy.move_branch(rebound.root, new_parent)
+
+    assert rebound.root.parent_connection.parent is new_parent
+
+
+def test_adding_an_entity_that_belongs_to_another_world_raises(world_setup):
+    """
+    An entity cannot be registered with a second world while it still belongs to the
+    first, which would leave it in that world's lookup table under a world it no longer
+    reports.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+
+    with pytest.raises(AlreadyBelongsToAWorldError):
+        l1.add_to_world(World())
+
+    assert l1._world is world
+    assert world.get_kinematic_structure_entity_by_id(l1.id) is l1
+
+
+def test_adding_an_entity_to_the_world_it_belongs_to_re_registers_it(world_setup):
+    """
+    Registering an entity with the world it already belongs to stays allowed, since it
+    only refreshes the entry that world already holds.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+
+    l1.add_to_world(world)
+
+    assert l1._world is world
+    assert world.get_kinematic_structure_entity_by_id(l1.id) is l1
+
+
+def test_rebind_rejects_an_entity_registered_here_but_owned_elsewhere(world_setup):
+    """
+    An entity left registered in this world while reporting another one is reported,
+    rather than handed back to fail later wherever it is used.
+
+    :meth:`WorldEntity.add_to_world` refuses to create this state, so the test writes
+    the inconsistent lookup table entry the guard exists for directly.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    other_world = World()
+    l1._world = other_world
+    world._world_entity_hash_table[hash(l1)] = l1
+
+    with pytest.raises(WorldEntityWithIDBelongsToAnotherWorld):
+        world.rebind_world_entities(l1)
+
+
+def test_rebind_copies_mutable_leaf_values(world_setup):
+    """
+    A mutable value that is neither a world entity nor a recognized container is copied,
+    not shared.
+
+    Mutating the rebound copy must not affect the original, the way sharing a `Pose`'s
+    underlying `casadi_sx` matrix would.
+    """
+
+    class MutableLeaf:
+        def __init__(self, value):
+            self.value = value
+
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+
+    leaf = MutableLeaf(value=1)
+    rebound = world_copy.rebind_world_entities(leaf)
+    assert rebound is not leaf
+
+    rebound.value = 2
+    assert leaf.value == 1
+
+
+def test_rebind_a_cycle_keeps_its_shape(world_setup):
+    """
+    Objects that refer to each other are rebound once each, so the rebound objects refer
+    to each other the same way instead of being walked without end.
+    """
+
+    @dataclass(eq=False)
+    class Link:
+        body: Body
+        partner: Optional["Link"] = None
+
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    first = Link(body=l1)
+    first.partner = Link(body=l2, partner=first)
+
+    rebound = world_copy.rebind_world_entities(first)
+
+    assert rebound.partner.partner is rebound
+    assert rebound.partner.body is world_copy.get_body_by_name(l2.name)
+
+
+def test_rebind_keeps_an_object_reached_twice_one_object(world_setup):
+    @dataclass(eq=False)
+    class Mark:
+        body: Body
+
+    @dataclass(eq=False)
+    class TwoReferences:
+        first: Mark
+        second: Mark
+
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    mark = Mark(body=l1)
+
+    rebound = world_copy.rebind_world_entities(TwoReferences(first=mark, second=mark))
+
+    assert rebound.first is rebound.second
+    assert rebound.first is not mark
+
+
+def test_rebind_copies_a_type_that_says_how_it_is_copied_its_own_way(world_setup):
+    """
+    A type defining how it is deep-copied, for example to share a resource that cannot
+    be copied, is copied that way rather than having its fields walked.
+    """
+
+    @dataclass(eq=False)
+    class SharedResource:
+        lock: type(threading.Lock()) = field(default_factory=threading.Lock)
+
+        def __deepcopy__(self, memo):
+            return self
+
+    @dataclass(eq=False)
+    class UsesResource:
+        body: Body
+        resource: SharedResource
+
+    world, l1, l2, bf, r1, r2 = world_setup
+    world_copy = deepcopy(world)
+    resource = SharedResource()
+
+    rebound = world_copy.rebind_world_entities(UsesResource(body=l1, resource=resource))
+
+    assert rebound.resource is resource
+    assert rebound.body is world_copy.get_body_by_name(l1.name)
 
 
 def test_world_entity_with_class_id():
@@ -801,7 +1580,7 @@ def test_set_omni_after_copy(pr2_world_state_reset):
     pr2_copy.notify_state_change()
 
     np.testing.assert_array_almost_equal(
-        pr2_copy.get_body_by_name("base_footprint").global_pose.to_position().to_np(),
+        pr2_copy.get_body_by_name("base_footprint").global_transform.position.to_np(),
         np.array([10.0, 10.0, 0.0, 1.0]),
     )
 
@@ -813,6 +1592,20 @@ def test_add_entity_with_duplicate_name(world_setup):
     with world.modify_world():
         world.add_kinematic_structure_entity(body_duplicate)
         world.add_connection(connection)
+
+
+def test_limits_from_position_range_and_speed_bound_the_velocity_in_both_directions():
+    limits = DegreeOfFreedomLimits.from_position_range_and_speed(
+        lower_position=-0.2, upper_position=1.5, maximum_speed=0.7
+    )
+    assert limits.lower == DerivativeMap(position=-0.2, velocity=-0.7)
+    assert limits.upper == DerivativeMap(position=1.5, velocity=0.7)
+
+
+def test_limits_from_position_range_and_speed_leave_omitted_bounds_unbounded():
+    limits = DegreeOfFreedomLimits.from_position_range_and_speed(maximum_speed=0.7)
+    assert limits.lower == DerivativeMap(velocity=-0.7)
+    assert limits.upper == DerivativeMap(velocity=0.7)
 
 
 def test_overwrite_dof_limits(world_setup):
@@ -865,7 +1658,7 @@ def test_overwrite_dof_limits_mimic(world_setup):
             offset=23,
             multiplier=-2,
             axis=Vector3(0, 0, 1),
-            dof_id=connection.dof_id,
+            raw_dof=connection.raw_dof,
         )
         world.add_body(body)
         world.add_connection(mimic_connection)
@@ -975,7 +1768,6 @@ def test_dof_removal_simple():
             world=world, parent=body1, child=body2, axis=Vector3.Z()
         )
         world.add_connection(c2)
-        ...
 
 
 def test_dof_removal():
@@ -992,9 +1784,12 @@ def test_dof_removal():
     world.merge_world(world2)
 
     with world.modify_world():
-        world.remove_connection(body2.parent_connection)
+        new_body2 = world.get_kinematic_structure_entity_by_id(body2.id)
+        world.remove_connection(new_body2.parent_connection)
 
-        c_root_bf = OmniDrive.create_with_dofs(parent=body1, child=body2, world=world)
+        c_root_bf = OmniDrive.create_with_dofs(
+            parent=body1, child=new_body2, world=world
+        )
         world.add_connection(c_root_bf)
 
 
@@ -1027,13 +1822,90 @@ def test_add_body_hash():
     assert hash(body) not in world._world_entity_hash_table
 
 
+# %% connections are identified by the entities they connect
+
+
+def test_a_connection_and_its_copy_in_another_world_share_an_id(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(r1, r2)
+
+    world_copy = deepcopy(world)
+    connection_copy = world_copy.get_connection(
+        world_copy.get_kinematic_structure_entity_by_id(r1.id),
+        world_copy.get_kinematic_structure_entity_by_id(r2.id),
+    )
+
+    assert connection_copy is not connection
+    assert connection_copy.id == connection.id
+
+
+def test_connections_between_different_entities_have_different_ids(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+
+    assert world.get_connection(bf, l1).id != world.get_connection(bf, r1).id
+
+
+def test_the_world_finds_a_connection_by_its_id(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(r1, r2)
+
+    assert world.get_world_entity_with_id_by_id(connection.id) is connection
+
+
+def test_a_connection_leaves_the_world_with_its_child(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(r1, r2)
+
+    with world.modify_world():
+        world.remove_kinematic_structure_entity(r2)
+
+    assert world.find_world_entity_with_id(connection.id) is None
+    assert connection._world is None
+
+
+def test_adding_a_second_connection_between_connected_entities_keeps_the_first(
+    world_setup,
+):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection = world.get_connection(bf, l1)
+    number_of_connections = len(world.connections)
+
+    with world.modify_world():
+        world.add_connection(FixedConnection(parent=bf, child=l1))
+
+    assert len(world.connections) == number_of_connections
+    assert world.get_connection(bf, l1) is connection
+
+
+def test_a_connection_copied_with_a_new_child_connects_the_new_child(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: RevoluteConnection = world.get_connection(r1, r2)
+    new_child = Body(name=PrefixedName("r3"))
+
+    connection_copy = connection.copy_with_new_child(new_child)
+
+    assert type(connection_copy) is RevoluteConnection
+    assert connection_copy.parent is r1
+    assert connection_copy.child is new_child
+    assert connection_copy.raw_dof is connection.raw_dof
+    assert (
+        connection_copy.id
+        == RevoluteConnection(
+            parent=r1,
+            child=new_child,
+            raw_dof=connection.raw_dof,
+            axis=connection.axis,
+        ).id
+    )
+
+
 def test_world_state_trajectory(world_setup, tmp_path):
     world, l1, l2, bf, r1, r2 = world_setup
 
     time = 1337.0
 
     connection: PrismaticConnection = world.get_connection(r1, r2)
-    dof_uuid = connection.dof_id
+    dof_uuid = connection.dof.id
 
     traj = WorldStateTrajectory.from_world_state(world.state, time)
     cmd = np.array([100.0, 0, 0, 0, 0, 0, 0, 0])
@@ -1068,7 +1940,7 @@ def test_world_state_trajectory(world_setup, tmp_path):
     # The first DOF should have changed due to jerk command
     assert not np.allclose(traj.data[0, :, 0], traj.data[-1, :, 0])  # First DOF changed
     assert np.allclose(
-        traj.data[0, :, 1:], initial_state.data[:, 1:]
+        traj.data[0, :, 1:], initial_state._data[:, 1:]
     )  # Other DOFs unchanged initially
 
     plotter = WorldStateTrajectoryPlotter()
@@ -1079,7 +1951,7 @@ def test_world_state_trajectory(world_setup, tmp_path):
     assert traj._world_version == world.get_world_model_manager().version
 
     # Verify that trajectory data matches current world state
-    np.testing.assert_allclose(traj.data[-1, :, :], world.state.data)
+    np.testing.assert_allclose(traj.data[-1, :, :], world.state._data)
 
     # verify that the state increased on each step
     previous = initial_state[dof_uuid]
@@ -1101,14 +1973,15 @@ def test_world_state_trajectory(world_setup, tmp_path):
 def test_merge_into_empty_world(world_setup):
     world, _, _, _, _, _ = world_setup
     world2 = deepcopy(world)
-    world2.clear()
+    with world2.modify_world():
+        world2.clear()
     world2.merge_world(world)
 
 
 def test_move_branch_with_fixed_connection(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
     # Initial state: l2 is child of l1 via PrismaticConnection
-    old_child_global_pose = l2.global_pose
+    old_child_global_pose = l2.global_transform
     assert l2.parent_connection.parent == l1
     assert isinstance(l2.parent_connection, PrismaticConnection)
 
@@ -1120,16 +1993,1103 @@ def test_move_branch_with_fixed_connection(world_setup):
     assert isinstance(l2.parent_connection, FixedConnection)
     assert l2 in world.compute_child_kinematic_structure_entities(bf)
     assert l2 not in world.compute_child_kinematic_structure_entities(l1)
-    new_child_global_pose = l2.global_pose
+    new_child_global_pose = l2.global_transform
     assert np.allclose(old_child_global_pose, new_child_global_pose)
 
 
+def test_reattach_child_to_new_parent_offline(world_setup):
+    """
+    The offline path of move_branch_with_fixed_connection re-parents and preserves the
+    global pose, like the online path does.
+
+    Mount strategies take this path, because they run inside an already-open
+    modification block where recompiling forward kinematics would work against a half-
+    edited structure.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    old_child_global_pose = l2.global_transform
+    assert isinstance(l2.parent_connection, PrismaticConnection)
+
+    with world.modify_world():
+        world.move_branch_with_fixed_connection(
+            new_parent=bf, branch_root=l2, enable_unsafe_inside_world_block=True
+        )
+
+    assert l2.parent_connection.parent == bf
+    assert isinstance(l2.parent_connection, FixedConnection)
+    assert np.allclose(l2.global_transform, old_child_global_pose)
+
+
+def test_move_branch_preserves_connection_type_and_pose():
+    """
+    move_branch re-parents a branch keeping its connection type and global pose.
+
+    Covers both the FixedConnection branch (which silently passed an invalid ``_world``
+    kwarg before) and the Connection6DoF branch.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    new_parent = Body(name=PrefixedName("new_parent"))
+    fixed_child = Body(name=PrefixedName("fixed_child"))
+    free_child = Body(name=PrefixedName("free_child"))
+    with world.modify_world():
+        for body in [root, new_parent, fixed_child, free_child]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=new_parent,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=fixed_child,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.3, z=0.4
+                ),
+            )
+        )
+        world.add_connection(
+            Connection6DoF.create_with_dofs(parent=root, child=free_child, world=world)
+        )
+
+    # FixedConnection branch (this is the path the `_world=self` bug used to break).
+    fixed_child_pose = fixed_child.global_transform
+    with world.modify_world():
+        world.move_branch(fixed_child, new_parent)
+    assert fixed_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(fixed_child.parent_connection, FixedConnection)
+    assert np.allclose(fixed_child.global_transform, fixed_child_pose)
+
+    # Connection6DoF branch: type preserved, pose preserved.
+    free_child_pose = free_child.global_transform
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+    assert free_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(free_child.parent_connection, Connection6DoF)
+    assert np.allclose(free_child.global_transform, free_child_pose)
+
+
+def test_memoization_clears_only_last_modification_block():
+    world = World()
+    b1 = Body(name=PrefixedName("b1"))
+    with world.modify_world():
+        world.add_body(b1)
+
+    b2 = Body(name=PrefixedName("b2"))
+    b1_C_b2 = FixedConnection(parent=b2, child=b1)
+
+    with world.modify_world():
+
+        assert world.root == b1
+
+        with world.modify_world():
+            world.add_body(b2)
+
+        assert world.root == b1
+
+        world.add_connection(b1_C_b2)
+
+    assert world.root == b2
+
+
+def test_move_branch_offline_preserves_connection_type_and_pose():
+    """
+    The offline (enable_unsafe_inside_world_block) path of move_branch must, like the
+    online path, preserve a FixedConnection and a Connection6DoF and keep the global
+    pose.
+
+    The offline path is what the semantic-annotation mounts use, and it runs inside an
+    already-open modification block.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    new_parent = Body(name=PrefixedName("new_parent"))
+    fixed_child = Body(name=PrefixedName("fixed_child"))
+    free_child = Body(name=PrefixedName("free_child"))
+    with world.modify_world():
+        for body in [root, new_parent, fixed_child, free_child]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=new_parent,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=fixed_child,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.3, z=0.4
+                ),
+            )
+        )
+        world.add_connection(
+            Connection6DoF.create_with_dofs(parent=root, child=free_child, world=world)
+        )
+
+    fixed_child_pose = fixed_child.global_transform
+    free_child_pose = free_child.global_transform
+    with world.modify_world():
+        world.move_branch(
+            fixed_child, new_parent, enable_unsafe_inside_world_block=True
+        )
+        world.move_branch(free_child, new_parent, enable_unsafe_inside_world_block=True)
+
+    assert fixed_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(fixed_child.parent_connection, FixedConnection)
+    assert np.allclose(fixed_child.global_transform, fixed_child_pose)
+
+    assert free_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(free_child.parent_connection, Connection6DoF)
+    assert np.allclose(free_child.global_transform, free_child_pose)
+
+
+def test_move_branch_preserves_active_connection(world_setup):
+    """
+    move_branch keeps an active 1-DOF connection (e.g. a RevoluteConnection) intact - same type and
+    same degree of freedom - instead of collapsing it to a FixedConnection, while preserving the pose.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    old_connection = r2.parent_connection
+    assert isinstance(old_connection, RevoluteConnection)
+    old_dof_id = old_connection.dof.id
+    old_pose = r2.global_transform
+
+    with world.modify_world():
+        world.move_branch(r2, bf)
+
+    assert r2.parent_kinematic_structure_entity == bf
+    assert isinstance(r2.parent_connection, RevoluteConnection)
+    assert r2.parent_connection.dof.id == old_dof_id
+    assert np.allclose(r2.global_transform, old_pose)
+
+
+# %% re-parenting a free-floating branch
+
+
+def create_world_with_free_floating_child() -> tuple[World, Body, Body]:
+    """
+    Builds a world where ``free_child`` hangs off the root by a :class:`Connection6DoF`
+    and ``new_parent`` sits elsewhere under the root.
+
+    :return: The world, the free-floating child and the body to re-parent it onto.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    new_parent = Body(name=PrefixedName("new_parent"))
+    free_child = Body(name=PrefixedName("free_child"))
+    with world.modify_world():
+        for body in [root, new_parent, free_child]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=new_parent,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            Connection6DoF.create_with_dofs(parent=root, child=free_child, world=world)
+        )
+    free_child.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        x=0.3, y=-0.7, z=0.2, yaw=1.1, reference_frame=root
+    )
+    return world, free_child, new_parent
+
+
+def test_move_branch_preserves_free_connection_degrees_of_freedom():
+    """
+    move_branch keeps a Connection6DoF's degrees of freedom instead of replacing them
+    with fresh ones, while preserving the branch's global pose.
+
+    Re-using the degrees of freedom is what keeps the world state layout stable across
+    the move.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    old_dof_ids = [dof.id for dof in free_child.parent_connection.passive_dofs]
+    old_pose = free_child.global_transform
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    assert free_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(free_child.parent_connection, Connection6DoF)
+    assert [dof.id for dof in free_child.parent_connection.passive_dofs] == old_dof_ids
+    assert np.allclose(free_child.global_transform, old_pose)
+
+
+def test_move_branch_keeps_world_state_array_identity():
+    """
+    move_branch of a Connection6DoF branch must not reallocate the world state array.
+
+    Compiled functions bind memory views of that array, so replacing it silently
+    detaches them from the live state.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    state_data_before_move = world.state._data
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    assert world.state._data is state_data_before_move
+
+
+def test_move_branch_resets_free_connection_derivatives():
+    """
+    move_branch leaves the re-used degrees of freedom without any residual motion.
+
+    The world integrates every degree of freedom, including passive ones, so a leftover
+    velocity would make the re-parented branch drift away from its new parent.
+    """
+    world, free_child, new_parent = create_world_with_free_floating_child()
+    for dof in free_child.parent_connection.passive_dofs:
+        world.state[dof.id].velocity = 0.3
+        world.state[dof.id].acceleration = 0.2
+        world.state[dof.id].jerk = 0.1
+
+    with world.modify_world():
+        world.move_branch(free_child, new_parent)
+
+    for dof in free_child.parent_connection.passive_dofs:
+        assert world.state[dof.id].velocity == 0
+        assert world.state[dof.id].acceleration == 0
+        assert world.state[dof.id].jerk == 0
+
+
+# %% re-parenting a driven branch
+
+
+def create_world_with_driven_child(
+    drive_type: Type[WheeledDrive],
+) -> Tuple[World, Body, Body]:
+    """
+    Builds a world where ``driven_child`` hangs off the root by ``drive_type`` and
+    ``new_parent`` sits elsewhere under the root.
+
+    :param drive_type: The drive connecting the child to the root.
+    :return: The world, the driven child and the body to re-parent it onto.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    new_parent = Body(name=PrefixedName("new_parent"))
+    driven_child = Body(name=PrefixedName("driven_child"))
+    with world.modify_world():
+        for body in [root, new_parent, driven_child]:
+            world.add_kinematic_structure_entity(body)
+        world.add_connection(
+            FixedConnection(
+                parent=root,
+                child=new_parent,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=1.0, y=2.0, z=0.4, yaw=0.5
+                ),
+            )
+        )
+        world.add_connection(
+            drive_type.create_with_dofs(parent=root, child=driven_child, world=world)
+        )
+    driven_child.parent_connection.origin = (
+        HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=0.3, y=-0.7, yaw=1.1, reference_frame=root
+        )
+    )
+    return world, driven_child, new_parent
+
+
+@pytest.mark.parametrize("drive_type", [OmniDrive, DifferentialDrive])
+def test_move_branch_preserves_drive(drive_type):
+    """
+    move_branch keeps a wheeled drive intact - same type and same degrees of freedom -
+    so a robot re-parented onto a carrier can still be driven afterwards.
+    """
+    world, driven_child, new_parent = create_world_with_driven_child(drive_type)
+    old_connection = driven_child.parent_connection
+    old_dof_ids = [
+        dof.id for dof in old_connection.active_dofs + old_connection.passive_dofs
+    ]
+    old_pose = driven_child.global_transform
+
+    with world.modify_world():
+        world.move_branch(driven_child, new_parent)
+
+    new_connection = driven_child.parent_connection
+    assert driven_child.parent_kinematic_structure_entity == new_parent
+    assert isinstance(new_connection, drive_type)
+    assert [
+        dof.id for dof in new_connection.active_dofs + new_connection.passive_dofs
+    ] == old_dof_ids
+    assert np.allclose(driven_child.global_transform, old_pose)
+
+
 def test_reset_state_context(pr2_world_state_reset):
-    state_copy = pr2_world_state_reset.state.data.copy()
+    state_copy = pr2_world_state_reset.state._data.copy()
     with pr2_world_state_reset.reset_state_context():
         pr2_world_state_reset.get_body_by_name(
             "base_footprint"
         ).parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
             10, 10, 0
         )
-    assert np.allclose(state_copy, pr2_world_state_reset.state.data)
+    assert np.allclose(state_copy, pr2_world_state_reset.state._data)
+
+
+def test_copy_for_world():
+
+    w1 = World()
+    w2 = World()
+    b1_uuid = UUID(int=1)
+    b1_w1 = Body(
+        name=PrefixedName("b1"),
+        collision=ShapeCollection([Box(scale=Scale())]),
+        id=b1_uuid,
+    )
+
+    milk = Milk(root=b1_w1)
+    with w1.modify_world():
+        w1.add_body(b1_w1)
+        w1.add_semantic_annotation(milk)
+
+    b1_w2 = b1_w1.copy_for_world(w2)
+
+    assert b1_w2.id == b1_w1.id
+    assert b1_w2.name == b1_w1.name
+    assert b1_w2.collision == b1_w1.collision
+
+    with w2.modify_world():
+        w2.add_body(b1_w2)
+    copied_milk = milk.copy_for_world(w2)
+
+    assert copied_milk.root == b1_w2
+
+
+def make_bodies(*names: tuple) -> list:
+    return [Body(name=PrefixedName(name, prefix)) for name, prefix in names]
+
+
+def test_suggest_typo_in_string_name():
+    bodies = make_bodies(("torso_lift_link", "pr2"), ("head_pan_link", "pr2"))
+    suggestions = World._suggest_world_entity_names("torso_lft_link", bodies)
+    assert suggestions == [PrefixedName("torso_lift_link", "pr2")]
+
+
+def test_suggest_typo_in_prefixed_name():
+    bodies = make_bodies(("torso_lift_link", "pr2"), ("head_pan_link", "pr2"))
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("torso_lft_link", "pr2"), bodies
+    )
+    assert suggestions == [PrefixedName("torso_lift_link", "pr2")]
+
+
+def test_suggest_same_bare_name_with_different_prefix():
+    bodies = make_bodies(("base_link", "pr2"), ("head_pan_link", "pr2"))
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("base_link", "kitchen"), bodies
+    )
+    assert suggestions == [PrefixedName("base_link", "pr2")]
+
+
+def test_suggest_returns_all_prefixes_of_exact_bare_name_match():
+    bodies = make_bodies(("base_link", "pr2"), ("base_link", "kitchen"))
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("base_link", "unknown"), bodies
+    )
+    assert suggestions == [
+        PrefixedName("base_link", "pr2"),
+        PrefixedName("base_link", "kitchen"),
+    ]
+
+
+def test_suggest_exact_bare_name_matches_rank_before_fuzzy_matches():
+    # the fuzzy candidate comes first in the iterable to prove ordering is by match
+    # quality, not iteration order
+    bodies = make_bodies(("torsoo", "b"), ("torso", "a"))
+    suggestions = World._suggest_world_entity_names(PrefixedName("torso", "x"), bodies)
+    assert suggestions == [PrefixedName("torso", "a"), PrefixedName("torsoo", "b")]
+
+
+def test_suggest_fuzzy_match_expands_to_all_prefixes():
+    bodies = make_bodies(("torso_lift_link", "pr2"), ("torso_lift_link", "pr2_copy"))
+    suggestions = World._suggest_world_entity_names("torso_lft_link", bodies)
+    assert suggestions == [
+        PrefixedName("torso_lift_link", "pr2"),
+        PrefixedName("torso_lift_link", "pr2_copy"),
+    ]
+
+
+def test_suggest_no_duplicates_when_exact_match_is_also_fuzzy_match():
+    bodies = make_bodies(("torso", "pr2"))
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("torso", "wrong"), bodies
+    )
+    assert suggestions == [PrefixedName("torso", "pr2")]
+
+
+def test_suggest_respects_default_max_suggestions():
+    bodies = make_bodies(*[("base_link", prefix) for prefix in "abcde"])
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("base_link", "unknown"), bodies
+    )
+    assert suggestions == [
+        PrefixedName("base_link", "a"),
+        PrefixedName("base_link", "b"),
+        PrefixedName("base_link", "c"),
+    ]
+
+
+def test_suggest_respects_explicit_max_suggestions():
+    bodies = make_bodies(*[("base_link", prefix) for prefix in "abcde"])
+    suggestions = World._suggest_world_entity_names(
+        PrefixedName("base_link", "unknown"), bodies, max_suggestions=2
+    )
+    assert len(suggestions) == 2
+
+
+def test_suggest_no_similar_names_returns_empty():
+    bodies = make_bodies(("alpha", None), ("beta", None))
+    assert World._suggest_world_entity_names("quaternion", bodies) == []
+
+
+def test_suggest_empty_iterable_returns_empty():
+    assert World._suggest_world_entity_names("anything", []) == []
+    assert (
+        World._suggest_world_entity_names(PrefixedName("anything", "prefix"), []) == []
+    )
+
+
+def test_not_found_error_contains_suggestions(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    with pytest.raises(WorldEntityNotFoundError) as exc_info:
+        world.get_kinematic_structure_entity_by_name("rooot")
+    assert exc_info.value.suggestions == [PrefixedName("root", "world")]
+    assert "Suggestion: did you mean" in str(exc_info.value)
+    assert "world/root" in str(exc_info.value)
+
+
+def test_not_found_error_with_wrong_prefix_suggests_existing_entity(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    with pytest.raises(WorldEntityNotFoundError) as exc_info:
+        world.get_body_by_name(PrefixedName("l1", "wrong_prefix"))
+    assert exc_info.value.suggestions == [l1.name]
+
+
+def test_not_found_error_without_suggestions(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    with pytest.raises(WorldEntityNotFoundError) as exc_info:
+        world.get_body_by_name("quaternion_flux_capacitor")
+    assert exc_info.value.suggestions == []
+    assert "Suggestion" not in str(exc_info.value)
+
+
+def test_not_found_error_suggestions_for_connections(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    with pytest.raises(WorldEntityNotFoundError) as exc_info:
+        world.get_connection_by_name("l1_T_l3")
+    assert PrefixedName("l1_T_l2") in exc_info.value.suggestions
+
+
+def test_clearing_the_world_detaches_connections():
+    world = World()
+    root = Body(name=PrefixedName("root", prefix="review"))
+    child = Body(name=PrefixedName("child", prefix="review"))
+    collision = Box(
+        scale=Scale(),
+        origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=child),
+    )
+    child.collision = ShapeCollection([collision], reference_frame=child)
+    with world.modify_world():
+        world.add_kinematic_structure_entity(root)
+        world.add_kinematic_structure_entity(child)
+        connection = FixedConnection(parent=root, child=child)
+        world.add_connection(connection)
+
+    with world.modify_world():
+        world._clear_world_entities()
+
+    assert connection._world is None
+
+
+def test_robot_velocity_limit_setup_does_not_touch_environment_joints():
+
+    def _make_box_body(name: str, scale: Scale = Scale(1.0, 1.0, 1.0)) -> Body:
+        body = Body(name=PrefixedName(name, prefix="review"))
+        collision = Box(
+            scale=scale,
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+        )
+        body.collision = ShapeCollection([collision], reference_frame=body)
+        return body
+
+    world = World()
+    root = Body(name=PrefixedName("root", prefix="review"))
+    robot_base = _make_box_body("robot_base")
+    robot_link = _make_box_body("robot_link")
+    drawer_body = _make_box_body("drawer_body")
+
+    env_limits = DegreeOfFreedomLimits.from_position_range_and_speed(maximum_speed=10.0)
+    with world.modify_world():
+        for b in [root, robot_base, robot_link, drawer_body]:
+            world.add_kinematic_structure_entity(b)
+        world.add_connection(FixedConnection(parent=root, child=robot_base))
+        robot_joint = RevoluteConnection.create_with_dofs(
+            world=world,
+            parent=robot_base,
+            child=robot_link,
+            axis=Vector3.Z(reference_frame=robot_base),
+        )
+        world.add_connection(robot_joint)
+        drawer_joint = PrismaticConnection.create_with_dofs(
+            world=world,
+            parent=root,
+            child=drawer_body,
+            axis=Vector3.X(reference_frame=root),
+            dof_limits=env_limits,
+        )
+        world.add_connection(drawer_joint)
+
+    MinimalRobot.from_branch_in_world(robot_base)
+
+    # the environment joint does not belong to the robot and must keep its limits
+    assert drawer_joint.raw_dof.limits.upper.velocity == pytest.approx(10.0)
+    assert drawer_joint.raw_dof.limits.lower.velocity == pytest.approx(-10.0)
+
+
+def test_get_semantic_annotation_by_id_raises_package_exception():
+    world = World()
+    with pytest.raises(WorldEntityNotFoundError):
+        world.get_semantic_annotation_by_id(uuid4())
+
+
+def test_failed_add_without_context_does_not_brick_the_world():
+    world = World()
+    body = Body(name=PrefixedName("body", prefix="review"))
+
+    with pytest.raises(MissingWorldModificationContextError):
+        world.add_kinematic_structure_entity(body)
+
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body)
+
+    assert body in world.bodies
+
+
+def test_hash_table_lookup_survives_annotation_mutation():
+
+    @dataclass(eq=False)
+    class ReviewAnnotation(SemanticAnnotation):
+        """
+        Semantic annotation with a mutable entity list, for hash-stability tests.
+        """
+
+        parts: list[Body] = field(default_factory=list)
+
+    def _make_box_body(name: str, scale: Scale = Scale(1.0, 1.0, 1.0)) -> Body:
+        body = Body(name=PrefixedName(name, prefix="review"))
+        collision = Box(
+            scale=scale,
+            origin=HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=body),
+        )
+        body.collision = ShapeCollection([collision], reference_frame=body)
+        return body
+
+    world = World()
+    root = Body(name=PrefixedName("root", prefix="review"))
+    child = _make_box_body("child")
+    with world.modify_world():
+        world.add_kinematic_structure_entity(root)
+        world.add_kinematic_structure_entity(child)
+        connection = FixedConnection(parent=root, child=child)
+        world.add_connection(connection)
+
+    extra = _make_box_body("extra")
+    with world.modify_world():
+        world.add_kinematic_structure_entity(extra)
+        world.add_connection(FixedConnection(parent=root, child=extra))
+        annotation = ReviewAnnotation(
+            name=PrefixedName("annotation", prefix="review"), parts=[child]
+        )
+        world.add_semantic_annotation(annotation)
+
+    annotation.parts.append(extra)
+
+    assert world._world_entity_hash_table.get(hash(annotation)) is annotation
+
+
+def test_validation_still_works_with_python_optimize_flag():
+    snippet = (
+        "from semantic_digital_twin.world import World\n"
+        "from semantic_digital_twin.world_description.world_entity import Body\n"
+        "from semantic_digital_twin.datastructures.prefixed_name import PrefixedName\n"
+        "world = World()\n"
+        "# build an invalid world (two disconnected roots) behind the back of the\n"
+        "# modification machinery, then validate it: validation must fail\n"
+        "world.kinematic_structure.add_node(Body(name=PrefixedName('a')))\n"
+        "world.kinematic_structure.add_node(Body(name=PrefixedName('b')))\n"
+        "world.validate()\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-O", "-c", snippet],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode != 0, (
+        "an invalid world (two roots) passed validation under python -O:\n"
+        + result.stdout
+        + result.stderr
+    )
+
+
+def test_world_entity_equality_works_across_subclasses():
+    @dataclass(eq=False)
+    class EntityA(WorldEntityWithID):
+        pass
+
+    @dataclass(eq=False)
+    class EntityB(EntityA):
+        pass
+
+    shared_id = uuid4()
+    entity_a = EntityA(id=shared_id)
+    entity_b = EntityB(id=shared_id)
+
+    assert hash(entity_a) == hash(entity_b)
+    assert entity_a == entity_b
+
+
+def test_reset_state_context_restores_state_on_exception(world_setup):
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(l1, l2)
+    connection.position = 0.0
+
+    with pytest.raises(RuntimeError):
+        with world.reset_state_context():
+            connection.position = 1.0
+            raise RuntimeError("simulated user error")
+
+    assert connection.position == pytest.approx(0.0)
+
+
+def test_broken_world_modification_history_after_exception_in_modification_block_is_raised():
+    """
+    world.py:205-219: when an exception escapes a modify_world block, the current
+    modification block is discarded but the already-applied modifications are not rolled
+    back.
+
+    Replay-based operations (deepcopy, sync) then produce a different world than the
+    original.
+    """
+    world = World()
+    body_1 = Body(name=PrefixedName("body_1", prefix="review"))
+    body_2 = Body(name=PrefixedName("body_2", prefix="review"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body_1)
+
+    with pytest.raises(BrokenWorldModificationHistoryError):
+        with world.modify_world():
+            world.add_kinematic_structure_entity(body_2)
+            world.add_connection(FixedConnection(parent=body_1, child=body_2))
+            raise RuntimeError("simulated user error")
+
+
+def test_memoized_queries_match_graph_after_exception():
+    world = World()
+    body_1 = Body(name=PrefixedName("body_1", prefix="review"))
+    body_2 = Body(name=PrefixedName("body_2", prefix="review"))
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body_1)
+
+    with pytest.raises(BrokenWorldModificationHistoryError):
+        with world.modify_world():
+            world.add_kinematic_structure_entity(body_2)
+            raise RuntimeError("simulated user error")
+
+    graph_names = {b.name.name for b in world.kinematic_structure.nodes()}
+    memoized_names = {b.name.name for b in world.bodies}
+    assert memoized_names == graph_names
+
+
+def test_is_kinematic_structure_entity_in_world_by_name(world_setup):
+    world, l1, *_ = world_setup
+    assert world.is_kinematic_structure_entity_in_world_by_name("l1")
+    assert not world.is_kinematic_structure_entity_in_world_by_name("nonexistent")
+
+
+# %% moving a branch keeps both worlds replayable
+
+
+def world_with_branch(branch_length: int) -> Tuple[World, Body]:
+    """
+    Build a world whose root carries one branch of the requested length.
+
+    :param branch_length: Number of bodies hanging below the branch root.
+    :return: The world and the root of its branch.
+    """
+    world = World(name="source")
+    branch_root = Body(name=PrefixedName("branch_root"))
+    with world.modify_world():
+        world.add_connection(
+            FixedConnection(parent=Body(name=PrefixedName("root")), child=branch_root)
+        )
+        parent = branch_root
+        for index in range(branch_length):
+            child = Body(name=PrefixedName(f"branch_body_{index}"))
+            world.add_connection(FixedConnection(parent=parent, child=child))
+            parent = child
+    return world, branch_root
+
+
+def assert_rebuilds_to_same_structure(world: World, other_world: World) -> None:
+    """
+    Assert that replaying a world's own history onto an empty world reproduces it.
+
+    Both worlds release their entities first, because a world loaded from the database
+    replays a history whose entities belong to no world yet, and an entity can belong to
+    at most one world.
+
+    :param world: The world whose recorded history is replayed.
+    :param other_world: The other side of the move, which must let its entities go.
+    """
+    entity_names = {entity.name.name for entity in world.kinematic_structure_entities}
+    connection_count = len(world.connections)
+    recorded_blocks = list(world.get_world_model_manager().model_modification_blocks)
+
+    for world_to_release in (world, other_world):
+        with world_to_release.modify_world():
+            world_to_release._clear_world_entities()
+
+    rebuilt = World(name=world.name)
+    with rebuilt.modify_world():
+        for block in recorded_blocks:
+            block.apply(rebuilt)
+
+    assert {
+        entity.name.name for entity in rebuilt.kinematic_structure_entities
+    } == entity_names
+    assert len(rebuilt.connections) == connection_count
+
+
+def test_world_a_multi_body_branch_moved_into_replays_from_its_own_history():
+    """
+    The world a branch is moved into records a history that starts from nothing.
+
+    Every connection has to leave the world that holds it. Cleaning it up in the new
+    world instead opens that world's history with the removal of a connection it never
+    added, and the history no longer rebuilds it.
+    """
+    world, branch_root = world_with_branch(branch_length=2)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(new_world, world)
+
+
+def test_world_a_multi_body_branch_moved_out_of_replays_from_its_own_history():
+    """
+    The world a branch is moved out of keeps a history that still rebuilds it.
+
+    Entities may only leave after the connections naming them, otherwise the recorded
+    removal of a connection refers to entities the replay has dropped.
+    """
+    world, branch_root = world_with_branch(branch_length=2)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(world, new_world)
+
+
+def test_world_a_single_body_branch_moved_into_replays_from_its_own_history():
+    """
+    A branch of a single body detaches its connection before its body, and the world it
+    moves into stays replayable.
+    """
+    world, branch_root = world_with_branch(branch_length=0)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(new_world, world)
+
+
+def test_world_a_single_body_branch_moved_out_of_replays_from_its_own_history():
+    """
+    A branch of a single body leaves behind a world that stays replayable.
+    """
+    world, branch_root = world_with_branch(branch_length=0)
+    new_world = world.move_branch_to_new_world(branch_root)
+
+    assert_rebuilds_to_same_structure(world, new_world)
+
+
+def test_world_does_not_record_removing_a_connection_it_does_not_hold():
+    """
+    A world only records the removal of a connection it actually holds.
+
+    Recording it regardless is what lets a history open with the removal of something
+    nothing ever added, which no replay can reproduce.
+    """
+    world, branch_root = world_with_branch(branch_length=1)
+    connection = branch_root.parent_connection
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_connection(connection)
+
+    recorded_modifications = [
+        modification
+        for block in other_world.get_world_model_manager().model_modification_blocks
+        for modification in block
+    ]
+    assert recorded_modifications == []
+    assert connection in world.connections
+
+
+def recorded_modifications(world: World) -> list:
+    """
+    Flatten every modification recorded so far by a world's model manager.
+
+    :param world: The world whose recorded history is inspected.
+    :return: The modifications recorded across all of the world's modification blocks.
+    """
+    return [
+        modification
+        for block in world.get_world_model_manager().model_modification_blocks
+        for modification in block
+    ]
+
+
+def test_world_does_not_record_removing_a_kinematic_structure_entity_it_does_not_hold():
+    """
+    A world only records the removal of a kinematic_structure_entity it actually holds.
+    """
+    world = World(name="source")
+    body = Body(name=PrefixedName("body"))
+    with world.modify_world():
+        world.add_body(body)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_kinematic_structure_entity(body)
+
+    assert recorded_modifications(other_world) == []
+    assert body in world.kinematic_structure_entities
+
+
+def test_world_does_not_record_removing_a_degree_of_freedom_it_does_not_hold(
+    world_setup,
+):
+    """
+    A world only records the removal of a degree of freedom it actually holds.
+    """
+    world, l1, l2, bf, r1, r2 = world_setup
+    connection: PrismaticConnection = world.get_connection(r1, r2)
+    dof = connection.dof
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_degree_of_freedom(dof)
+
+    assert recorded_modifications(other_world) == []
+    assert dof in world.degrees_of_freedom
+
+
+def test_world_does_not_record_removing_a_semantic_annotation_it_does_not_hold():
+    """
+    A world only records the removal of a semantic annotation it actually holds.
+    """
+    world = World(name="source")
+    annotation = SemanticAnnotation(name=PrefixedName("annotation"))
+    with world.modify_world():
+        world.add_semantic_annotation(annotation)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_semantic_annotation(annotation)
+
+    assert recorded_modifications(other_world) == []
+    assert annotation in world.semantic_annotations
+
+
+def test_removing_a_semantic_annotation_keeps_an_equal_one():
+    """
+    Removing one of two equal semantic annotations removes that instance and keeps the
+    other one in the world.
+    """
+    world = World()
+    body = Body(name=PrefixedName("milk"))
+    kept = Milk(root=body)
+    removed = Milk(root=body)
+    with world.modify_world():
+        world.add_kinematic_structure_entity(body)
+        world.add_semantic_annotation(kept)
+    with world.modify_world():
+        world.add_semantic_annotation(removed)
+
+    with world.modify_world():
+        world.remove_semantic_annotation(removed)
+
+    assert len(world.semantic_annotations) == 1
+    assert world.semantic_annotations[0] is kept
+    assert kept._world is world
+
+
+def test_world_does_not_record_removing_an_actuator_it_does_not_hold():
+    """
+    A world only records the removal of an actuator it actually holds.
+    """
+    world = World(name="source")
+    actuator = Actuator(name=PrefixedName("actuator"))
+    with world.modify_world():
+        world.add_actuator(actuator)
+    other_world = World(name="other")
+
+    with other_world.modify_world():
+        other_world.remove_actuator(actuator)
+
+    assert recorded_modifications(other_world) == []
+    assert actuator in world.actuators
+
+
+def test_column_indices_locate_the_requested_degrees_of_freedom(world_setup):
+    world, *_ = world_setup
+    dofs = list(world.degrees_of_freedom)
+    for index, dof in enumerate(dofs):
+        world.state[dof.id].velocity = 0.1 * (index + 1)
+
+    columns = world.state.column_indices(dofs)
+
+    velocities = world.state.velocities
+    assert [velocities[column] for column in columns] == pytest.approx(
+        [0.1 * (index + 1) for index in range(len(dofs))]
+    )
+
+
+def test_column_indices_follow_the_requested_order(world_setup):
+    world, *_ = world_setup
+    dofs = list(world.degrees_of_freedom)
+
+    assert (
+        world.state.column_indices(list(reversed(dofs)))
+        == world.state.column_indices(dofs)[::-1]
+    )
+
+
+def test_column_indices_of_degree_of_freedom_outside_the_state(world_setup):
+    world, *_ = world_setup
+
+    with pytest.raises(DofNotInWorldStateError):
+        world.state.column_indices([DegreeOfFreedom(name=PrefixedName("new_dof"))])
+
+
+# %% World Replacement
+
+
+@dataclass(eq=False)
+class ModelChangeRecordingCallback(ModelChangeCallback):
+    notifications: list = field(default_factory=list, init=False)
+
+    def on_model_change(self, publish_changes: bool = None, **kwargs):
+        self.notifications.append(publish_changes)
+
+
+@dataclass(eq=False)
+class StateChangeRecordingCallback(StateChangeCallback):
+    notifications: list = field(default_factory=list, init=False)
+
+    def on_state_change(self, publish_changes: bool = None, **kwargs):
+        self.notifications.append(publish_changes)
+
+
+def test_replace_with_replaces_entities_and_kinematic_structure():
+    world = World.create_with_root_body("old_root")
+    old_body = Body(name=PrefixedName("old_body"))
+    with world.modify_world():
+        world.add_body(old_body)
+        world.add_connection(FixedConnection(parent=world.root, child=old_body))
+
+    other_world = World.create_with_root_body("new_root")
+    new_body = Body(name=PrefixedName("new_body"))
+    with other_world.modify_world():
+        other_world.add_body(new_body)
+        other_world.add_connection(
+            FixedConnection(parent=other_world.root, child=new_body)
+        )
+
+    world._replace_with(other_world)
+
+    assert world.root.name == PrefixedName("new_root")
+    assert world.is_kinematic_structure_entity_in_world_by_name("new_body")
+    assert not world.is_kinematic_structure_entity_in_world_by_name("old_body")
+    assert (
+        world.get_kinematic_structure_entity_by_name(PrefixedName("new_body"))
+        is not None
+    )
+    with pytest.raises(WorldEntityNotFoundError):
+        world.get_kinematic_structure_entity_by_name(PrefixedName("old_body"))
+    assert len(world.kinematic_structure_entities) == 2
+
+
+def test_replace_with_transfers_degrees_of_freedom_and_state():
+    world = World.create_with_root_body("w1_root")
+    other_world = World.create_with_root_body("w2_root")
+    child_body = Body(name=PrefixedName("moving_child"))
+    with other_world.modify_world():
+        other_world.add_body(child_body)
+        conn = RevoluteConnection.create_with_dofs(
+            world=other_world,
+            parent=other_world.root,
+            child=child_body,
+            axis=Vector3.Z(),
+        )
+        other_world.add_connection(conn)
+    other_world.state[conn.dof.id].position = 0.75
+
+    world._replace_with(other_world)
+
+    assert len(world.degrees_of_freedom) == 1
+    assert world.state[conn.dof.id].position == pytest.approx(0.75)
+
+
+def test_replace_with_preserves_registered_callbacks_and_notifies():
+    world = World.create_with_root_body("world_root")
+    model_callback = ModelChangeRecordingCallback(_world=world)
+    state_callback = StateChangeRecordingCallback(_world=world)
+
+    other_world = World.create_with_root_body("replacement_root")
+    other_body = Body(name=PrefixedName("replacement_body"))
+    with other_world.modify_world():
+        other_world.add_body(other_body)
+        other_world.add_connection(
+            FixedConnection(parent=other_world.root, child=other_body)
+        )
+
+    model_callback.notifications.clear()
+    state_callback.notifications.clear()
+
+    world._replace_with(other_world)
+
+    assert model_callback in world.get_world_model_manager().model_change_callbacks
+    assert state_callback in world.state.state_change_callbacks
+    assert model_callback.notifications == [False]
+
+
+def test_replace_with_clears_other_world():
+    world = World.create_with_root_body("w1")
+    other_world = World.create_with_root_body("w2")
+    other_body = Body(name=PrefixedName("b2"))
+    with other_world.modify_world():
+        other_world.add_body(other_body)
+        other_world.add_connection(
+            FixedConnection(parent=other_world.root, child=other_body)
+        )
+
+    world._replace_with(other_world)
+
+    assert other_world.root is None
+    assert len(other_world.kinematic_structure_entities) == 0
+    assert len(other_world.connections) == 0

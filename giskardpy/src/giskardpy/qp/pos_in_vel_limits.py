@@ -1,268 +1,429 @@
+"""
+Velocity profiles that keep a degree of freedom within its position limits across the
+prediction horizon.
+"""
+
+from __future__ import annotations
+
 from copy import copy
+from dataclasses import dataclass
+from datetime import timedelta
 
 import numpy as np
-from typing_extensions import Tuple
+import numpy.typing as npt
+import scipy.sparse as sp
 
-import giskardpy.utils.math as gm
 import krrood.symbolic_math.symbolic_math as sm
+from giskardpy.qp.jerk_limited_braking import JerkLimitedBraking
+from giskardpy.qp.qp_data import QPDataExplicit
+from giskardpy.qp.solvers.linear_program_solver_highs import LinearProgramSolverHighs
 from giskardpy.utils.decorators import memoize
 from krrood.symbolic_math.symbolic_math import (
-    FloatVariable,
     Scalar,
     Vector,
     substitution_cache,
 )
-from semantic_digital_twin.spatial_types.derivatives import DerivativeMap
+from semantic_digital_twin.spatial_types.derivatives import Derivatives
+
+# %% braking to rest
 
 
-def shifted_velocity_profile(
-    vel_profile: Vector, acc_profile: Vector, distance: Scalar, dt: float
-) -> Tuple[Vector, Vector]:
-    vel_profile = copy(vel_profile)
-    vel_profile[vel_profile < 0] = 0
-    vel_if_cases = []
-    acc_if_cases = []
-    for x in range(len(vel_profile) - 1, -1, -1):
-        condition = dt * sum(vel_profile[x:])
-        vel_result = np.concatenate([vel_profile[x + 1 :], np.zeros(x + 1)])
-        acc_result = np.concatenate([acc_profile[x + 1 :], np.zeros(x + 1)])
-        if condition > 0:
-            vel_if_cases.append((condition, sm.Vector(vel_result)))
-            acc_if_cases.append((condition, sm.Vector(acc_result)))
-    vel_if_cases.append(
-        (2 * vel_if_cases[-1][0] - vel_if_cases[-2][0], sm.Vector(vel_profile))
-    )
-    default_vel_profile = np.full(vel_profile.shape[0], vel_profile[0])
-
-    shifted_vel_profile = sm.if_less_eq_cases(
-        distance, vel_if_cases, sm.Vector(default_vel_profile)
-    )
-    shifted_acc_profile = sm.if_less_eq_cases(
-        distance, acc_if_cases, sm.Vector(acc_profile)
-    )
-    return shifted_vel_profile, shifted_acc_profile
-
-
-def r_gauss(integral: Scalar) -> Scalar:
-    return sm.sqrt(2 * integral + (1 / 4)) - 1 / 2
-
-
-@substitution_cache
-def acc_cap(current_vel: Scalar, jerk_limit: Scalar, dt: Scalar) -> Scalar:
-    acc_integral = sm.abs(current_vel) / dt
-    jerk_step = jerk_limit * dt
-    n = sm.floor(r_gauss(sm.abs(acc_integral / jerk_step)))
-    x = (-sm.gauss(n) * jerk_limit * dt + acc_integral) / (n + 1)
-    return sm.abs(n * jerk_limit * dt + x)
-
-
-@substitution_cache
-def compute_next_vel_and_acc(
-    current_vel: Scalar,
-    current_acc: Scalar,
-    vel_limit: Scalar,
-    jerk_limit: Scalar,
-    dt: Scalar,
-    remaining_ph: Scalar,
-    no_cap: Scalar,
-) -> Tuple[Scalar, Scalar]:
-    acc_cap1 = acc_cap(
-        current_vel, jerk_limit, dt
-    )  # if we start at arbitrary horizon and jerk as strongly as possible, which acc do we have when we reach the vel limit
-    acc_cap2 = (
-        remaining_ph * jerk_limit * dt
-    )  # max acc reachable given horizon depending only on vel
-    acc_ph_max = sm.min(
-        acc_cap1, acc_cap2
-    )  # in reality we have a limited horizon, so we have to use the min of the two.
-    acc_ph_min = -acc_ph_max
-
-    next_acc_min = (
-        current_acc - jerk_limit * dt
-    )  # looking from the other side, these are the actual acc we can achieve with the jerk limits
-    next_acc_max = current_acc + jerk_limit * dt
-
-    acc_to_vel = (
-        vel_limit - current_vel
-    ) / dt  # the total acc needed to reach vel target vel
-
-    target_acc = sm.max(next_acc_min, acc_to_vel)
-    target_acc = sm.if_else(
-        no_cap, target_acc, sm.limit(target_acc, acc_ph_min, acc_ph_max)
-    )  # skip when vel_limit is negative
-    next_acc = sm.limit(target_acc, next_acc_min, next_acc_max)
-
-    next_vel = current_vel + next_acc * dt
-    return next_vel, next_acc
-
-
-@substitution_cache
-def compute_slowdown_asap_vel_profile(
-    current_vel: Scalar,
-    current_acc: Scalar,
-    target_vel_profile: Vector,
-    jerk_limit: Scalar,
-    dt: Scalar,
-    ph: int,
-    skip_first: Scalar,
-) -> Tuple[Vector, Vector, Vector]:
+@dataclass
+class BrakingProfile:
     """
-    Compute the vel, acc and jerk profile for slowing down asap.
+    Velocity of a degree of freedom at each step of the prediction horizon while it
+    brakes from a velocity to rest.
     """
-    vel_profile = []
-    acc_profile = []
-    next_vel, next_acc = current_vel, current_acc
-    for i in range(ph):
-        next_vel, next_acc = compute_next_vel_and_acc(
-            next_vel,
-            next_acc,
-            target_vel_profile[i],
-            jerk_limit,
-            dt,
-            ph - i - 1,
-            sm.logic_and(skip_first, sm.Scalar(i == 0)),
+
+    velocity: npt.NDArray
+    """
+    Velocity at each step of the prediction horizon.
+    """
+
+    time_step: timedelta
+    """
+    Duration of a single step of the prediction horizon.
+    """
+
+    @classmethod
+    def fastest(
+        cls, braking: JerkLimitedBraking, prediction_horizon: int
+    ) -> BrakingProfile:
+        """
+        Creates the profile that brakes from the velocity limit of ``braking`` to rest
+        as fast as its jerk limit allows, starting with zero acceleration.
+
+        The profile solves a linear program to a vertex, so its velocity levels are
+        exact rather than accurate only up to a solver tolerance.
+
+        .. note:: The acceleration is not bounded separately; a braking limited by
+            :meth:`JerkLimitedBraking.limited_to_acceleration` already keeps it.
+
+        :param braking: Braking whose velocity limit, jerk limit, and time step the
+            profile follows.
+        :param prediction_horizon: Number of steps in the prediction horizon.
+        :return: Fastest braking profile from the velocity limit of ``braking`` to rest.
+        """
+        return cls(
+            velocity=cls._solve_fastest_braking(braking, prediction_horizon)[
+                :prediction_horizon
+            ],
+            time_step=braking.time_step,
         )
-        vel_profile.append(next_vel)
-        acc_profile.append(next_acc)
-    acc_profile = copy(Vector(acc_profile))
-    acc_profile2 = copy(Vector(acc_profile))
-    acc_profile2[1:] = acc_profile[:-1]
-    acc_profile2[0] = current_acc
-    jerk_profile = (acc_profile - acc_profile2) / dt
 
-    return Vector(vel_profile), acc_profile, jerk_profile
+    @staticmethod
+    @memoize
+    def _solve_fastest_braking(
+        braking: JerkLimitedBraking, prediction_horizon: int
+    ) -> npt.NDArray:
+        """
+        Solves the linear program behind :meth:`fastest` and returns its solution: the
+        velocity, acceleration, and jerk at each step, one derivative after the other.
+
+        :param braking: Braking whose velocity limit, jerk limit, and time step the
+            profile follows.
+        :param prediction_horizon: Number of steps in the prediction horizon.
+        :return: Velocity, acceleration, and jerk at each step, one derivative after the
+            other.
+        """
+        limits = (braking.velocity_limit, np.inf, braking.jerk_limit)
+        number_of_derivatives = len(limits)
+        upper_bounds = np.repeat(np.array(limits, dtype=float), prediction_horizon)
+        lower_bounds = -upper_bounds
+        for derivative in range(number_of_derivatives - 1):
+            last_step = (derivative + 1) * prediction_horizon - 1
+            lower_bounds[last_step] = upper_bounds[last_step] = 0
+        link_model = BrakingProfile._derivative_link_model(
+            braking.time_step, prediction_horizon, number_of_derivatives
+        )
+        link_bounds = np.zeros(link_model.shape[0])
+        link_bounds[0] = braking.velocity_limit
+        linear_weights = np.zeros(upper_bounds.shape[0])
+        linear_weights[:prediction_horizon] = -1
+        qp_data = QPDataExplicit(
+            quadratic_weights=np.zeros(upper_bounds.shape[0]),
+            linear_weights=linear_weights,
+            box_lower_constraints=lower_bounds,
+            box_upper_constraints=upper_bounds,
+            equality_matrix=sp.csc_matrix(link_model),
+            equality_bounds=link_bounds,
+            inequality_matrix=sp.csc_matrix(np.zeros((0, link_model.shape[0]))),
+            inequality_lower_bounds=np.array([]),
+            inequality_upper_bounds=np.array([]),
+            num_equality_slack_variables=0,
+            num_inequality_slack_variables=0,
+        )
+        return LinearProgramSolverHighs().solver_call_explicit_interface(qp_data)
+
+    @staticmethod
+    def _derivative_link_model(
+        time_step: timedelta, prediction_horizon: int, number_of_derivatives: int
+    ) -> npt.NDArray:
+        """
+        Returns the equality matrix that integrates each derivative into the one below
+        it, ``x_k = x_(k-1) + time_step * xdot_k``, with ``x_(-1)`` the current state.
+
+        :param time_step: Duration of a single step of the prediction horizon.
+        :param prediction_horizon: Number of steps in the prediction horizon.
+        :param number_of_derivatives: Number of derivatives, starting at velocity.
+        :return: Equality matrix linking each derivative to the one below it.
+        """
+        number_of_rows = prediction_horizon * (number_of_derivatives - 1)
+        number_of_columns = prediction_horizon * number_of_derivatives
+        link_model = np.zeros((number_of_rows, number_of_columns))
+        link_model[:, :number_of_rows] += np.eye(number_of_rows)
+        link_model[:, prediction_horizon:] += (
+            -np.eye(number_of_rows) * time_step.total_seconds()
+        )
+        previous_step_height = prediction_horizon - 1
+        previous_step = -np.eye(previous_step_height)
+        row_offset = 0
+        column_offset = 0
+        for _ in Derivatives.range(Derivatives.velocity, number_of_derivatives - 1):
+            row_offset += 1
+            link_model[
+                row_offset : row_offset + previous_step_height,
+                column_offset : column_offset + previous_step_height,
+            ] += previous_step
+            row_offset += previous_step_height
+            column_offset += prediction_horizon
+        return link_model
+
+    def shifted_by(self, distance: Scalar) -> Vector:
+        """
+        Returns the part of this profile that remains when only ``distance`` is left to
+        cover, padded with rest.
+
+        Selects how far into the braking the motion already is by comparing the remaining
+        ``distance`` against the distance covered by progressively truncated tails of the
+        profile.
+
+        :param distance: Remaining distance that determines how much of the profile is
+            shifted out.
+        :return: Velocity at each step of the prediction horizon for the remaining
+            ``distance``.
+        """
+        time_step = self.time_step.total_seconds()
+        velocity_profile = self.zero_negligible_velocities(self.velocity)
+        velocity_if_cases = []
+        for x in range(len(velocity_profile) - 1, -1, -1):
+            condition = time_step * sum(velocity_profile[x:])
+            velocity_result = np.concatenate(
+                [velocity_profile[x + 1 :], np.zeros(x + 1)]
+            )
+            if condition > 0:
+                velocity_if_cases.append((condition, sm.Vector(velocity_result)))
+        # A distance shorter than the last braking step would leave only rest, so the degree
+        # of freedom could never close it; the first step covers it instead.
+        shortest_braking_distance, _ = velocity_if_cases[0]
+        remaining_distance_profile = sm.Vector.zeros(velocity_profile.shape[0])
+        remaining_distance_profile[0] = distance / time_step
+        velocity_if_cases[0] = (shortest_braking_distance, remaining_distance_profile)
+        velocity_if_cases.append(
+            (
+                2 * velocity_if_cases[-1][0] - velocity_if_cases[-2][0],
+                sm.Vector(velocity_profile),
+            )
+        )
+        default_velocity_profile = np.full(
+            velocity_profile.shape[0], velocity_profile[0]
+        )
+        return sm.if_less_eq_cases(
+            distance, velocity_if_cases, sm.Vector(default_velocity_profile)
+        )
+
+    @staticmethod
+    def zero_negligible_velocities(
+        velocity_profile: npt.NDArray, negligible_velocity=1e-4
+    ) -> npt.NDArray:
+        """
+        Returns a copy of a braking profile in which every velocity below
+        negligible_velocity is exactly zero.
+
+        A profile that brakes to a standstill ends at rest, while one computed
+        numerically ends at the solver's tolerance instead. Those leftovers become
+        velocity bounds that are a hair apart rather than identical, which no interior
+        point method can resolve.
+
+        :param velocity_profile: Velocity values over the prediction horizon.
+        :param negligible_velocity: Velocity below which a velocity is considered to be
+            at rest. Sits above the absolute tolerance of every solver the controller
+            can be configured with, and far below the smallest velocity a braking
+            profile genuinely contains.
+        :return: Copy of ``velocity_profile`` with negligible velocities set to zero.
+        """
+        at_rest = copy(velocity_profile)
+        at_rest[at_rest < negligible_velocity] = 0.0
+        return at_rest
 
 
-@memoize
-def b_profile(
-    dof_symbols: DerivativeMap[FloatVariable],
-    lower_limits: DerivativeMap[float],
-    upper_limits: DerivativeMap[float],
-    solver_class,
-    dt: float,
-    ph: int,
-    eps: float = 0.00001,
-):
-    vel_limit = upper_limits.velocity
-    acc_limit = upper_limits.acceleration
-    jerk_limit = upper_limits.jerk
-    if lower_limits.position is not None:
-        pos_range = upper_limits.position - lower_limits.position
-        # reduce vel limit, if it can surpass position limits in one dt
-        vel_limit = min(vel_limit * dt, pos_range / 2) / dt
-        # %% compute max possible profile
-        profile = gm.simple_mpc(
-            vel_limit=vel_limit,
-            acc_limit=acc_limit,
+# %% slowing down as soon as possible
+
+
+@dataclass
+class SlowdownProfile:
+    """
+    Velocity and jerk of a degree of freedom at each step of the prediction horizon
+    while it slows down towards a target velocity profile as soon as possible.
+    """
+
+    velocity: Vector
+    """
+    Velocity at each step of the prediction horizon.
+    """
+
+    jerk: Vector
+    """
+    Jerk at each step of the prediction horizon.
+    """
+
+    @classmethod
+    def immediate(
+        cls,
+        current_velocity: Scalar,
+        current_acceleration: Scalar,
+        target_velocity_profile: Vector,
+        jerk_limit: Scalar,
+        time_step: Scalar,
+        prediction_horizon: int,
+        skip_first: Scalar,
+    ) -> SlowdownProfile:
+        """
+        Creates the profile that slows down towards ``target_velocity_profile`` as soon
+        as the jerk limit and the remaining horizon allow.
+
+        :param current_velocity: Velocity at the start of the horizon.
+        :param current_acceleration: Acceleration at the start of the horizon.
+        :param target_velocity_profile: Per-step target velocities the motion is driven
+            towards.
+        :param jerk_limit: Maximum allowed change of acceleration per time step.
+        :param time_step: Duration of a single time step.
+        :param prediction_horizon: Number of time steps in the profile.
+        :param skip_first: When truthy, the horizon cap is disabled for the first step.
+        :return: Profile slowing down towards ``target_velocity_profile``.
+        """
+        velocity, jerk = cls._profiles(
+            current_velocity=current_velocity,
+            current_acceleration=current_acceleration,
+            target_velocity_profile=target_velocity_profile,
             jerk_limit=jerk_limit,
-            current_vel=vel_limit,
-            current_acc=0,
-            dt=dt,
-            ph=ph,
-            q_weight=(0, 0, 0),
-            lin_weight=(-1, 0, 0),
-            solver_class=solver_class,
+            time_step=time_step,
+            prediction_horizon=prediction_horizon,
+            skip_first=skip_first,
         )
-        vel_profile_mpc = profile[:ph]
-        acc_profile_mpc = profile[ph : ph * 2]
-        pos_error_lb = lower_limits.position - dof_symbols.position
-        pos_error_ub = upper_limits.position - dof_symbols.position
-        # %% limits to profile, if vel integral bigger than remaining distance to pos limits
-        pos_vel_profile_lb, _ = shifted_velocity_profile(
-            vel_profile=vel_profile_mpc,
-            acc_profile=acc_profile_mpc,
-            distance=-pos_error_lb,
-            dt=dt,
+        return cls(velocity=velocity, jerk=jerk)
+
+    @staticmethod
+    @substitution_cache
+    def _profiles(
+        current_velocity: Scalar,
+        current_acceleration: Scalar,
+        target_velocity_profile: Vector,
+        jerk_limit: Scalar,
+        time_step: Scalar,
+        prediction_horizon: int,
+        skip_first: Scalar,
+    ) -> tuple[Vector, Vector]:
+        """
+        Computes the velocity and jerk profiles of :meth:`immediate`.
+
+        :param current_velocity: Velocity at the start of the horizon.
+        :param current_acceleration: Acceleration at the start of the horizon.
+        :param target_velocity_profile: Per-step target velocities the motion is driven
+            towards.
+        :param jerk_limit: Maximum allowed change of acceleration per time step.
+        :param time_step: Duration of a single time step.
+        :param prediction_horizon: Number of time steps in the profile.
+        :param skip_first: When truthy, the horizon cap is disabled for the first step.
+        :return: Velocity and jerk at each step of the prediction horizon.
+        """
+        velocity_profile = []
+        acceleration_profile = []
+        next_velocity, next_acceleration = current_velocity, current_acceleration
+        for i in range(prediction_horizon):
+            next_velocity, next_acceleration = (
+                SlowdownProfile._next_velocity_and_acceleration(
+                    current_velocity=next_velocity,
+                    current_acceleration=next_acceleration,
+                    velocity_limit=target_velocity_profile[i],
+                    jerk_limit=jerk_limit,
+                    delta_time=time_step,
+                    remaining_prediction_horizon=prediction_horizon - i - 1,
+                    no_cap=sm.logic_and(skip_first, sm.Scalar(i == 0)),
+                )
+            )
+            velocity_profile.append(next_velocity)
+            acceleration_profile.append(next_acceleration)
+        acceleration_profile = copy(Vector(acceleration_profile))
+        acceleration_profile2 = copy(Vector(acceleration_profile))
+        acceleration_profile2[1:] = acceleration_profile[:-1]
+        acceleration_profile2[0] = current_acceleration
+        jerk_profile = (acceleration_profile - acceleration_profile2) / time_step
+
+        return Vector(velocity_profile), jerk_profile
+
+    @staticmethod
+    @substitution_cache
+    def _next_velocity_and_acceleration(
+        current_velocity: Scalar,
+        current_acceleration: Scalar,
+        velocity_limit: Scalar,
+        jerk_limit: Scalar,
+        delta_time: Scalar,
+        remaining_prediction_horizon: Scalar,
+        no_cap: Scalar,
+    ) -> tuple[Scalar, Scalar]:
+        """
+        Advance velocity and acceleration by one time step while respecting jerk and
+        horizon limits.
+
+        Picks the acceleration that drives the velocity towards ``velocity_limit`` as
+        fast as allowed, bounded both by the jerk-reachable acceleration and by the
+        acceleration still recoverable within the remaining horizon.
+
+        :param current_velocity: Velocity at the current time step.
+        :param current_acceleration: Acceleration at the current time step.
+        :param velocity_limit: Target velocity the step moves towards.
+        :param jerk_limit: Maximum allowed change of acceleration per time step.
+        :param delta_time: Duration of a single time step.
+        :param remaining_prediction_horizon: Number of time steps left in the horizon.
+        :param no_cap: When truthy, skips the horizon-based acceleration capping.
+        :return: The velocity and acceleration of the next time step.
+        """
+        acceleration_limit_from_velocity = SlowdownProfile._acceleration_cap(
+            current_velocity, jerk_limit, delta_time
         )
-        pos_vel_profile_lb *= -1
-        pos_vel_profile_ub, _ = shifted_velocity_profile(
-            vel_profile=vel_profile_mpc,
-            acc_profile=acc_profile_mpc,
-            distance=pos_error_ub,
-            dt=dt,
+        acceleration_limit_from_horizon = (
+            remaining_prediction_horizon * jerk_limit * delta_time
         )
-        # %% when limits are violated, compute the max velocity that can be reached in one step from zero and put it as
-        # negative limits
-        one_step_change_ = jerk_limit * dt**2
-        one_step_change_lb = sm.min(
-            sm.max(Scalar(0), pos_error_lb / dt), Scalar(one_step_change_)
+        acceleration_prediction_horizon_max = sm.min(
+            acceleration_limit_from_velocity, acceleration_limit_from_horizon
         )
-        one_step_change_lb = sm.limit(one_step_change_lb, -vel_limit, vel_limit)
-        one_step_change_ub = sm.max(
-            sm.min(Scalar(0), pos_error_ub / dt), -Scalar(one_step_change_)
-        )
-        one_step_change_ub = sm.limit(one_step_change_ub, -vel_limit, vel_limit)
-        pos_vel_profile_lb[0] = sm.if_greater(
-            pos_error_lb, 0, one_step_change_lb, copy(pos_vel_profile_lb[0])
-        )
-        pos_vel_profile_ub[0] = sm.if_less(
-            pos_error_ub, 0, one_step_change_ub, copy(pos_vel_profile_ub[0])
+        acceleration_prediction_horizon_min = -acceleration_prediction_horizon_max
+
+        next_acceleration_min = (
+            current_acceleration - jerk_limit * delta_time
+        )  # looking from the other side, these are the actual acc we can achieve with the jerk limits
+        next_acceleration_max = current_acceleration + jerk_limit * delta_time
+
+        acceleration_to_velocity = (
+            velocity_limit - current_velocity
+        ) / delta_time  # the total acc needed to reach vel target vel
+
+        target_acceleration = sm.max(next_acceleration_min, acceleration_to_velocity)
+        target_acceleration = sm.if_else(
+            no_cap,
+            target_acceleration,
+            sm.limit(
+                target_acceleration,
+                acceleration_prediction_horizon_min,
+                acceleration_prediction_horizon_max,
+            ),
+        )  # skip when vel_limit is negative
+        next_acceleration = sm.limit(
+            target_acceleration, next_acceleration_min, next_acceleration_max
         )
 
-        # all 0, unless lower or upper position limits are violated
-        goal_profile = sm.max(pos_vel_profile_lb, 0) + sm.min(pos_vel_profile_ub, 0)
-        # skip first when lower or upper position limit are violated
-        skip_first = sm.logic_or(pos_vel_profile_lb[0] >= 0, pos_vel_profile_ub[0] <= 0)
-    else:
-        goal_profile = sm.Vector.zeros(ph)
-        pos_vel_profile_ub = sm.Vector.ones(ph) * vel_limit
-        pos_vel_profile_lb = -pos_vel_profile_ub
-        skip_first = sm.Scalar.const_false()
+        next_velocity = current_velocity + next_acceleration * delta_time
+        return next_velocity, next_acceleration
 
-    acc_profile = sm.Vector.ones(pos_vel_profile_ub.shape[0]) * acc_limit
-    jerk_profile = sm.Vector.ones(pos_vel_profile_ub.shape[0]) * jerk_limit
+    @staticmethod
+    @substitution_cache
+    def _acceleration_cap(
+        current_velocity: Scalar, jerk_limit: Scalar, delta_time: Scalar
+    ) -> Scalar:
+        """
+        Compute the largest acceleration that can be reached when braking to a stop
+        under the jerk limit.
 
-    # vel and acc profile for slowing down asap
-    proj_vel_profile, proj_acc_profile, _ = compute_slowdown_asap_vel_profile(
-        dof_symbols.velocity,
-        dof_symbols.acceleration,
-        goal_profile,
-        Scalar(jerk_limit),
-        Scalar(dt),
-        ph,
-        skip_first,
-    )
-    # jerk profile when slowing down without jerk limits
-    _, _, proj_jerk_profile_violated = compute_slowdown_asap_vel_profile(
-        dof_symbols.velocity,
-        dof_symbols.acceleration,
-        goal_profile,
-        Scalar(np.inf),
-        Scalar(dt),
-        ph,
-        skip_first,
-    )
-    # check if my projected vel profile violated position limits
-    vel_lb_violated = sm.logic_or(
-        sm.logic_any(proj_vel_profile < pos_vel_profile_lb - eps),
-        sm.abs(proj_vel_profile[-1]) >= eps,
-    )
-    vel_ub_violated = sm.logic_or(
-        sm.logic_any(proj_vel_profile > pos_vel_profile_ub + eps),
-        sm.abs(proj_vel_profile[-1]) >= eps,
-    )
+        Distributes the velocity that has to be removed across the jerk-limited
+        acceleration steps and returns the peak acceleration of that braking ramp.
 
-    # if either lower or upper position limits would get violated, relax jerk constraints to max slow down.
-    special_jerk_limits = sm.logic_or(vel_lb_violated, vel_ub_violated)
-    # with 3 derivatives, slow down is possible in 3 steps
-    jerk_profile[0] = sm.if_else(
-        special_jerk_limits,
-        sm.max(Scalar(jerk_limit), sm.abs(proj_jerk_profile_violated[0])),
-        sm.Scalar(jerk_limit),
-    )
-    jerk_profile[1] = sm.if_else(
-        special_jerk_limits,
-        sm.max(Scalar(jerk_limit), sm.abs(proj_jerk_profile_violated[1])),
-        sm.Scalar(jerk_limit),
-    )
-    jerk_profile[2] = sm.if_else(
-        special_jerk_limits,
-        sm.max(Scalar(jerk_limit), sm.abs(proj_jerk_profile_violated[2])),
-        sm.Scalar(jerk_limit),
-    )
+        :param current_velocity: Velocity that needs to be reduced to zero.
+        :param jerk_limit: Maximum allowed change of acceleration per time step.
+        :param delta_time: Duration of a single time step.
+        :return: The peak acceleration of the jerk-limited braking ramp.
+        """
+        acceleration_integral = sm.abs(current_velocity) / delta_time
+        jerk_step = jerk_limit * delta_time
+        number_of_ramp_steps = sm.floor(
+            SlowdownProfile._reverse_gauss(sm.abs(acceleration_integral / jerk_step))
+        )
+        leftover_acceleration_per_step = (
+            -sm.gauss(number_of_ramp_steps) * jerk_step + acceleration_integral
+        ) / (number_of_ramp_steps + 1)
+        return sm.abs(number_of_ramp_steps * jerk_step + leftover_acceleration_per_step)
 
-    lb_profile = sm.concatenate(pos_vel_profile_lb, -acc_profile, -jerk_profile)
-    ub_profile = sm.concatenate(pos_vel_profile_ub, acc_profile, jerk_profile)
-    lb_profile = sm.min(lb_profile, ub_profile)
-    ub_profile = sm.max(lb_profile, ub_profile)
-    return lb_profile, ub_profile
+    @staticmethod
+    def _reverse_gauss(integral: Scalar) -> Scalar:
+        """
+        Invert the Gauss summation formula to recover the term count from a triangular
+        sum.
+
+        Solves ``n * (n + 1) / 2 == integral`` for ``n``, returning the continuous (non-
+        floored) solution.
+
+        :param integral: Value of the triangular sum.
+        :return: The number of terms that produce the given sum.
+        """
+        return sm.sqrt(2 * integral + (1 / 4)) - 1 / 2

@@ -1,35 +1,192 @@
 from __future__ import annotations
 
-import typing
+import itertools
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from enum import EnumType
 from functools import cached_property
-from typing import Dict, Optional
+from types import UnionType, EllipsisType
 
 import numpy as np
-from typing_extensions import Any
-
+from typing_extensions import (
+    Any,
+    Dict,
+    Hashable,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    TYPE_CHECKING,
+    Type,
+    Union,
+    get_args,
+)
+from krrood.parametrization.exceptions import (
+    AmbiguousVariableName,
+    AttributeNotParameterized,
+    DomainElementsIndistinguishableInSamples,
+    EmptyVariableDomain,
+    InvalidEllipsis,
+    JointQueryAcrossClassesNotSupported,
+)
 import random_events.variable
 from krrood.entity_query_language.core.base_expressions import SymbolicExpression
-from krrood.entity_query_language.factories import and_
-from krrood.entity_query_language.query.match import MatchVariable
+from krrood.entity_query_language.core.mapped_variable import Attribute, MappedVariable
+from krrood.entity_query_language.operators.causal import (
+    Cause,
+    CausesEffect,
+    Confounder,
+)
+from krrood.entity_query_language.core.variable import Literal, Variable
+from krrood.entity_query_language.factories import and_, ConditionType
+from krrood.entity_query_language.operators.core_logical_operators import (
+    AND,
+    flatten_operands,
+)
+from krrood.entity_query_language.query.match import Match, AttributeMatch
 from krrood.parametrization.random_events_translator import (
     WhereExpressionToRandomEventTranslator,
 )
-from random_events.product_algebra import Event
+from krrood.parametrization.feature_extraction.aggregations import get_aggregation_class
+from krrood.parametrization.feature_extraction.feature_extractor import FeatureExtractor
+from krrood.symbol_graph.helpers import get_method_return_type
+from random_events.interval import singleton
+from random_events.product_algebra import Event, SimpleEvent
 from random_events.set import Set
+from random_events.variable import (
+    compatible_types,
+    variable_from_name_and_type,
+    most_appropriate_variable_type,
+)
+
+if TYPE_CHECKING:
+    from probabilistic_model.probabilistic_model import ProbabilisticModel
+
+
+class ModelQueryParameters(ABC):
+    """
+    Shared interface between EQL constructs and ``ProbabilisticModel``: whatever a
+    :class:`~krrood.parametrization.model_registries.ModelRegistry` needs to resolve a
+    model, regardless of which EQL construct is asking. Three constructs each build
+    their own parameters this way -- :class:`UnderspecifiedParameters` for a ``Match``
+    (``distribution_of(...)`` too, which wraps one), :class:`SelectedAttributesParameters`
+    for a bare attribute selection (``average(...)``), and :class:`ConditionParameters`
+    for a bare condition (``probability_of(...)``) -- so a registry can type against
+    this one interface instead of a union of the three.
+    """
+
+    @property
+    @abstractmethod
+    def variables(self) -> dict[str, random_events.variable.Variable]:
+        """
+        :return: A dictionary that maps variable names to the random events variables
+            this query references.
+        """
+
+    def variable_of(self, attribute: MappedVariable) -> random_events.variable.Variable:
+        """
+        :param attribute: An attribute of the query, such as
+            ``query.pose.position.x``.
+        :return: The random events variable that stands for the attribute.
+        :raises AttributeNotParameterized: If the query has no variable for the
+            attribute.
+        """
+        name = attribute._variable_rooted_._name_
+        if name not in self.variables:
+            raise AttributeNotParameterized(attribute)
+        return self.variables[name]
+
+    @property
+    @abstractmethod
+    def queried_class(self) -> Type:
+        """
+        :return: The single class this query's model must be resolved for.
+        :raises JointQueryAcrossClassesNotSupported: If the query references
+            attributes reached from more than one owner class.
+        """
+
+    @staticmethod
+    def _single_owner_class(attributes: Iterable[Attribute]) -> Type:
+        """
+        Shared ``queried_class`` implementation for the two subclasses
+        (:class:`SelectedAttributesParameters`, :class:`ConditionParameters`) that
+        resolve their class from a plain collection of attributes rather than a
+        ``Match``'s own selected variable.
+
+        :param attributes: The attributes a subclass's ``queried_class`` was given.
+        :return: The single class every attribute is reached from -- the class of each
+            attribute chain's root ``variable(...)``, not its immediate parent (so a
+            multi-hop chain like ``x.arm.battery`` resolves to ``x``'s class, matching
+            what every :class:`ModelRegistry
+            <krrood.parametrization.model_registries.ModelRegistry>` is keyed on, not
+            ``Arm``).
+        :raises JointQueryAcrossClassesNotSupported: If the attributes are reached from
+            more than one owner class -- every :class:`ModelRegistry
+            <krrood.parametrization.model_registries.ModelRegistry>` resolves a single
+            model per class, so a query joining several classes' models is not
+            supported.
+        """
+        owner_classes = {attribute._chain_root_._type_ for attribute in attributes}
+        if len(owner_classes) != 1:
+            raise JointQueryAcrossClassesNotSupported(owner_classes)
+        return owner_classes.pop()
 
 
 @dataclass
-class UnderspecifiedParameters:
+class SampleColumn:
     """
-    A class that extracts all necessary information from a {py:class}`~krrood.entity_query_language.query.match.Match`
-    and binds it together. Instances of this can be used to parameterize objects with underspecified variables using
-    generative models. This generally serves as glue between `ProbabilisticModel` and `Match`.
+    How one column of the samples of a probabilistic model sets an attribute of the
+    instances constructed from them.
     """
 
-    statement: MatchVariable
+    index: int
     """
-    The UnderspecifiedVariable to extract information from.
+    The index of the column.
+    """
+
+    mapped_variable: MappedVariable
+    """
+    The variable of the attribute the column sets.
+    """
+
+    values_by_sample_value: Optional[Dict[float, Hashable]] = None
+    """
+    The value of the attribute for every value of a symbolic column, or ``None`` if the
+    samples are the values themselves.
+    """
+
+    is_integer: bool = False
+    """
+    Whether the attribute holds whole numbers, which the samples store as floats.
+    """
+
+    def value_in(self, sample: np.ndarray) -> Any:
+        """
+        :param sample: A sample of the model.
+        :return: The value of the attribute in the sample.
+        """
+        value = sample[self.index]
+        if self.values_by_sample_value is not None:
+            return self.values_by_sample_value[float(value)]
+        if self.is_integer:
+            return int(value)
+        return value.item()
+
+
+@dataclass
+class UnderspecifiedParameters(ModelQueryParameters):
+    """
+    A class that extracts all necessary information from a
+    {py:class}`~krrood.entity_query_language.query.match.Match` and binds it together.
+
+    Instances of this can be used to parameterize objects with underspecified variables
+    using generative models. This generally serves as glue between `ProbabilisticModel`
+    and `Match`.
+    """
+
+    statement: Match
+    """
+    The match to extract information from.
     """
 
     _random_event_compiler: Optional[WhereExpressionToRandomEventTranslator] = field(
@@ -37,102 +194,773 @@ class UnderspecifiedParameters:
     )
     """
     The translator that extracts a random event from the where conditions.
+
     Only exists if the statement has a where condition.
     """
 
-    truncation_event: Optional[Event] = field(init=False, default=None)
+    truncation_assignments_from_where_conditions: Optional[Event] = field(
+        init=False, default=None
+    )
     """
     The where condition as random event.
+
     Only exists if the statement has a where condition.
+    """
+
+    conditioning_assignments_from_literal_values: dict[
+        random_events.variable.Variable, Any
+    ] = field(init=False, default_factory=dict)
+    """
+    Dictionary of events that are created from literal values, e.g. actual values.
+
+    These are the assignments, that the probabilistic model is *conditioned* on.
+    """
+
+    truncation_assignments_from_krrood_variables: list[Event] = field(
+        init=False, default_factory=list
+    )
+    """
+    List of events that are created from symbolic expressions, e.g. variable
+    assignments.
+
+    These are the assignments, that the probabilistic model is *truncated* on. They may
+    contain literals in their domains, however, the difference to
+    `_events_from_literal_values` is, that these events are not directly used for
+    conditioning, but rather for truncation. This means, that the events of this list do
+    not change the weights of sum nodes in probabilistic circuits.
+    """
+
+    _symbolic_expression_event_cache: dict[
+        SymbolicExpression, tuple[Event, dict[str, random_events.variable.Variable]]
+    ] = field(init=False, default_factory=dict)
+    """
+    A cache for events that are created from symbolic expressions.
+    """
+
+    search_cause_variables: list[random_events.variable.Variable] = field(
+        init=False, default_factory=list
+    )
+    """
+    Variables assigned a `Cause` (`cause`) marker: the do()-intervention targets
+    `ProbabilisticBackend` should search over.
+    """
+
+    search_confounder_variables: list[random_events.variable.Variable] = field(
+        init=False, default_factory=list
+    )
+    """
+    Variables assigned a `Confounder` (`confounder`) marker: Pearl's backdoor-criterion
+    adjustment set `ProbabilisticBackend` should sum out of each cause candidate's
+    interventional probability, so it is not left baked into the correlation between
+    cause and effect.
+    """
+
+    effect_variables_from_causes_effect: list[random_events.variable.Variable] = field(
+        init=False, default_factory=list
+    )
+    """
+    Variables compared in a `causes_effect(...)` condition: the effect(s) a `Cause`
+    search should optimize the interventional probability of.
     """
 
     def __post_init__(self):
-        self.statement.expression.build()
+        self.statement._get_expression_().build()
         self._random_event_compiler = WhereExpressionToRandomEventTranslator(
             and_(*self.statement._where_conditions_)
         )
         if self.statement._where_conditions_:
-            self.truncation_event = self._random_event_compiler.translate()
+            self.truncation_assignments_from_where_conditions = (
+                self._random_event_compiler.translate()
+            )
+        _ = self.variables  # make variables available
+        self._extract_effect_variables_from_causes_effect_conditions()
+
+    def _extract_effect_variables_from_causes_effect_conditions(self) -> None:
+        """
+        Populate :attr:`effect_variables_from_causes_effect` by walking the where
+        conditions for :class:`~krrood.entity_query_language.operators.causal.CausesEffect`
+        nodes and reading the variable(s) their wrapped comparator(s) compare.
+        """
+        root = self._random_event_compiler.conditions_root
+        if root is None:
+            return
+        for expression in itertools.chain([root], root._descendants_):
+            if not isinstance(expression, CausesEffect):
+                continue
+            for comparator in flatten_operands(expression._child_, AND):
+                self.effect_variables_from_causes_effect.append(
+                    self._random_event_compiler.variables[comparator.left]
+                )
 
     @cached_property
-    def variables(self) -> Dict[str, random_events.variable.Variable]:
+    def variables(self) -> dict[str, random_events.variable.Variable]:
         """
         :return: A dictionary that maps variable names to random events variables that appear in
         the `where` or `Match` statement.
         """
         result = {v.name: v for v in self._random_event_compiler.variables.values()}
 
-        for attribute_match in self.statement.matches_with_variables:
-            name = attribute_match.name_from_variable_access_path
-
-            if isinstance(attribute_match.assigned_value, SymbolicExpression):
-                random_events_variable = random_events.variable.Symbolic(
-                    name,
-                    Set.from_iterable(attribute_match.assigned_value.tolist()),
-                )
-                result[random_events_variable.name] = random_events_variable
+        for attribute_match in self.statement._matches_with_variables_:
+            if attribute_match.assigned_value is None:
                 continue
 
-            if not issubclass(
-                attribute_match.assigned_variable._type_,
-                random_events.variable.compatible_types,
-            ):
-                continue
+            result.update(self._extract_variables_from_attribute_match(attribute_match))
 
-            random_events_variable = random_events.variable.variable_from_name_and_type(
-                name, attribute_match.assigned_variable._type_
-            )
-
-            result[random_events_variable.name] = random_events_variable
         return result
 
     @property
-    def assignments_for_conditioning(
-        self,
-    ) -> Dict[random_events.variable.Variable, Any]:
+    def queried_class(self) -> type:
         """
-        :return: A dictionary that contains all facts from the statement and that can be directly used for
-        conditioning a probabilistic model. These values ignore the `where` conditions.
+        :return: The class the match's selected variable is an instance of.
         """
-        result = {}
-        for literal in self.statement.matches_with_variables:
-            variable = self.variables.get(literal.assigned_variable._name_, None)
-            if variable is None or isinstance(
-                literal.assigned_variable._value_, (type(Ellipsis), SymbolicExpression)
-            ):
-                continue
+        return self.statement._expression.selected_variable._type_
 
-            result[variable] = literal.assigned_variable._value_
-        return result
-
-    def create_instance_from_variables_and_sample(
-        self,
-        variables: typing.Iterable[random_events.variable.Variable],
-        sample: np.ndarray,
-    ) -> Dict[random_events.variable.Variable, Any]:
+    def resolve_conditioned_and_truncated_model(
+        self, model: ProbabilisticModel
+    ) -> Optional[ProbabilisticModel]:
         """
-        Create an instance from a sample of a probabilistic model.
+        Apply this match's literal-value conditions, then its where-conditions, then
+        its krrood-variable-assignment truncations, to ``model``, in that order -- the
+        same sequence
+        :class:`~krrood.entity_query_language.backends.ProbabilisticBackend` already
+        applies to a non-causal match before sampling from it.
 
-        :param variables: The variables from a probabilistic model.
-        :param sample: A sample from the same model-
-        :return: The instance
+        :param model: The model to condition and truncate.
+        :return: The resulting model, or ``None`` if any step leaves no solution.
         """
+        conditioned = model.conditional(
+            self.conditioning_assignments_from_literal_values
+        ).distribution
+        if conditioned is None:
+            return None
 
-        for variable_, value in zip(variables, sample):
-            mapped_variable = self.statement._get_mapped_variable_by_name(
-                variable_.name
+        if self.truncation_assignments_from_where_conditions:
+            truncated = conditioned.truncated(
+                self.truncation_assignments_from_where_conditions
+            ).distribution
+        else:
+            truncated = conditioned
+        if truncated is None:
+            return None
+
+        return self.apply_krrood_variable_truncation(truncated)
+
+    def apply_krrood_variable_truncation(
+        self, model: ProbabilisticModel
+    ) -> Optional[ProbabilisticModel]:
+        """
+        Truncate ``model`` on this match's symbolic-variable-assignment constraints
+        (e.g. ``z=variable(int, domain=[1, 2, 3])``), if any.
+
+        :param model: The model to truncate.
+        :return: ``model`` unchanged if there are no such constraints, the truncated
+            model otherwise, or ``None`` if truncating leaves no solution.
+        """
+        if not self.truncation_assignments_from_krrood_variables:
+            return model
+        complete_event = self.truncation_assignments_from_krrood_variables[0]
+        complete_event.fill_missing_variables(self.variables.values())
+        for event in self.truncation_assignments_from_krrood_variables[1:]:
+            complete_event = complete_event.intersection_with(event)
+        return model.truncated(complete_event, singleton_allowed=True).distribution
+
+    def _extract_variables_from_attribute_match(
+        self, attribute_match: AttributeMatch
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from an attribute match by dispatching to specific handlers.
+
+        :param attribute_match: The attribute match to extract variables from.
+        :return: A dictionary of extracted variables.
+        """
+        krrood_variable = attribute_match.assigned_variable
+
+        if isinstance(krrood_variable, Cause):
+            return self._handle_cause_attribute_match(attribute_match)
+
+        if isinstance(krrood_variable, Confounder):
+            return self._handle_confounder_attribute_match(attribute_match)
+
+        if isinstance(krrood_variable, Literal):
+            return self._handle_literal_attribute_match(attribute_match)
+
+        if isinstance(krrood_variable, Variable):
+            return self._handle_variable_attribute_match(attribute_match)
+
+        return {}
+
+    def _handle_cause_attribute_match(
+        self, attribute_match: AttributeMatch
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Handle attribute matches assigned a
+        :class:`~krrood.entity_query_language.operators.causal.Cause` (``cause``) marker:
+        register the variable to search over, the same way a free ``...`` field would
+        be, and record it as a cause variable for
+        :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`'s
+        interventional search.
+
+        :param attribute_match: The attribute match with a ``Cause`` assigned value.
+        :return: A dictionary of extracted variables.
+        """
+        name, type_ = self._resolve_search_variable_name_and_type(attribute_match)
+
+        if type_ is None or not issubclass(type_, compatible_types):
+            raise InvalidEllipsis(type_)
+
+        cause_variable = variable_from_name_and_type(name=name, type_=type_)
+        self.search_cause_variables.append(cause_variable)
+        return {name: cause_variable}
+
+    def _handle_confounder_attribute_match(
+        self, attribute_match: AttributeMatch
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Handle attribute matches assigned a
+        :class:`~krrood.entity_query_language.operators.causal.Confounder`
+        (``confounder``) marker: register the variable to search over, the same way a
+        free ``...`` field would be, and record it as an adjustment variable for
+        :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`'s
+        interventional search.
+
+        :param attribute_match: The attribute match with a ``Confounder`` assigned
+            value.
+        :return: A dictionary of extracted variables.
+        """
+        name, type_ = self._resolve_search_variable_name_and_type(attribute_match)
+
+        if type_ is None or not issubclass(type_, compatible_types):
+            raise InvalidEllipsis(type_)
+
+        confounder_variable = variable_from_name_and_type(name=name, type_=type_)
+        self.search_confounder_variables.append(confounder_variable)
+        return {name: confounder_variable}
+
+    def _resolve_search_variable_name_and_type(
+        self, attribute_match: AttributeMatch
+    ) -> tuple[str, Optional[Type]]:
+        """
+        Resolve the qualified name and type a ``cause``/``confounder``-marked
+        attribute match ranges over.
+
+        A marked keyword usually names a literal field, whose access path already
+        gives the right qualified name and whose type
+        :meth:`AttributeMatch.assigned_variable` already carries. One that instead
+        names an aggregation statistic (e.g. ``chlorine_count`` on a class whose
+        :class:`~krrood.parametrization.feature_extraction.aggregations.AggregationStatistic`
+        subclass declares it) has no field of its own on the owner class: its type
+        falls back to that statistic's own return annotation, and its name is built
+        the same way EQL's own ``variable(AggregationClass).method()`` attribute
+        access names it (``"{AggregationClass}.{method}()"``), matching how grounding
+        actually names that variable on the circuit -- the owner class's own dotted
+        access path does not.
+
+        :param attribute_match: The attribute match to resolve a name and type for.
+        :return: The resolved name, and the resolved type (``None`` if neither a
+            field nor a matching aggregation statistic exists).
+        """
+        type_ = self._process_attribute_match_type(
+            attribute_match.assigned_variable._type_
+        )
+        if type_ is not None:
+            return attribute_match.name_from_variable_access_path, type_
+
+        owner_class = attribute_match.attribute._owner_class_
+        if owner_class is None:
+            return attribute_match.name_from_variable_access_path, None
+        aggregation_class = get_aggregation_class(owner_class)
+        if aggregation_class is None:
+            return attribute_match.name_from_variable_access_path, None
+        name = f"{aggregation_class.__name__}.{attribute_match.attribute_name}()"
+        type_ = get_method_return_type(
+            aggregation_class, attribute_match.attribute_name
+        )
+        return name, type_
+
+    def _handle_literal_attribute_match(
+        self, attribute_match: AttributeMatch
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Handle attribute matches where the assigned value is a literal.
+
+        :param attribute_match: The attribute match with a literal assigned value.
+        :return: A dictionary of extracted variables.
+        """
+        name = attribute_match.name_from_variable_access_path
+        value = attribute_match.assigned_value
+        krrood_variable = attribute_match.assigned_variable
+        type_ = self._process_attribute_match_type(krrood_variable._type_)
+
+        if (
+            issubclass(type_, compatible_types)
+            and not isinstance(value, compatible_types)
+            and not isinstance(value, (list, tuple, set))
+            and not isinstance(value, EllipsisType)
+        ):
+            raise TypeError(
+                f"The attribute type is {type_}, but the assigned value is of type {type(value)}."
+                f"Please enter a value of a valid type. Valid types are {type_} or Ellipsis"
             )
 
-            if not variable_.is_numeric:
-                [value] = [
-                    domain_value.element
-                    for domain_value in variable_.domain
-                    if hash(domain_value) == value
-                ]
-            else:
-                value = value.item()
-            mapped_variable._value_ = value
+        if isinstance(value, EllipsisType) and not issubclass(type_, compatible_types):
+            raise InvalidEllipsis(type_)
 
-        self.statement._update_kwargs_from_literal_values()
-        result = self.statement.construct_instance()
+        if isinstance(value, EllipsisType):
+            return {name: variable_from_name_and_type(name=name, type_=type_)}
+
+        if isinstance(value, compatible_types):
+            result = {name: variable_from_name_and_type(name=name, type_=type(value))}
+            self.conditioning_assignments_from_literal_values[result[name]] = value
+            return result
+
+        if isinstance(value, (list, tuple, set)):
+            return self._extract_variables_from_iterable_literal(name, value)
+
+        if isinstance(value, compatible_types) or isinstance(type_, compatible_types):
+            return self._handle_compatible_type_literal(name, value, type_)
+
+        return self._extract_variables_from_non_primitive_literal(value, name)
+
+    def _handle_compatible_type_literal(
+        self,
+        name: str,
+        value: Any,
+        type_: type,
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Handle a literal whose value or declared type is a primitive compatible type.
+
+        Picks ``type_`` when it is a concrete compatible type; falls back to
+        ``type(value)`` otherwise.
+
+        :param name: The variable name derived from the attribute access path.
+        :param value: The literal value being matched.
+        :param type_: The processed declared type of the attribute.
+        :return: A dictionary containing the extracted variable.
+        """
+        effective_type = (
+            type_
+            if (
+                type_ is not None
+                and isinstance(type_, type)
+                and issubclass(type_, compatible_types)
+            )
+            else type(value)
+        )
+        result = {name: variable_from_name_and_type(name=name, type_=effective_type)}
+        self.conditioning_assignments_from_literal_values[result[name]] = value
         return result
+
+    def _extract_variables_from_iterable_literal(
+        self, name: str, value: Union[list, tuple]
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from an iterable literal by processing each element with an
+        indexed name prefix (e.g. ``walls[0].height``, ``walls[1].start_point.x``).
+
+        Primitive elements become a single conditioning variable; non-primitive elements
+        are decomposed via
+        :py:class:`~krrood.parametrization.feature_extraction.feature_extractor.FeatureExtractor`.
+
+        :param name: Base variable name derived from the attribute access path.
+        :param value: The iterable assigned value.
+        :return: A dictionary of extracted variables.
+        """
+        result = {}
+        for index, element in enumerate(value):
+            if element is None:
+                continue
+
+            type_ = self._process_attribute_match_type(type(element))
+            if isinstance(element, EllipsisType) and not issubclass(
+                type_, compatible_types
+            ):
+                raise InvalidEllipsis(type_)
+
+            indexed_name = f"{name}[{index}]"
+            if isinstance(element, compatible_types):
+                result.update(
+                    self._handle_compatible_type_literal(indexed_name, element, type_)
+                )
+            else:
+                result.update(
+                    self._extract_variables_from_non_primitive_literal(
+                        element, indexed_name
+                    )
+                )
+        return result
+
+    def _extract_variables_from_non_primitive_literal(
+        self, value: Any, name_prefix: str
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from a single non-primitive literal value.
+
+        Runs feature extraction on ``value`` and registers a conditioning assignment for every discovered feature.
+
+        :param value: The non-primitive literal to decompose.
+        :param name_prefix: Attribute access path used to namespace the feature names
+            (e.g. ``"obj"`` yields ``"obj.position.x"``).
+        :return: A dictionary mapping prefixed feature names to their variables.
+        """
+        result = {}
+        extractor = FeatureExtractor.from_instances([value])
+        for feature in extractor.features:
+            feature_name = (
+                f"{name_prefix}.{feature.get_clean_name_from_mapped_variable()}"
+            )
+            random_events_variable = variable_from_name_and_type(
+                name=feature_name, type_=feature._type_
+            )
+            result[feature_name] = random_events_variable
+            mapping = feature.apply_mapping_on_external_root(value)
+            if not isinstance(mapping, feature._type_):
+                mapping = feature._type_(mapping)
+            self.conditioning_assignments_from_literal_values[
+                random_events_variable
+            ] = mapping
+        return result
+
+    def _handle_variable_attribute_match(
+        self, attribute_match: AttributeMatch
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Handle attribute matches where the assigned value is a KRROOD variable.
+
+        :param attribute_match: The attribute match with a KRROOD variable assigned
+            value.
+        :return: A dictionary of extracted variables.
+        """
+        type_ = self._process_attribute_match_type(
+            attribute_match.assigned_variable._type_
+        )
+        if attribute_match.assigned_value in self._symbolic_expression_event_cache:
+            return self._symbolic_expression_event_cache[
+                attribute_match.assigned_value
+            ][1]
+
+        domain_objects = attribute_match.assigned_value.tolist()
+
+        if not domain_objects:
+            raise EmptyVariableDomain(attribute_match._variable_)
+
+        if not type_ is None and issubclass(type_, compatible_types):
+            return self._extract_variables_from_primitive_krrood_variable(
+                attribute_match, domain_objects
+            )
+
+        return self._extract_variables_from_non_primitive_krrood_variable(
+            attribute_match, domain_objects
+        )
+
+    def _extract_variables_from_primitive_krrood_variable(
+        self, attribute_match: AttributeMatch, domain_objects: list[Any]
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from a KRROOD variable with a primitive type.
+
+        :param attribute_match: The attribute match.
+        :param domain_objects: The objects in the variable's domain.
+        :return: A dictionary of extracted variables.
+        """
+        name = attribute_match.name_from_variable_access_path
+        type_ = self._process_attribute_match_type(
+            attribute_match.assigned_variable._type_
+        )
+        re_variable = variable_from_name_and_type(name=name, type_=type_)
+        result = {re_variable.name: re_variable}
+
+        if isinstance(type_, EnumType):
+            simple_events = [
+                SimpleEvent.from_data({re_variable: Set.from_iterable(domain_objects)})
+            ]
+        else:
+            simple_events = [
+                SimpleEvent.from_data({re_variable: singleton(obj)})
+                for obj in domain_objects
+            ]
+        self.truncation_assignments_from_krrood_variables.append(
+            Event.from_simple_sets(*simple_events)
+        )
+        return result
+
+    def _extract_variables_from_non_primitive_krrood_variable(
+        self, attribute_match: AttributeMatch, domain_objects: list[Any]
+    ) -> dict[str, random_events.variable.Variable]:
+        """
+        Extract variables from a KRROOD variable with a non-primitive type.
+
+        :param attribute_match: The attribute match.
+        :param domain_objects: The objects in the variable's domain.
+        :return: A dictionary of extracted variables.
+        """
+        hashes = [hash(obj) for obj in domain_objects]
+
+        extractor = FeatureExtractor.from_instances(domain_objects)
+
+        result = {}
+
+        for feature in extractor.features:
+            feature_name = feature.get_clean_name_from_mapped_variable()
+            name = (
+                f"{attribute_match.name_from_variable_access_path}." f"{feature_name}"
+            )
+            re_variable = variable_from_name_and_type(name=name, type_=feature._type_)
+            result[re_variable.name] = re_variable
+
+        identifier_name = f"{attribute_match.name_from_variable_access_path}"
+        identifier_variable = random_events.variable.Symbolic(
+            name=identifier_name, domain=Set.from_iterable(hashes)
+        )
+        result[identifier_variable.name] = identifier_variable
+
+        simple_events = []
+        for hash_, domain_object in zip(hashes, domain_objects):
+            current_feature_values = extractor.apply_mapping(domain_object)
+
+            data = {identifier_variable: hash_}
+            for feature, value in zip(extractor.features, current_feature_values):
+                feature_name = feature.get_clean_name_from_mapped_variable()
+                name = (
+                    f"{attribute_match.name_from_variable_access_path}.{feature_name}"
+                )
+                data[result[name]] = value
+
+            simple_events.append(SimpleEvent.from_data(data))
+
+        resulting_event = Event.from_simple_sets(*simple_events)
+        self.truncation_assignments_from_krrood_variables.append(resulting_event)
+        self._symbolic_expression_event_cache[attribute_match.assigned_value] = (
+            resulting_event,
+            result,
+        )
+
+        return result
+
+    def construct_instances_from_model_samples(
+        self,
+        variables: Iterable[random_events.variable.Variable],
+        samples: np.ndarray,
+    ) -> Iterator[Any]:
+        """
+        Construct one instance per sample of a probabilistic model.
+
+        :param variables: The variables of the model, in the order of the columns of
+            the samples.
+        :param samples: Samples of the model.
+        :return: The constructed instances, in the order of the samples.
+        """
+        columns = self._sample_columns_of(variables)
+        matches_with_variables = list(self.statement._matches_with_variables_)
+        for sample in samples:
+            for column in columns:
+                column.mapped_variable._value_ = column.value_in(sample)
+            for attribute_match in matches_with_variables:
+                attribute_match._update_kwargs_from(self.statement)
+            yield self.statement.construct_instance()
+
+    def _sample_columns_of(
+        self, variables: Iterable[random_events.variable.Variable]
+    ) -> List[SampleColumn]:
+        """
+        :param variables: The variables of a model, in the order of the columns of its
+            samples.
+        :return: How every column that belongs to an attribute of the statement sets
+            that attribute.
+        :raises AmbiguousVariableName: If several attributes of the statement have the
+            name of a variable.
+        """
+        attribute_matches_by_name: Dict[str, List[AttributeMatch]] = {}
+        for attribute_match in self.statement._matches_with_variables_:
+            attribute_matches_by_name.setdefault(
+                attribute_match.name_from_variable_access_path, []
+            ).append(attribute_match)
+
+        columns = []
+        for index, variable_ in enumerate(variables):
+            attribute_matches = attribute_matches_by_name.get(variable_.name, [])
+            if len(attribute_matches) > 1:
+                raise AmbiguousVariableName(
+                    variable=variable_, attribute_matches=attribute_matches
+                )
+            if not attribute_matches:
+                continue
+            [attribute_match] = attribute_matches
+            if attribute_match.assigned_variable is None:
+                continue
+            columns.append(
+                SampleColumn(
+                    index=index,
+                    mapped_variable=attribute_match.assigned_variable,
+                    values_by_sample_value=self._values_by_sample_value(
+                        variable_, attribute_match
+                    ),
+                    is_integer=isinstance(variable_, random_events.variable.Integer),
+                )
+            )
+        return columns
+
+    @staticmethod
+    def _values_by_sample_value(
+        variable_: random_events.variable.Variable, attribute_match: AttributeMatch
+    ) -> Optional[Dict[float, Hashable]]:
+        """
+        :param variable_: A variable of a model.
+        :param attribute_match: The attribute the variable belongs to.
+        :return: The value of the attribute for every value a sample of a symbolic
+            variable can have, or ``None`` for a numeric variable, whose samples are the
+            values themselves.
+        :raises DomainElementsIndistinguishableInSamples: If two elements of the domain
+            of a symbolic variable have hashes that a sample cannot tell apart.
+        """
+        assigned_value = attribute_match.assigned_value
+        if isinstance(assigned_value, SymbolicExpression) and not isinstance(
+            assigned_value, Literal
+        ):
+            domain_values_by_hash = {
+                hash(domain_value): domain_value
+                for domain_value in assigned_value.tolist()
+            }
+            return UnderspecifiedParameters._by_sample_value(
+                variable_,
+                {
+                    sample_value: domain_values_by_hash[domain_index]
+                    for sample_value, domain_index in variable_.domain.hash_map.items()
+                    if domain_index in domain_values_by_hash
+                },
+            )
+        if not variable_.is_numeric:
+            return UnderspecifiedParameters._by_sample_value(
+                variable_,
+                {
+                    hash(domain_value): domain_value.element
+                    for domain_value in variable_.domain
+                },
+            )
+        return None
+
+    @staticmethod
+    def _by_sample_value(
+        variable_: random_events.variable.Variable,
+        values_by_hash: Dict[int, Hashable],
+    ) -> Dict[float, Hashable]:
+        """
+        :param variable_: A symbolic variable of a model.
+        :param values_by_hash: The value of the attribute for the hash of every element
+            of the domain of the variable.
+        :return: The value of the attribute for every hash as a sample holds it, which
+            is a float and rounds hashes larger than ``2**53``.
+        :raises DomainElementsIndistinguishableInSamples: If two hashes round to the
+            same float.
+        """
+        result: Dict[float, Hashable] = {}
+        for hash_, value in values_by_hash.items():
+            sample_value = float(hash_)
+            if sample_value in result:
+                raise DomainElementsIndistinguishableInSamples(
+                    variable=variable_, elements=[result[sample_value], value]
+                )
+            result[sample_value] = value
+        return result
+
+    @staticmethod
+    def _process_attribute_match_type(type_):
+        """
+        Process the type of an attribute matches assigned variable such that there are
+        no unions.
+
+        :param type_: The type to process
+        :return: The processed type.
+        """
+        if isinstance(type_, UnionType):
+            types = get_args(type_)
+            return most_appropriate_variable_type(types)
+        else:
+            return type_
+
+
+@dataclass
+class SelectedAttributesParameters(ModelQueryParameters):
+    """
+    A class that extracts all necessary information from a bare selection of
+    attributes and binds it together.
+
+    This serves the same role as :class:`UnderspecifiedParameters` does for
+    :class:`~krrood.entity_query_language.query.match.Match` -- glue between
+    `ProbabilisticModel` and EQL -- but for constructs that select attributes directly
+    rather than a structural match, since there are no where conditions, literal
+    assignments or cause/confounder markers to extract. Used to resolve a bare
+    ``average(...)`` selection under
+    :class:`~krrood.entity_query_language.backends.ProbabilisticBackend`.
+    """
+
+    attributes: tuple[Attribute, ...]
+    """
+    The attributes to extract information from.
+    """
+
+    @cached_property
+    def queried_class(self) -> Type:
+        """
+        :return: The single class every selected attribute is reached from.
+        :raises JointQueryAcrossClassesNotSupported: If the selected attributes are
+            reached from more than one owner class.
+        """
+        return self._single_owner_class(self.attributes)
+
+    @cached_property
+    def variables(self) -> dict[str, random_events.variable.Variable]:
+        """
+        :return: A dictionary that maps variable names to random events variables for
+            the selected attributes.
+        """
+        return {
+            attribute._name_: variable_from_name_and_type(
+                attribute._name_, attribute._type_
+            )
+            for attribute in self.attributes
+        }
+
+
+@dataclass
+class ConditionParameters(ModelQueryParameters):
+    """
+    A class that extracts all necessary information from a condition expression given
+    to {py:class}`~krrood.entity_query_language.operators.probabilistic_queries.Probability`
+    (``probability_of(...)``) and binds it together, reusing the same
+    :class:`~krrood.parametrization.random_events_translator.WhereExpressionToRandomEventTranslator`
+    a ``Match``'s ``where`` conditions are already translated with.
+    """
+
+    condition: ConditionType
+    """
+    The condition to extract information from.
+    """
+
+    @cached_property
+    def _translator(self) -> WhereExpressionToRandomEventTranslator:
+        return WhereExpressionToRandomEventTranslator(self.condition)
+
+    @cached_property
+    def event(self) -> Event:
+        """
+        :return: The random event the condition translates to.
+        """
+        return self._translator.translate()
+
+    @cached_property
+    def variables(self) -> dict[str, random_events.variable.Variable]:
+        """
+        :return: A dictionary that maps variable names to random events variables that
+            appear in the condition.
+        """
+        return {v.name: v for v in self._translator.variables.values()}
+
+    @cached_property
+    def queried_class(self) -> Type:
+        """
+        :return: The single class every variable in the condition is reached from.
+        :raises JointQueryAcrossClassesNotSupported: If the condition constrains
+            attributes reached from more than one owner class.
+        """
+        return self._single_owner_class(self._translator.variables.keys())

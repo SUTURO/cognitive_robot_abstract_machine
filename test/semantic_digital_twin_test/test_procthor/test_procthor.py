@@ -61,31 +61,33 @@ class ProcTHORTestCase(unittest.TestCase):
         np.testing.assert_allclose(result.to_np(), np.eye(4), rtol=1e-6, atol=1e-6)
 
     def test_unity_to_semantic_digital_twin_transform_translation_along_x(self):
-        """Unity +X should map to semantic –Y (because of reflection)."""
+        """
+        Unity +X should map to semantic –Y (because of reflection).
+        """
         m = np.eye(4)
         m[0, 3] = 1.0
         result = unity_to_semantic_digital_twin_transform(
             HomogeneousTransformationMatrix(data=m)
         )
-        self.assertAlmostEqual(result.to_position().to_np()[1], -1.0)
-        np.testing.assert_allclose(
-            result.to_rotation_matrix().to_np()[:3, :3], np.eye(3)
-        )
+        self.assertAlmostEqual(result.position.to_np()[1], -1.0)
+        np.testing.assert_allclose(result.rotation_matrix.to_np()[:3, :3], np.eye(3))
 
     def test_unity_to_semantic_digital_twin_transform_translation_along_z(self):
-        """Unity +Z should map to semantic +X."""
+        """
+        Unity +Z should map to semantic +X.
+        """
         m = np.eye(4)
         m[2, 3] = 2.0
         result = unity_to_semantic_digital_twin_transform(
             HomogeneousTransformationMatrix(data=m)
         )
-        self.assertAlmostEqual(result.to_position().to_np()[0], 2.0, places=6)
-        np.testing.assert_allclose(
-            result.to_rotation_matrix().to_np()[:3, :3], np.eye(3)
-        )
+        self.assertAlmostEqual(float(result.position.x), 2.0, places=6)
+        np.testing.assert_allclose(result.rotation_matrix.to_np()[:3, :3], np.eye(3))
 
     def test_unity_to_semantic_digital_twin_transform_rotation_y_90_degrees(self):
-        """Unity +90° about Y should become –90° about Z in semantic frame."""
+        """
+        Unity +90° about Y should become –90° about Z in semantic frame.
+        """
         theta = np.pi / 2
         m = np.eye(4)
         m[:3, :3] = np.array(
@@ -115,10 +117,10 @@ class ProcTHORTestCase(unittest.TestCase):
         room = self.house_json["rooms"][0]
         procthor_room = ProcthorRoom(room_dict=room)
         np.testing.assert_array_equal(
-            procthor_room.world_T_room.to_rotation_matrix().to_np(), np.eye(4)
+            procthor_room.world_T_room.rotation_matrix.to_np(), np.eye(4)
         )
         np.testing.assert_array_equal(
-            procthor_room.world_T_room.to_translation_matrix().to_np()[:3, 3],
+            procthor_room.world_T_room.translation_matrix.to_np()[:3, 3],
             np.array([1.5, -1.5, 0]),
         )
 
@@ -373,7 +375,8 @@ class ProcTHORTestCase(unittest.TestCase):
 
     def test_procthor_views(self):
         """
-        Simple krrood_test case to check that the ProcthorResolver works correctly with the additional_names attribute.
+        Simple krrood_test case to check that the ProcthorResolver works correctly with
+        the additional_names attribute.
         """
         resolver = ProcthorResolver()
         resolver.classes = [Bread]

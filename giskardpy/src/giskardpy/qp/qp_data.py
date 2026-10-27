@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from functools import lru_cache
@@ -9,11 +10,14 @@ import scipy.sparse as sp
 from scipy.sparse import issparse
 from typing_extensions import Self
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class QPData(ABC):
     """
     Parent class for a container of input for a QP solver.
+
     Subclasses implement specific formats for the QP problem.
     """
 
@@ -30,7 +34,8 @@ class QPData(ABC):
     @abstractmethod
     def apply_filters(self) -> Self:
         """
-        Applies filters to the QP data to remove constraints that have slack-variables with 0 weight.
+        Applies filters to the QP data to remove constraints that have slack-variables
+        with 0 weight.
         """
 
 
@@ -49,6 +54,7 @@ class QPDataExplicit(QPData):
     """
     The diagonal of the QP's Hessian matrix.
     """
+
     linear_weights: np.ndarray
     """
     The linear part of the QP's objective function.
@@ -58,6 +64,7 @@ class QPDataExplicit(QPData):
     """
     Lower bounds for x.
     """
+
     box_upper_constraints: np.ndarray
     """
     Upper bounds for x.
@@ -67,6 +74,7 @@ class QPDataExplicit(QPData):
     """
     Equality constraints matrix.
     """
+
     equality_bounds: np.ndarray
     """
     Constraints for the equality matrix multiplied with x.
@@ -76,10 +84,12 @@ class QPDataExplicit(QPData):
     """
     Inequality constraints matrix.
     """
+
     inequality_lower_bounds: np.ndarray
     """
     Lower bounds for the inequality matrix multiplied with x.
     """
+
     inequality_upper_bounds: np.ndarray
     """
     Upper bounds for the inequality matrix multiplied with x.
@@ -98,6 +108,24 @@ class QPDataExplicit(QPData):
         Converts the sparse inequality matrix into a dense array.
         """
         return self.inequality_matrix.toarray()
+
+    @property
+    def hessian(self) -> sp.csc_matrix:
+        """
+        The QP's Hessian matrix, a sparse diagonal matrix of the quadratic weights.
+
+        .. note:: Built directly in CSC form, which is faster than
+            :func:`scipy.sparse.diags`.
+        """
+        number_of_variables = len(self.quadratic_weights)
+        return sp.csc_matrix(
+            (
+                self.quadratic_weights,
+                np.arange(number_of_variables),
+                np.arange(number_of_variables + 1),
+            ),
+            shape=(number_of_variables, number_of_variables),
+        )
 
     def to_two_sided_inequality(self) -> QPDataTwoSidedInequality:
         """
@@ -132,11 +160,12 @@ class QPDataExplicit(QPData):
 
     def apply_filters(self) -> Self:
         zero_quadratic_weight_filter: np.ndarray = self.quadratic_weights != 0
+        number_non_slack_variables = (
+            zero_quadratic_weight_filter.shape[0] - self.num_slack_variables
+        )
         # don't filter dofs with 0 weight
-        zero_quadratic_weight_filter[: -self.num_slack_variables] = True
-        slack_part = zero_quadratic_weight_filter[
-            -(self.num_equality_slack_variables + self.num_inequality_slack_variables) :
-        ]
+        zero_quadratic_weight_filter[:number_non_slack_variables] = True
+        slack_part = zero_quadratic_weight_filter[number_non_slack_variables:]
         bE_part = slack_part[: self.num_equality_slack_variables]
         bA_part = slack_part[self.num_equality_slack_variables :]
 
@@ -179,7 +208,8 @@ class QPDataExplicit(QPData):
         zero_quadratic_weight_filter: np.ndarray,
     ) -> sp.csc_matrix:
         """
-        Filters the equality matrix by removing specified rows and columns associated with inactive motion statechart nodes.
+        Filters the equality matrix by removing specified rows and columns associated
+        with inactive motion statechart nodes.
         """
         if len(eq_matrix.shape) > 1 and eq_matrix.shape[0] * eq_matrix.shape[1] > 0:
             return eq_matrix[bE_filter, :][:, zero_quadratic_weight_filter]
@@ -192,7 +222,8 @@ class QPDataExplicit(QPData):
         zero_quadratic_weight_filter: np.ndarray,
     ) -> sp.csc_matrix:
         """
-        Filters the inequality matrix by removing specified rows and columns associated with inactive motion statechart nodes.
+        Filters the inequality matrix by removing specified rows and columns associated
+        with inactive motion statechart nodes.
         """
         if len(neq_matrix.shape) > 1 and neq_matrix.shape[0] * neq_matrix.shape[1] > 0:
             return neq_matrix[:, zero_quadratic_weight_filter][bA_filter, :]
@@ -201,6 +232,7 @@ class QPDataExplicit(QPData):
     def pretty_print_problem(self):
         """
         Returns a human-readable string representation of the QP problem.
+
         Use this to create test cases for QPs that cannot be solved.
         """
         return (
@@ -243,28 +275,31 @@ class QPDataExplicit(QPData):
     def analyze_well_posedness(self):
         """
         Analyzes the QP problem data for numerical issues and poor posing.
-        Prints statistics and warnings for potentially ill-posed problems.
+
+        Logs statistics and warnings for potentially ill-posed problems.
         """
-        print("--- QP Well-Posedness Analysis ---")
+        logger.info("--- QP Well-Posedness Analysis ---")
         self._analyze_hessian()
         self._analyze_constraints()
-        print("----------------------------------")
+        logger.info("----------------------------------")
 
     def _analyze_hessian(self):
         """
         Checks the condition number of the Hessian.
         """
         if self.quadratic_weights is not None:
-            max_weight = np.max(np.abs(self.quadratic_weights))
-            min_weight = np.min(
-                np.abs(self.quadratic_weights)[np.abs(self.quadratic_weights) > 0]
-            )
+            weights = np.abs(self.quadratic_weights)
+            if not np.any(weights > 0):
+                logger.warning("  Weight Matrix is all zero.")
+                return
+            max_weight = np.max(weights)
+            min_weight = np.min(weights[weights > 0])
             condition_number = max_weight / min_weight
-            print(f"  Weight Matrix max singular value: {max_weight}")
-            print(f"  Weight Matrix min singular value: {min_weight}")
-            print(f"  Weight Matrix Condition Number: {condition_number}")
+            logger.info(f"  Weight Matrix max singular value: {max_weight}")
+            logger.info(f"  Weight Matrix min singular value: {min_weight}")
+            logger.info(f"  Weight Matrix Condition Number: {condition_number}")
             if condition_number > 1_000:
-                print("  Warning: Weight Matrix is poorly conditioned.")
+                logger.warning("  Weight Matrix is poorly conditioned.")
 
     def _analyze_constraints(self):
         """
@@ -284,25 +319,25 @@ class QPDataExplicit(QPData):
         ):
             violations = self.box_lower_constraints > self.box_upper_constraints
             if np.any(violations):
-                print(
-                    f"  WARNING: Box constraints are infeasible for indices {np.where(violations)[0]}."
+                logger.warning(
+                    f"  Box constraints are infeasible for indices {np.where(violations)[0]}."
                 )
 
     def _check_matrix_condition(self, matrix: sp.csc_matrix | np.ndarray, name: str):
         if issparse(matrix):
             matrix = matrix.toarray()
         if matrix.shape[0] * matrix.shape[1] == 0:
-            print(f"  {name} is empty.")
+            logger.info(f"  {name} is empty.")
             return
         singular_value_decomposition = np.linalg.svd(matrix, compute_uv=False)
         condition_number = (
             singular_value_decomposition[0] / singular_value_decomposition[-1]
         )
-        print(f"  {name} max singular value: {singular_value_decomposition[0]}")
-        print(f"  {name} min singular value: {singular_value_decomposition[-1]}")
-        print(f"  {name} Condition Number: {condition_number}")
+        logger.info(f"  {name} max singular value: {singular_value_decomposition[0]}")
+        logger.info(f"  {name} min singular value: {singular_value_decomposition[-1]}")
+        logger.info(f"  {name} Condition Number: {condition_number}")
         if condition_number > 1_000:
-            print(f"        WARNING: this is very large.")
+            logger.warning(f"  {name} Condition Number is very large.")
 
 
 @dataclass(eq=False)
@@ -392,9 +427,12 @@ class QPDataTwoSidedInequality(QPData):
         ]
 
         zero_quadratic_weight_filter = self.quadratic_weights != 0
-        zero_quadratic_weight_filter[: -self.num_slack_variables] = True
+        number_non_slack_variables = (
+            zero_quadratic_weight_filter.shape[0] - self.num_slack_variables
+        )
+        zero_quadratic_weight_filter[:number_non_slack_variables] = True
 
-        slack_part = zero_quadratic_weight_filter[-self.num_slack_variables :]
+        slack_part = zero_quadratic_weight_filter[number_non_slack_variables:]
         equality_part = slack_part[: self.num_equality_slack_variables]
         if len(equality_part) > 0:
             equality_filter_view[-len(equality_part) :] = equality_part
@@ -411,9 +449,9 @@ class QPDataTwoSidedInequality(QPData):
             box_finite_filter  # [zero_quadratic_weight_filter]
         )
 
-        inequality_matrix = self.inequality_matrix[:, zero_quadratic_weight_filter][
-            constraint_filter, :
-        ]
+        inequality_matrix = self.inequality_matrix[
+            self.num_box_constraints :, zero_quadratic_weight_filter
+        ][constraint_filter, :]
 
         box_matrix = self._direct_limit_model(
             self.quadratic_weights.shape[0],
@@ -440,7 +478,9 @@ class QPDataTwoSidedInequality(QPData):
         Ai_inf_filter: np.ndarray | None = None,
     ) -> sp.csc_matrix:
         """
-        These models are often identical, yet the computation is expensive. Caching to the rescue
+        These models are often identical, yet the computation is expensive.
+
+        Caching to the rescue
         """
         nI_I = self._cached_eyes(dimensions_after_zero_filter)
         if Ai_inf_filter is None:

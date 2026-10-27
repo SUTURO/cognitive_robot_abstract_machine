@@ -1,35 +1,37 @@
 from __future__ import absolute_import, annotations
 
 from dataclasses import dataclass, field
-from functools import lru_cache
-from typing import Dict, TYPE_CHECKING
+from typing import Dict, Optional, TYPE_CHECKING
 from uuid import UUID
 
 import numpy as np
 import rustworkx.visit
-from typing_extensions import List
 
+from krrood.patterns.caching import copy_memoize, memoize, clear_memoization_cache
 from krrood.symbolic_math.symbolic_math import (
+    CasadiLock,
     CompiledFunction,
     Matrix,
     VariableParameters,
-    FloatVariable,
 )
 from semantic_digital_twin.callbacks.callback import ModelChangeCallback
 from semantic_digital_twin.datastructures.types import NpMatrix4x4
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.math import inverse_frame
-from semantic_digital_twin.utils import copy_lru_cache
-from semantic_digital_twin.world_description.world_entity import Connection, KinematicStructureEntity
+from semantic_digital_twin.world_description.world_entity import (
+    Connection,
+    KinematicStructureEntity,
+)
 
 if TYPE_CHECKING:
-    from semantic_digital_twin.world import World
+    from semantic_digital_twin.world import ModelRevision
 
 
-@dataclass
+@dataclass(eq=False)
 class ForwardKinematicsManager(ModelChangeCallback):
     """
-    Visitor class for collection various forward kinematics expressions in a world model.
+    Visitor class for collection various forward kinematics expressions in a world
+    model.
 
     This class is designed to traverse a world, compute the forward kinematics transformations in batches for different
     use cases.
@@ -42,13 +44,17 @@ class ForwardKinematicsManager(ModelChangeCallback):
 
     forward_kinematics_for_all_bodies: np.ndarray = field(init=False, repr=False)
     """
-    A 2D array containing the stacked forward kinematics expressions for all bodies in the world.
-    Dimensions are ((number of bodies) * 4) x 4.
-    They are computed in batch for efficiency.
+    A 2D array containing the stacked forward kinematics expressions for all bodies in
+    the world.
+
+    Dimensions are ((number of bodies) * 4) x 4. They are computed in batch for
+    efficiency.
     """
+
     body_id_to_forward_kinematics_idx: Dict[UUID, int] = field(init=False, repr=False)
     """
-    Given a body id, returns the index of the first row in `forward_kinematics_for_all_bodies` that corresponds to that body.
+    Given a body id, returns the index of the first row in
+    `forward_kinematics_for_all_bodies` that corresponds to that body.
     """
 
     root_T_kse_expression_cache: Dict[UUID, HomogeneousTransformationMatrix] = field(
@@ -57,16 +63,35 @@ class ForwardKinematicsManager(ModelChangeCallback):
 
     body_id_to_all_fk_index: Dict[UUID, int] = field(init=False, repr=False)
 
-    def _notify(self, **kwargs):
+    compiled_revision: Optional[ModelRevision] = field(
+        init=False, default=None, repr=False
+    )
+    """
+    The kinematic structure the current expressions were compiled against.
+
+    ``None`` until the first compilation. Lets :meth:`matches_world_structure` tell a
+    stale set of expressions from an up-to-date one.
+    """
+
+    def on_model_change(self, **kwargs):
         if len(self._world.kinematic_structure_entities) == 0:
             return
         self.update_root_T_kse_expression_cache()
-        self.compose_expression.cache_clear()
+        clear_memoization_cache(self)
         self.compile()
         self.recompute()  # we need to recompute because other model updaters might need fk.
+        self.compiled_revision = self._world.get_world_model_manager().revision
 
-    def __hash__(self):
-        return hash(id(self))
+    @property
+    def matches_world_structure(self) -> bool:
+        """
+        :return: Whether the compiled expressions still describe the world's kinematic
+            structure, i.e. whether recompiling them would produce the same result.
+        """
+        return (
+            self.compiled_revision is not None
+            and self.compiled_revision == self._world.get_world_model_manager().revision
+        )
 
     def update_root_T_kse_expression_cache(self):
         self.root_T_kse_expression_cache = {
@@ -106,12 +131,14 @@ class ForwardKinematicsManager(ModelChangeCallback):
 
     def recompute(self) -> None:
         """
-        Clears cache and recomputes all forward kinematics. Should be called after a state update.
+        Clears cache and recomputes all forward kinematics.
+
+        Should be called after a state update.
         """
-        self.compute_np.cache_clear()
+        clear_memoization_cache(self)
         self.forward_kinematics_for_all_bodies = self.compiled_all_fks.evaluate()
 
-    @copy_lru_cache()
+    @copy_memoize
     def compose_expression(
         self, root: KinematicStructureEntity, tip: KinematicStructureEntity
     ) -> HomogeneousTransformationMatrix:
@@ -124,16 +151,17 @@ class ForwardKinematicsManager(ModelChangeCallback):
         """
         if root == self._world.root:
             return self.root_T_kse_expression_cache[tip.id]
-        fk = HomogeneousTransformationMatrix()
         root_chain, tip_chain = self._world.compute_split_chain_of_connections(
             root, tip
         )
-        connection: Connection
-        for connection in root_chain:
-            tip_T_root = connection.origin_expression.inverse()
-            fk = fk.dot(tip_T_root)
-        for connection in tip_chain:
-            fk = fk.dot(connection.origin_expression)
+        with CasadiLock():
+            fk = HomogeneousTransformationMatrix()
+            connection: Connection
+            for connection in root_chain:
+                tip_T_root = connection.origin_expression.inverse()
+                fk = fk.dot(tip_T_root)
+            for connection in tip_chain:
+                fk = fk.dot(connection.origin_expression)
         fk.reference_frame = root
         fk.child_frame = tip
         return fk
@@ -142,32 +170,36 @@ class ForwardKinematicsManager(ModelChangeCallback):
         self, root: KinematicStructureEntity, tip: KinematicStructureEntity
     ) -> HomogeneousTransformationMatrix:
         """
-        Compute the forward kinematics from the root KinematicStructureEntity to the tip KinematicStructureEntity.
+        Compute the forward kinematics from the root KinematicStructureEntity to the tip
+        KinematicStructureEntity.
 
-        Calculate the transformation matrix representing the pose of the
-        tip KinematicStructureEntity relative to the root KinematicStructureEntity.
+        Calculate the transformation matrix representing the pose of the tip
+        KinematicStructureEntity relative to the root KinematicStructureEntity.
 
-        :param root: Root KinematicStructureEntity for which the kinematics are computed.
+        :param root: Root KinematicStructureEntity for which the kinematics are
+            computed.
         :param tip: Tip KinematicStructureEntity to which the kinematics are computed.
-        :return: Transformation matrix representing the relative pose of the tip KinematicStructureEntity with respect to the root KinematicStructureEntity.
+        :return: Transformation matrix representing the relative pose of the tip
+            KinematicStructureEntity with respect to the root KinematicStructureEntity.
         """
         return HomogeneousTransformationMatrix(
             data=self.compute_np(root, tip), reference_frame=root
         )
 
-    @lru_cache(maxsize=None)
+    @memoize
     def compute_np(
         self, root: KinematicStructureEntity, tip: KinematicStructureEntity
     ) -> NpMatrix4x4:
         """
         Computes the forward kinematics from the root body to the tip body, root_T_tip.
 
-        This method computes the transformation matrix representing the pose of the
-        tip body relative to the root body, expressed as a numpy ndarray.
+        This method computes the transformation matrix representing the pose of the tip
+        body relative to the root body, expressed as a numpy ndarray.
 
         :param root: Root body for which the kinematics are computed.
         :param tip: Tip body to which the kinematics are computed.
-        :return: Transformation matrix representing the relative pose of the tip body with respect to the root body.
+        :return: Transformation matrix representing the relative pose of the tip body
+            with respect to the root body.
         """
         root = root.id
         tip = tip.id

@@ -2,97 +2,127 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import StrEnum
 
-from typing_extensions import Dict, Any
+from typing_extensions import Any, ClassVar, Dict, Generic, Self, TypeVar
 
 import krrood.symbolic_math.symbolic_math as sm
-from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
+from krrood.adapters.json_serializer import SubclassJSONSerializer
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityReference,
+)
 from semantic_digital_twin.world_description.world_entity import WorldEntityWithID
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.exceptions import UsageError, InvalidConnectionLimits
+from semantic_digital_twin.exceptions import (
+    InvalidConnectionLimits,
+    MimicDofLimitOverwriteError,
+)
 from semantic_digital_twin.spatial_types.derivatives import Derivatives, DerivativeMap
 
 
+class DegreeOfFreedomVariableJSONKey(StrEnum):
+    """
+    The keys of the JSON a degree of freedom variable is serialized to.
+    """
+
+    DEGREE_OF_FREEDOM = "dof"
+    """
+    The reference to the degree of freedom the variable belongs to.
+    """
+
+
 @dataclass(eq=False, init=False)
-class PositionVariable(sm.FloatVariable):
+class DegreeOfFreedomVariable(sm.FloatVariable):
+    """
+    A variable standing for one derivative of a degree of freedom.
+
+    It is serialized as a reference to its degree of freedom, so it is read back as the
+    variable of the degree of freedom with that id in the reading world.
+    """
+
+    derivative: ClassVar[Derivatives]
+    """
+    The derivative of the degree of freedom this variable stands for.
+    """
+
+    dof: DegreeOfFreedom = field(kw_only=True)
+    """
+    Backreference.
+    """
+
+    def __init__(self, name: str, dof: DegreeOfFreedom):
+        super().__init__(name)
+        self.dof = dof
+
+    def resolve(self) -> float:
+        return self.dof._world.state[self.dof.id][self.derivative]
+
+    def _value_to_json(self, **kwargs) -> Dict[str, Any]:
+        result = {}
+        WorldEntityReference(DegreeOfFreedomVariableJSONKey.DEGREE_OF_FREEDOM).write(
+            result, self.dof
+        )
+        return result
+
+    @classmethod
+    def _from_json(cls, data: Dict[str, Any], **kwargs) -> Self:
+        dof = WorldEntityReference(
+            DegreeOfFreedomVariableJSONKey.DEGREE_OF_FREEDOM
+        ).resolve(data, **kwargs)
+        return dof.variables[cls.derivative]
+
+
+@dataclass(eq=False, init=False)
+class PositionVariable(DegreeOfFreedomVariable):
     """
     Describes the position of a degree of freedom.
     """
 
-    dof: DegreeOfFreedom = field(kw_only=True)
-    """ Backreference """
-
-    def __init__(self, name: str, dof: DegreeOfFreedom):
-        super().__init__(name)
-        self.dof = dof
-
-    def resolve(self) -> float:
-        return self.dof._world.state[self.dof.id].position
+    derivative = Derivatives.position
 
 
-@dataclass(eq=False)
-class VelocityVariable(sm.FloatVariable):
+@dataclass(eq=False, init=False)
+class VelocityVariable(DegreeOfFreedomVariable):
     """
     Describes the velocity of a degree of freedom.
     """
 
-    dof: DegreeOfFreedom = field(kw_only=True)
-    """ Backreference """
-
-    def __init__(self, name: str, dof: DegreeOfFreedom):
-        super().__init__(name)
-        self.dof = dof
-
-    def resolve(self) -> float:
-        return self.dof._world.state[self.dof.id].velocity
+    derivative = Derivatives.velocity
 
 
-@dataclass(eq=False)
-class AccelerationVariable(sm.FloatVariable):
+@dataclass(eq=False, init=False)
+class AccelerationVariable(DegreeOfFreedomVariable):
     """
     Describes the acceleration of a degree of freedom.
     """
 
-    dof: DegreeOfFreedom = field(kw_only=True)
-    """ Backreference """
-
-    def __init__(self, name: str, dof: DegreeOfFreedom):
-        super().__init__(name)
-        self.dof = dof
-
-    def resolve(self) -> float:
-        return self.dof._world.state[self.dof.id].acceleration
+    derivative = Derivatives.acceleration
 
 
-@dataclass(eq=False)
-class JerkVariable(sm.FloatVariable):
+@dataclass(eq=False, init=False)
+class JerkVariable(DegreeOfFreedomVariable):
     """
     Describes the jerk of a degree of freedom.
     """
 
-    dof: DegreeOfFreedom = field(kw_only=True)
-    """ Backreference """
+    derivative = Derivatives.jerk
 
-    def __init__(self, name: str, dof: DegreeOfFreedom):
-        super().__init__(name)
-        self.dof = dof
 
-    def resolve(self) -> float:
-        return self.dof._world.state[self.dof.id].jerk
+T = TypeVar("T")
 
 
 @dataclass
-class DegreeOfFreedomLimits:
+class DegreeOfFreedomLimits(Generic[T]):
     """
     A class representing the limits of a degree of freedom.
     """
 
-    lower: DerivativeMap[float] = field(default=None)
+    lower: DerivativeMap[T] = field(default=None)
     """
     Lower limits of the degree of freedom.
     """
 
-    upper: DerivativeMap[float] = field(default=None)
+    upper: DerivativeMap[T] = field(default=None)
     """
     Upper limits of the degree of freedom.
     """
@@ -100,6 +130,33 @@ class DegreeOfFreedomLimits:
     def __post_init__(self):
         self.lower = self.lower or DerivativeMap()
         self.upper = self.upper or DerivativeMap()
+
+    @classmethod
+    def from_position_range_and_speed(
+        cls,
+        lower_position: T | None = None,
+        upper_position: T | None = None,
+        maximum_speed: T | None = None,
+    ) -> Self:
+        """
+        Create limits that keep the position between the two bounds and the velocity within
+        the maximum speed in either direction.
+
+        :param lower_position: The lowest position allowed, or ``None`` for no lower
+            bound.
+        :param upper_position: The highest position allowed, or ``None`` for no upper
+            bound.
+        :param maximum_speed: The largest absolute velocity allowed, which bounds the
+            velocity in both directions, or ``None`` for no velocity bound.
+        :return: The limits with every other derivative left unbounded.
+        """
+        return cls(
+            lower=DerivativeMap(
+                position=lower_position,
+                velocity=None if maximum_speed is None else -maximum_speed,
+            ),
+            upper=DerivativeMap(position=upper_position, velocity=maximum_speed),
+        )
 
     def __deepcopy__(self, memo):
         return DegreeOfFreedomLimits(
@@ -110,32 +167,35 @@ class DegreeOfFreedomLimits:
 @dataclass(eq=False)
 class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
     """
-    A class representing a degree of freedom in a world model with associated derivatives and limits.
+    A class representing a degree of freedom in a world model with associated
+    derivatives and limits.
 
-    This class manages a variable that can freely change within specified limits, tracking its position,
-    velocity, acceleration, and jerk. It maintains symbolic representations for each derivative order
-    and provides methods to get and set limits for these derivatives.
+    This class manages a variable that can freely change within specified limits,
+    tracking its position, velocity, acceleration, and jerk. It maintains symbolic
+    representations for each derivative order and provides methods to get and set limits
+    for these derivatives.
     """
 
-    limits: DegreeOfFreedomLimits = field(default=None)
+    limits: DegreeOfFreedomLimits[float] = field(default=None)
     """
-    Lower and upper bounds for each derivative
+    Lower and upper bounds for each derivative.
     """
 
     variables: DerivativeMap[sm.FloatVariable] = field(
         default_factory=DerivativeMap, init=False
     )
     """
-    Symbolic representations for each derivative
+    Symbolic representations for each derivative.
     """
 
     has_hardware_interface: bool = False
     """
-    Whether this DOF is linked to a controller and can therefore respond to control commands.
+    Whether this DOF is linked to a controller and can therefore respond to control
+    commands.
 
-    E.g. the caster wheels of a PR2 have dofs, but they are not directly controlled. 
-    Instead a the omni drive connection is directly controlled and a low level controller translates these commands
-    to commands for the caster wheels.
+    E.g. the caster wheels of a PR2 have dofs, but they are not directly controlled.
+    Instead a the omni drive connection is directly controlled and a low level
+    controller translates these commands to commands for the caster wheels.
 
     A door hinge also has a dof that cannot be controlled.
     """
@@ -149,7 +209,8 @@ class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
 
     def create_variables(self):
         """
-        Creates a variable for each derivative, that refer to the corresponding values of this dof.
+        Creates a variable for each derivative, that refer to the corresponding values
+        of this dof.
         """
         assert self._world is not None
         self.variables.position = PositionVariable(
@@ -173,27 +234,6 @@ class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
         except KeyError:
             return False
 
-    def to_json(self) -> Dict[str, Any]:
-        return {
-            **super().to_json(),
-            "lower_limits": to_json(self.limits.lower),
-            "upper_limits": to_json(self.limits.upper),
-            "name": to_json(self.name),
-            "has_hardware_interface": self.has_hardware_interface,
-        }
-
-    @classmethod
-    def _from_json(cls, data: Dict[str, Any], **kwargs) -> DegreeOfFreedom:
-        uuid = from_json(data["id"])
-        lower_limits = from_json(data["lower_limits"], **kwargs)
-        upper_limits = from_json(data["upper_limits"], **kwargs)
-        return cls(
-            name=from_json(data["name"]),
-            limits=DegreeOfFreedomLimits(lower=lower_limits, upper=upper_limits),
-            id=uuid,
-            has_hardware_interface=data["has_hardware_interface"],
-        )
-
     def __deepcopy__(self, memo):
         result = DegreeOfFreedom(
             limits=DegreeOfFreedomLimits(
@@ -214,20 +254,21 @@ class DegreeOfFreedom(WorldEntityWithID, SubclassJSONSerializer):
         new_upper_limits: DerivativeMap[float],
     ):
         """
-        Overwrites the degree-of-freedom (DOF) limits for a range of derivatives. This updates
-        lower and upper limits based on the given new limits. For each derivative, if the
-        new limit is provided and it is more restrictive than the original limit, the limit
-        will be updated accordingly.
+        Overwrites the degree-of-freedom (DOF) limits for a range of derivatives.
 
-        :param new_lower_limits: A mapping of new lower limits for the specified derivatives.
-            If a new lower limit is None, no change is applied for that derivative.
-        :param new_upper_limits: A mapping of new upper limits for the specified derivatives.
-            If a new upper limit is None, no change is applied for that derivative.
+        This updates lower and upper limits based on the given new limits. For each
+        derivative, if the new limit is provided and it is more restrictive than the
+        original limit, the limit will be updated accordingly.
+
+        :param new_lower_limits: A mapping of new lower limits for the specified
+            derivatives. If a new lower limit is None, no change is applied for that
+            derivative.
+        :param new_upper_limits: A mapping of new upper limits for the specified
+            derivatives. If a new upper limit is None, no change is applied for that
+            derivative.
         """
         if not isinstance(self.variables.position, sm.FloatVariable):
-            raise UsageError(
-                message="Cannot overwrite limits of mimic DOFs, use .raw_dof._overwrite_dof_limits instead."
-            )
+            raise MimicDofLimitOverwriteError(self.name)
         for derivative in Derivatives.range(Derivatives.position, Derivatives.jerk):
             if new_lower_limits[derivative] is not None:
                 if self.limits.lower[derivative] is None:

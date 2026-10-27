@@ -1,0 +1,80 @@
+import gc
+from copy import deepcopy
+
+import objgraph
+
+from coraplex.datastructures.dataclasses import Context
+
+from coraplex.execution_environment import kinematically_simulated_robot
+from coraplex.plans.factories import sequential
+from coraplex.robot_plans.actions.composite.transporting import TransportAction
+from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
+from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
+    VizMarkerPublisher,
+)
+from semantic_digital_twin.datastructures.definitions import TorsoState
+from semantic_digital_twin.robots.pr2 import PR2
+from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
+
+from ..conftest import SAMPLING_SEED
+
+
+def test_ref_chain_after_copy(pr2_apartment_context):
+    world, view, c = pr2_apartment_context
+    copy_world = deepcopy(world)
+    copy_world.name = "copy_world"
+    chain = objgraph.find_ref_chain(world, lambda x: x is copy_world)
+    assert chain == [world]
+
+
+def test_ref_chain_after_copy_with_execute(pr2_apartment_context):
+    world, view, c = pr2_apartment_context
+    copy_world = deepcopy(world)
+    copy_world.name = "copy_world"
+
+    copy_context = Context(
+        copy_world,
+        copy_world.get_semantic_annotation_by_id(view.id),
+        sampling_seed=SAMPLING_SEED,
+    )
+
+    plan = sequential(
+        [NavigateAction(Pose.from_xyz_rpy(1, -1, 0, reference_frame=copy_world.root))],
+        copy_context,
+    )
+
+    with kinematically_simulated_robot:
+        plan.perform()
+
+    gc.collect()
+    chain = objgraph.find_ref_chain(world, lambda x: x is copy_world)
+    assert chain == [world]
+
+
+def test_ref_chain_after_copy_with_execute_complex_plan(pr2_apartment_context):
+    world, view, context = pr2_apartment_context
+    copy_world = deepcopy(world)
+    copy_world.name = "copy_world"
+
+    copy_context = Context(
+        copy_world,
+        copy_robot := copy_world.get_semantic_annotation_by_id(view.id),
+        sampling_seed=SAMPLING_SEED,
+    )
+
+    milk = copy_world.get_semantic_annotations_by_type(Milk)[0]
+    description = TransportAction.from_graspable_by_closest_grasps(
+        milk,
+        Pose.from_xyz_quaternion(3.1, 2.2, 0.95, 0.0, 0.0, 1.0, 0.0, world.root),
+        copy_robot.right_arm,
+        copy_context,
+    )
+    plan = sequential([MoveTorsoAction(TorsoState.HIGH), description], copy_context)
+    with kinematically_simulated_robot:
+        plan.perform()
+
+    gc.collect()
+    chain = objgraph.find_ref_chain(world, lambda x: x is copy_world)
+    assert chain == [world]

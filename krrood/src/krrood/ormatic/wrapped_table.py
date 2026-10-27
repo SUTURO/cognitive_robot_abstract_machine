@@ -2,21 +2,32 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from functools import cached_property, lru_cache
 from inspect import isclass
 
-from typing_extensions import List, Dict, TYPE_CHECKING, Optional, Set, Type, get_origin
+import sqlalchemy
+from typing_extensions import (
+    List,
+    Dict,
+    TYPE_CHECKING,
+    Optional,
+    Set,
+    Type,
+    get_origin,
+)
 
-from krrood.ormatic.dao import AlternativeMapping
-from krrood.ormatic.utils import InheritanceStrategy
+from krrood.ormatic.field_storage import FieldStorage
+from krrood.ormatic.data_access_objects.alternative_mappings import AlternativeMapping
 from krrood.class_diagrams.class_diagram import (
     WrappedClass,
     Inheritance,
 )
-from krrood.class_diagrams.failures import ClassIsUnMappedInClassDiagram
+from krrood.class_diagrams.exceptions import ClassIsUnMappedInClassDiagram
 from krrood.class_diagrams.wrapped_field import WrappedField
 from krrood.utils import module_and_class_name
+from krrood.patterns.caching import memoize
 
 if TYPE_CHECKING:
     from krrood.ormatic.ormatic import ORMatic
@@ -51,6 +62,7 @@ class ColumnConstructor:
     type: str
     """
     The type of the column.
+
     Needs to be like "Mapped[<type>]".
     """
 
@@ -69,7 +81,8 @@ class ColumnConstructor:
 @dataclass
 class AssociationObject:
     """
-    Represents an association object for many-to-many relationships in SQLAlchemy that can be rendered with jinja.
+    Represents an association object for many-to-many relationships in SQLAlchemy that
+    can be rendered with jinja.
     """
 
     name: str
@@ -123,11 +136,130 @@ class AssociationObject:
         short_number = str(number)[:62]
         return f"_{short_number}"
 
+    @property
+    def primary_key(self) -> ColumnConstructor:
+        """
+        :return: The primary key column constructor for this association table.
+        """
+        return ColumnConstructor(
+            self.primary_key_name,
+            "Mapped[int]",
+            "mapped_column(Integer, primary_key=True)",
+        )
+
+    @property
+    def columns(self) -> List[ColumnConstructor]:
+        """
+        :return: The foreign key column constructors for the left and right sides.
+        """
+        return [
+            ColumnConstructor(
+                self.left_foreign_key,
+                "Mapped[int]",
+                f"mapped_column(ForeignKey('{self.left_primary_key}'))",
+            ),
+            ColumnConstructor(
+                self.right_foreign_key,
+                "Mapped[int]",
+                f"mapped_column(ForeignKey('{self.right_primary_key}'))",
+            ),
+        ]
+
+    @property
+    def relationships(self) -> List[ColumnConstructor]:
+        """
+        :return: The relationship constructors for this association table.
+        """
+        return [
+            ColumnConstructor(
+                "target",
+                f"Mapped[{self.right_table_name}]",
+                f"relationship('{self.right_table_name}', foreign_keys=[{self.right_foreign_key}], lazy='selectin')",
+            )
+        ]
+
+
+class TableLike(ABC):
+    """
+    Common interface of :class:`WrappedTable` and :class:`ExternalTable`: something that
+    names a SQLAlchemy table, whether generated in this run or already mapped by a
+    dependency.
+    """
+
+    @property
+    @abstractmethod
+    def tablename(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def qualified_reference(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def primary_key_name(self) -> str: ...
+
+    @property
+    def full_primary_key_name(self) -> str:
+        return f"{self.tablename}.{self.primary_key_name}"
+
+    @property
+    @abstractmethod
+    def qualified_full_primary_key_name(self) -> str: ...
+
 
 @dataclass
-class WrappedTable:
+class ExternalTable(TableLike):
     """
-    A class that wraps a dataclass and contains all the information needed to create a SQLAlchemy table from it.
+    A lookup-only stand-in for a class already mapped by an ormatic-interface
+    dependency.
+
+    It is never rendered by the generator — its columns already exist in the
+    dependency's generated file. It exists purely so that local tables which use it as a
+    foreign key target, relationship target, or parent class can resolve it, the same
+    way they would resolve a locally generated :class:`WrappedTable`.
+    """
+
+    wrapped_clazz: WrappedClass
+    """
+    The wrapped (domain) class that this stands in for.
+    """
+
+    dao_class: Type
+    """
+    The ``DataAccessObject`` subclass that already maps ``wrapped_clazz`` in the
+    dependency's generated interface.
+    """
+
+    @property
+    def tablename(self) -> str:
+        return self.dao_class.__name__
+
+    @property
+    def qualified_reference(self) -> str:
+        return module_and_class_name(self.dao_class)
+
+    @cached_property
+    def primary_key_name(self) -> str:
+        return sqlalchemy.inspect(self.dao_class).primary_key[0].name
+
+    @property
+    def qualified_full_primary_key_name(self) -> str:
+        return f"{self.qualified_reference}.{self.primary_key_name}"
+
+    @cached_property
+    def mapped_field_names(self) -> Set[str]:
+        """
+        :return: Every ORM attribute name already mapped on ``dao_class``, including
+            ones inherited from its own (possibly external) ancestors.
+        """
+        return {prop.key for prop in sqlalchemy.inspect(self.dao_class).attrs}
+
+
+@dataclass
+class WrappedTable(TableLike):
+    """
+    A class that wraps a dataclass and contains all the information needed to create a
+    SQLAlchemy table from it.
     """
 
     wrapped_clazz: WrappedClass
@@ -142,12 +274,13 @@ class WrappedTable:
 
     builtin_columns: List[ColumnConstructor] = field(default_factory=list, init=False)
     """
-    List of columns that can be directly mapped using builtin types
+    List of columns that can be directly mapped using builtin types.
     """
 
     custom_columns: List[ColumnConstructor] = field(default_factory=list, init=False)
     """
-    List for custom columns that need to by fully qualified as triple of (name, type, constructor)
+    List for custom columns that need to by fully qualified as triple of (name, type,
+    constructor)
     """
 
     foreign_keys: List[ColumnConstructor] = field(default_factory=list, init=False)
@@ -162,7 +295,7 @@ class WrappedTable:
 
     mapper_args: Dict[str, str] = field(default_factory=dict, init=False)
     """
-    Keyword Arguments for the sqlalchemy mapper
+    Keyword Arguments for the sqlalchemy mapper.
     """
 
     primary_key_name: str = "database_id"
@@ -172,7 +305,8 @@ class WrappedTable:
 
     polymorphic_on_name: str = "polymorphic_type"
     """
-    The name of the column that will be used to identify polymorphic identities if any present.
+    The name of the column that will be used to identify polymorphic identities if any
+    present.
     """
 
     skip_fields: List[WrappedField] = field(default_factory=list)
@@ -183,7 +317,9 @@ class WrappedTable:
     @property
     def primary_key(self):
         if self.parent_table is not None:
-            column_type = f"ForeignKey({self.parent_table.full_primary_key_name})"
+            column_type = (
+                f"ForeignKey({self.parent_table.qualified_full_primary_key_name})"
+            )
         else:
             column_type = "Integer"
 
@@ -193,39 +329,9 @@ class WrappedTable:
             f"mapped_column({column_type}, primary_key=True, use_existing_column=True)",
         )
 
-    @property
-    def child_tables(self) -> List[WrappedTable]:
-        return [
-            self.ormatic.class_dependency_graph._dependency_graph[index]
-            for index in self.ormatic.inheritance_graph.successors(
-                self.wrapped_clazz.index
-            )
-        ]
-
-    @property
-    def has_children(self) -> bool:
-        """
-        Indicate whether this table has subclasses in the generated DAO model.
-
-        The check is performed in two simple steps:
-        - Use the inheritance graph to determine direct children of this wrapped class.
-        - Additionally, scan existing wrapped tables for any table that resolves this
-          instance as its ``parent_table`` (covers alternative-mapping hierarchies).
-        """
-        if len(self.child_tables) > 0:
-            return True
-
-        # Fallback: look for any table that points to this table as its parent
-        for table in self.ormatic.wrapped_tables.values():
-            if table is self:
-                continue
-            if table.parent_table is self:
-                return True
-        return False
-
     def create_mapper_args(self):
-        # this is the root of an inheritance structure
-        if self.parent_table is None and self.has_children:
+        # every root is unconditionally polymorphic-ready: a downstream package can subclass it
+        if self.parent_table is None:
             self.custom_columns.append(
                 (
                     ColumnConstructor(
@@ -247,19 +353,19 @@ class WrappedTable:
             self.mapper_args.update(
                 {
                     "'polymorphic_identity'": f"'{self.tablename}'",
+                    "'inherit_condition'": f"{self.primary_key_name} == {self.parent_table.qualified_full_primary_key_name}",
+                    # batch subclass-table loads instead of one SELECT per instance
+                    "'polymorphic_load'": "'selectin'",
                 }
             )
-            # only needed for joined-table inheritance
-            if self.ormatic.inheritance_strategy == InheritanceStrategy.JOINED:
-                self.mapper_args.update(
-                    {
-                        "'inherit_condition'": f"{self.primary_key_name} == {self.parent_table.full_primary_key_name}"
-                    }
-                )
 
-    @cached_property
-    def full_primary_key_name(self):
-        return f"{self.tablename}.{self.primary_key_name}"
+    @property
+    def qualified_reference(self) -> str:
+        return self.tablename
+
+    @property
+    def qualified_full_primary_key_name(self) -> str:
+        return self.full_primary_key_name
 
     @cached_property
     def tablename(self):
@@ -268,15 +374,15 @@ class WrappedTable:
         return result
 
     @cached_property
-    def parent_table(self) -> Optional[WrappedTable]:
+    def parent_table(self) -> Optional[TableLike]:
         """
         Resolve the parent DAO table for this table.
 
-        This first tries to use a direct inheritance relation from the class diagram.
-        If that is not available, it tries to find a parent via MRO.
-        If that is not available and this table is an alternative mapping, it resolves
-        the parent through the original classes' inheritance and maps back to the
-        correct DAO table.
+        This first tries to use a direct inheritance relation from the class diagram. If
+        that is not available, it tries to find a parent via MRO. If that is not
+        available and this table is an alternative mapping, it resolves the parent
+        through the original classes' inheritance and maps back to the correct DAO
+        table.
 
         :return: The parent ``WrappedTable`` or ``None`` if there is no parent.
         """
@@ -287,7 +393,7 @@ class WrappedTable:
                     self.wrapped_clazz.index
                 )
             )
-            for parent_wrapped in inheritance_parents:
+            for parent_wrapped in inheritance_parents[::-1]:
                 # Check if this parent has a wrapped table and if the relation is Inheritance
                 # We need to check the actual relation object
                 edge_data = (
@@ -296,17 +402,17 @@ class WrappedTable:
                     )
                 )
 
-                if (
-                    isinstance(edge_data, Inheritance)
-                    and parent_wrapped in self.ormatic.wrapped_tables
+                if isinstance(edge_data, Inheritance) and (
+                    parent_wrapped in self.ormatic.wrapped_tables
+                    or parent_wrapped in self.ormatic.external_tables
                 ):
-                    return self.ormatic.wrapped_tables[parent_wrapped]
+                    return self.ormatic.table_for(parent_wrapped)
         except (AttributeError, KeyError):
             pass
 
         direct_parent = self._find_direct_parent_wrapped()
         if direct_parent is not None:
-            return self.ormatic.wrapped_tables[direct_parent]
+            return self.ormatic.table_for(direct_parent)
 
         if not self.is_alternatively_mapped:
             return None
@@ -323,15 +429,22 @@ class WrappedTable:
             original_parent
         )
         key = self._to_wrapped_tables_key(resolved_parent_wrapped)
-        return self.ormatic.wrapped_tables.get(key)
+        # the resolved parent may itself be mapped by a dependency rather than locally
+        if (
+            key not in self.ormatic.wrapped_tables
+            and key not in self.ormatic.external_tables
+        ):
+            return None
+        return self.ormatic.table_for(key)
 
     # %% helper methods
 
     def _find_direct_parent_wrapped(self) -> Optional[WrappedClass]:
-        """Return the first mapped parent ``WrappedClass`` from the MRO.
+        """
+        Return the first mapped parent ``WrappedClass`` from the MRO.
 
-        This iterates through the MRO (Method Resolution Order) of the class
-        and returns the first parent class that has a corresponding wrapped table.
+        This iterates through the MRO (Method Resolution Order) of the class and returns
+        the first parent class that has a corresponding wrapped table.
         """
         # Get the actual class from wrapped_clazz
         current_class = self.wrapped_clazz.clazz
@@ -361,10 +474,10 @@ class WrappedTable:
                 # Skip classes that are not in the class diagram
                 continue
 
-            # Check if this wrapped class exists in wrapped_tables
-            if (
-                parent_wrapped is not None
-                and parent_wrapped in self.ormatic.wrapped_tables
+            # Check if this wrapped class exists in wrapped_tables or external_tables
+            if parent_wrapped is not None and (
+                parent_wrapped in self.ormatic.wrapped_tables
+                or parent_wrapped in self.ormatic.external_tables
             ):
                 return parent_wrapped
 
@@ -401,7 +514,8 @@ class WrappedTable:
     def _resolve_alternative_parent_wrapped(
         self, original_parent_wrapped: WrappedClass
     ) -> WrappedClass:
-        """Return the mapping parent if available, otherwise the original parent.
+        """
+        Return the mapping parent if available, otherwise the original parent.
 
         :param original_parent_wrapped: The original parent wrapped node.
         :return: The wrapped node to use as parent in DAO generation.
@@ -410,12 +524,12 @@ class WrappedTable:
         return alt_parent if alt_parent is not None else original_parent_wrapped
 
     def _to_wrapped_tables_key(self, wrapped: WrappedClass) -> WrappedClass:
-        """Translate a mapping wrapped node to the original wrapped for table lookup.
-
-        ``wrapped_tables`` are keyed by the original class nodes, even if an
-        alternative mapping is used. This ensures we always use the correct key.
         """
+        Translate a mapping wrapped node to the original wrapped for table lookup.
 
+        ``wrapped_tables`` are keyed by the original class nodes, even if an alternative
+        mapping is used. This ensures we always use the correct key.
+        """
         origin = get_origin(wrapped.clazz)
         actual_cls = (
             origin
@@ -453,11 +567,15 @@ class WrappedTable:
         """
         :return: The list of fields specified only in this associated dataclass that should be mapped.
         """
-
         # Collect all inherited mapped field names up the chain
         inherited_mapped_names: set[str] = set()
         p = self.parent_table
         while p is not None:
+            if isinstance(p, ExternalTable):
+                # Its dependency's own ancestry (local or external) is already baked
+                # into its live mapped attributes, so one introspection covers it all.
+                inherited_mapped_names.update(p.mapped_field_names)
+                break
             # Check what the parent actually created
             inherited_mapped_names.update(c.name for c in p.builtin_columns)
             inherited_mapped_names.update(c.name for c in p.custom_columns)
@@ -473,8 +591,13 @@ class WrappedTable:
         ]
 
         # If the parent table is alternatively mapped, drop fields that do not exist
-        # in the original parent class (compare by name as well)
-        if self.parent_table is not None and self.parent_table.is_alternatively_mapped:
+        # in the original parent class (compare by name as well). An external parent's
+        # `mapped_field_names` above already reflects exactly what it maps, so this
+        # reconciliation only applies to locally generated parents.
+        if (
+            isinstance(self.parent_table, WrappedTable)
+            and self.parent_table.is_alternatively_mapped
+        ):
             og_parent_class = self.parent_table.wrapped_clazz.clazz.original_class()
             wrapped_og_parent_class = (
                 self.ormatic.class_dependency_graph.get_wrapped_class(og_parent_class)
@@ -491,7 +614,7 @@ class WrappedTable:
 
         return result
 
-    @lru_cache(maxsize=None)
+    @memoize
     def parse_fields(self):
 
         for f in self.fields:
@@ -512,88 +635,36 @@ class WrappedTable:
 
     def parse_field(self, wrapped_field: WrappedField):
         """
-        Parses a given `WrappedField` and determines its type or relationship to create the
-        appropriate column or define relationships in an ORM context.
-        The method processes several
-        types of fields, such as type types, built-in types, enumerations, one-to-one relationships,
-        custom types, JSON containers, and one-to-many relationships.
+        Create the column or relationship that stores the field, in the way the ORMatic
+        field classifier decides on.
 
-        This creates the right information in the right place in the table definition to be read later by the jinja
-        template.
-
-        :param wrapped_field: An instance of `WrappedField` that contains metadata about the field
-            such as its data type, whether it represents a built-in or user-defined type, or if it has
-            specific ORM container properties.
+        :param wrapped_field: The field to store.
         """
-        if (
-            wrapped_field.is_underspecified_generic
-            and isclass(wrapped_field.type_endpoint)
-            and not any(
-                [
-                    am
-                    for am in self.ormatic.alternative_mappings
-                    if issubclass(wrapped_field.type_endpoint, am.original_class())
-                ]
-            )
-        ):
-            logger.info(f"Skipping underspecified generic field.")
-
-        elif wrapped_field.is_type_type:
-            logger.info(f"Parsing as type.")
-            self.create_type_type_column(wrapped_field)
-
-        elif wrapped_field.is_builtin_type and not wrapped_field.is_container:
-            logger.info(f"Parsing as builtin type.")
-            self.create_builtin_column(wrapped_field)
-
-        # handle one to one relationships
-        elif (
-            wrapped_field.is_one_to_one_relationship
-            and wrapped_field.type_endpoint in self.ormatic.mapped_classes
-        ):
-            logger.info(f"Parsing as one to one relationship.")
-            self.create_one_to_one_relationship(wrapped_field)
-
-        # handle one to many relationships
-        elif (
-            wrapped_field.is_one_to_many_relationship
-            and wrapped_field.type_endpoint in self.ormatic.mapped_classes
-        ):
-            logger.info(f"Parsing as one to many relationship.")
-            self.create_many_to_many_relationship(wrapped_field)
-
-        # handle custom types
-        elif (
-            wrapped_field.is_one_to_one_relationship
-            and wrapped_field.type_endpoint in self.ormatic.type_mappings
-        ):
-            logger.info(
-                f"Parsing as custom type {self.ormatic.type_mappings[wrapped_field.type_endpoint]}."
-            )
-            self.create_custom_type(wrapped_field)
-
-        # handle JSON containers
-        elif (
-            wrapped_field.is_collection_of_builtins
-            or wrapped_field.type_endpoint in self.ormatic.type_mappings
-            and wrapped_field.is_container
-        ):
-            logger.info(f"Parsing as JSON.")
-            self.create_json_column(wrapped_field)
-        else:
-            logger.info("Skipping due to not handled type.")
+        storage = self.ormatic.field_classifier.classify(wrapped_field)
+        if storage is FieldStorage.NOT_STORED:
+            return
+        column_creators = {
+            FieldStorage.TYPE: self.create_type_type_column,
+            FieldStorage.BUILTIN: self.create_builtin_column,
+            FieldStorage.MANY_TO_ONE: self.create_one_to_one_relationship,
+            FieldStorage.MANY_TO_MANY: self.create_many_to_many_relationship,
+            FieldStorage.CUSTOM_TYPE: self.create_custom_type,
+            FieldStorage.JSON: self.create_json_column,
+        }
+        column_creators[storage](wrapped_field)
 
     def create_builtin_column(self, wrapped_field: WrappedField):
         """
-        Creates a built-in column mapping for the given wrapped field. Depending on the
-        properties of the `wrapped_field`, this function determines whether it's an enum,
-        a built-in type, or requires additional imports. It then constructs appropriate
-        column definitions and adds them to the respective list of database mappings.
+        Creates a built-in column mapping for the given wrapped field.
 
-        :param wrapped_field: The WrappedField instance representing the field
-            to create a built-in column for.
+        Depending on the properties of the `wrapped_field`, this function determines
+        whether it's an enum, a built-in type, or requires additional imports. It then
+        constructs appropriate column definitions and adds them to the respective list
+        of database mappings.
+
+        :param wrapped_field: The WrappedField instance representing the field to create
+            a built-in column for.
         """
-
         self.ormatic.imported_modules.add(wrapped_field.type_endpoint.__module__)
         inner_type = module_and_class_name(wrapped_field.type_endpoint)
         type_annotation = (
@@ -603,7 +674,7 @@ class WrappedTable:
         )
 
         if wrapped_field.type_endpoint is str:
-            constructor = f"mapped_column(String(255), use_existing_column=True)"
+            constructor = f"mapped_column({module_and_class_name(sqlalchemy.types.Text)}, use_existing_column=True)"
         else:
             constructor = f"mapped_column(use_existing_column=True)"
         self.builtin_columns.append(
@@ -617,6 +688,7 @@ class WrappedTable:
     def create_type_type_column(self, wrapped_field: WrappedField):
         """
         Create a column for a field of type `Type`.
+
         :param wrapped_field: The field to extract type information from.
         :return:
         """
@@ -631,32 +703,29 @@ class WrappedTable:
             ColumnConstructor(column_name, column_type, column_constructor)
         )
 
-    def get_table_of_wrapped_field(self, wrapped_field: WrappedField) -> WrappedTable:
+    def get_table_of_wrapped_field(self, wrapped_field: WrappedField) -> TableLike:
         """
         :param wrapped_field: The wrapped field to get the table for.
         :return: The wrapped table for the given wrapped field.
         """
+        type_endpoint = wrapped_field.type_endpoint
         try:
-            result = self.ormatic.wrapped_tables[
-                self.ormatic.class_dependency_graph.get_wrapped_class(
-                    wrapped_field.type_endpoint
-                )
-            ]
-            return result
-        except KeyError:
-            raise WrappedTableNotFound(
-                type_=wrapped_field.type_endpoint, wrapped_field=wrapped_field
+            return self.ormatic.table_for(
+                self.ormatic.class_dependency_graph.get_wrapped_class(type_endpoint)
             )
+        except KeyError:
+            raise WrappedTableNotFound(type_=type_endpoint, wrapped_field=wrapped_field)
 
     def create_one_to_one_relationship(self, wrapped_field: WrappedField):
         """
         Create a one-to-one relationship with using the given field.
+
         This adds a foreign key and a relationship to this table.
 
         :param wrapped_field: The field to get the information from.
         """
         # create foreign key
-        fk_name = f"{wrapped_field.field.name}{self.ormatic.foreign_key_postfix}"
+        fk_name = f"_{wrapped_field.field.name}{self.ormatic.foreign_key_postfix}"
         fk_type = (
             f"Mapped[{module_and_class_name(Optional)}[{module_and_class_name(int)}]]"
             if wrapped_field.is_optional
@@ -677,6 +746,8 @@ class WrappedTable:
         rel_name = f"{wrapped_field.field.name}"
         rel_type = f"Mapped[{target_wrapped_table.tablename}]"
         # relationships have to be post updated since since it won't work in the case of subclasses with another ref otherwise
+        # they also stay lazy: eager selectin would cascade through many-to-one
+        # cycles at query time; from_dao resolves them via the identity map instead
         rel_constructor = f"relationship('{target_wrapped_table.tablename}', uselist=False, foreign_keys=[{fk_name}], post_update=True)"
         self.relationships.append(
             ColumnConstructor(rel_name, rel_type, rel_constructor)
@@ -684,12 +755,12 @@ class WrappedTable:
 
     def create_many_to_many_relationship(self, wrapped_field: WrappedField):
         """
-        Creates a many-to-many relationship mapping for the given wrapped field using an association table.
-        This allows multiple instances of the source table to reference the same instances of the target table.
+        Creates a many-to-many relationship mapping for the given wrapped field using an
+        association table. This allows multiple instances of the source table to
+        reference the same instances of the target table.
 
         :param wrapped_field: The field for the many-to-many relationship.
         """
-
         # get the target table
         target_wrapped_table = self.get_table_of_wrapped_field(wrapped_field)
 
@@ -702,9 +773,9 @@ class WrappedTable:
         # Always disambiguate sides using source_/target_ prefixes to avoid
         # duplicated column names in self-referential relationships
         left_fk_name = (
-            f"source_{self.tablename.lower()}{self.ormatic.foreign_key_postfix}"
+            f"_source_{self.tablename.lower()}{self.ormatic.foreign_key_postfix}"
         )
-        right_fk_name = f"target_{target_wrapped_table.tablename.lower()}{self.ormatic.foreign_key_postfix}"
+        right_fk_name = f"_target_{target_wrapped_table.tablename.lower()}{self.ormatic.foreign_key_postfix}"
 
         # create association table metadata
         association_table = AssociationObject(
@@ -724,16 +795,26 @@ class WrappedTable:
         # create a relationship
         rel_name = f"{wrapped_field.field.name}"
 
-        # Use the actual container type from the domain model (e.g., list)
-        container_name = module_and_class_name(wrapped_field.container_type)
+        # SQLAlchemy instruments a collection class in place (it needs an appender
+        # method), which an immutable domain container such as tuple cannot provide.
+        # The relationship is therefore held as a list at the ORM layer; from_dao
+        # restores the domain field's own tuple type once its object is populated
+        # (see DataAccessObject._finalize_object_containers).
+        collection_class_type = (
+            list
+            if wrapped_field.container_type is tuple
+            else wrapped_field.container_type
+        )
+        container_name = module_and_class_name(collection_class_type)
 
         # Association Object pattern
-        rel_type = f"Mapped[{module_and_class_name(wrapped_field.container_type)}[{association_table.name}]]"
+        rel_type = f"Mapped[{container_name}[{association_table.name}]]"
         rel_constructor = (
             f"relationship('{association_table.name}', "
             f"collection_class={container_name}, "
             f"cascade='all, delete-orphan', "
-            f"foreign_keys='[{association_table.name}.{association_table.left_foreign_key}]')"
+            f"foreign_keys='[{association_table.name}.{association_table.left_foreign_key}]', "
+            f"lazy='selectin')"
         )
 
         self.relationships.append(
@@ -742,27 +823,45 @@ class WrappedTable:
 
     def create_json_column(self, wrapped_field: WrappedField):
         """
-        Create a column for a list-like of built-in values.
+        Create a JSON column for a value, or a list-like of values, that krrood's JSON
+        serializer can write.
 
         :param wrapped_field: The field to extract the information from.
         """
+        type_endpoint = wrapped_field.type_endpoint
         self.ormatic.imported_modules.add("typing_extensions")
+        self.ormatic.imported_modules.add(type_endpoint.__module__)
         column_name = wrapped_field.field.name
-        container = Set if issubclass(wrapped_field.container_type, set) else List
-        column_type = f"Mapped[{module_and_class_name(container)}[{module_and_class_name(wrapped_field.type_endpoint)}]]"
+        value_type = module_and_class_name(type_endpoint)
+        if not wrapped_field.is_container:
+            column_type = (
+                f"Mapped[{module_and_class_name(Optional)}[{value_type}]]"
+                if wrapped_field.is_optional
+                else f"Mapped[{value_type}]"
+            )
+        else:
+            container = (
+                Set
+                if isclass(wrapped_field.container_type)
+                and issubclass(wrapped_field.container_type, set)
+                else List
+            )
+            column_type = f"Mapped[{module_and_class_name(container)}[{value_type}]]"
         column_constructor = f"mapped_column(JSON, nullable={wrapped_field.is_optional}, use_existing_column=True)"
         self.custom_columns.append(
             ColumnConstructor(column_name, column_type, column_constructor)
         )
 
     def create_custom_type(self, wrapped_field: WrappedField):
-        custom_type = self.ormatic.type_mappings[wrapped_field.type_endpoint]
-        self.ormatic.type_mappings[wrapped_field.type_endpoint] = custom_type
+        type_endpoint = wrapped_field.type_endpoint
+        custom_type = self.ormatic.type_mappings[type_endpoint]
+        self.ormatic.type_mappings[type_endpoint] = custom_type
+        self.ormatic.imported_modules.add(type_endpoint.__module__)
         column_name = wrapped_field.field.name
         column_type = (
-            f"Mapped[{module_and_class_name(wrapped_field.type_endpoint)}]"
+            f"Mapped[{module_and_class_name(type_endpoint)}]"
             if not wrapped_field.is_optional
-            else f"Mapped[{module_and_class_name(Optional)}[{module_and_class_name(wrapped_field.type_endpoint)}]]"
+            else f"Mapped[{module_and_class_name(Optional)}[{module_and_class_name(type_endpoint)}]]"
         )
 
         constructor = f"mapped_column({module_and_class_name(custom_type)}, nullable={wrapped_field.is_optional}, use_existing_column=True)"
@@ -774,7 +873,7 @@ class WrappedTable:
     @property
     def base_class_name(self):
         if self.parent_table is not None:
-            return self.parent_table.tablename
+            return self.parent_table.qualified_reference
         else:
             return "Base"
 

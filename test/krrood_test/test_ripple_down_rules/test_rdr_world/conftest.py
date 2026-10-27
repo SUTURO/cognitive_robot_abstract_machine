@@ -1,17 +1,9 @@
-import sys
+from dataclasses import dataclass
 from os.path import dirname
+from pathlib import Path
 
 import pytest
-from typing_extensions import Callable, Type
-
-from krrood.ripple_down_rules.utils import get_method_object_from_pytest_request
-
-try:
-    from PyQt6.QtWidgets import QApplication
-    from krrood.ripple_down_rules.user_interface.gui import RDRCaseViewer
-except ImportError as e:
-    QApplication = None
-    RDRCaseViewer = None
+from typing_extensions import Type
 
 from ..conf.world.handles_and_containers import HandlesAndContainersWorld
 from ..datasets import *
@@ -19,14 +11,6 @@ from krrood.ripple_down_rules.datastructures.dataclasses import CaseQuery
 from krrood.ripple_down_rules.experts import Human, Expert, AI
 from krrood.ripple_down_rules.helpers import is_matching
 from krrood.ripple_down_rules.rdr import GeneralRDR
-
-app: Optional[QApplication] = None
-viewer: Optional[RDRCaseViewer] = None
-use_gui: bool = False
-
-if RDRCaseViewer is not None and QApplication is not None and use_gui:
-    app = QApplication(sys.argv)
-    viewer = RDRCaseViewer(save_dir="./test_generated_rdrs")
 
 
 def handles_and_containers_world() -> World:
@@ -55,10 +39,8 @@ def drawer_case_queries() -> List[CaseQuery]:
             (bool,),
             True,
             default_value=False,
-            case_factory=get_possible_drawers,
-            case_factory_idx=i,
         )
-        for i, possible_drawer in enumerate(get_possible_drawers())
+        for possible_drawer in get_possible_drawers()
     ]
     return case_queries
 
@@ -129,7 +111,6 @@ def drawer_case_query() -> CaseQuery:
         "views",
         (Drawer,),
         False,
-        case_factory=handles_and_containers_world,
     )
 
 
@@ -153,28 +134,20 @@ def drawer_rdr(drawer_case_query, drawer_cabinet_human_expert) -> GeneralRDR:
 
 
 @pytest.fixture
-def drawer_cabinet_rdr(request, drawer_cabinet_human_expert) -> GeneralRDR:
+def drawer_cabinet_rdr(drawer_cabinet_human_expert) -> GeneralRDR:
     world = handles_and_containers_world()
-    rdr = get_drawer_cabinet_rdr(
-        world,
-        drawer_cabinet_human_expert,
-        get_method_object_from_pytest_request(request),
-    )
+    rdr = get_drawer_cabinet_rdr(world, drawer_cabinet_human_expert)
     return rdr
 
 
 @pytest.fixture
-def drawer_cabinet_ai_rdr(request, drawer_cabinet_ai_expert) -> GeneralRDR:
+def drawer_cabinet_ai_rdr(drawer_cabinet_ai_expert) -> GeneralRDR:
     world = handles_and_containers_world()
-    rdr = get_drawer_cabinet_rdr(
-        world, drawer_cabinet_ai_expert, get_method_object_from_pytest_request(request)
-    )
+    rdr = get_drawer_cabinet_rdr(world, drawer_cabinet_ai_expert)
     return rdr
 
 
-def get_drawer_cabinet_rdr(
-    world: World, expert: Expert, scenario: Callable
-) -> GeneralRDR:
+def get_drawer_cabinet_rdr(world: World, expert: Expert) -> GeneralRDR:
     """
     Fixture to create a GeneralRDR for drawer and cabinet views.
     """
@@ -186,10 +159,8 @@ def get_drawer_cabinet_rdr(
                 "views",
                 (view,),
                 False,
-                case_factory=handles_and_containers_world,
             ),
             expert=expert,
-            scenario=scenario,
         )
     found_views = rdr.classify(world)
     for view in [Drawer, Cabinet]:
@@ -204,3 +175,40 @@ def correct_drawer_rdr(drawer_case_queries, drawer_expert) -> GeneralRDR:
     for case_query in drawer_case_queries:
         assert is_matching(rdr.classify, case_query)
     return rdr
+
+
+# %% a model saved for the test that reads it
+
+
+@dataclass
+class SavedRDRModel:
+    """
+    A classifier written to disk, and what a test needs to read it back.
+    """
+
+    directory: Path
+    """
+    The directory the model was written into.
+    """
+
+    name: str
+    """
+    The name the model was written under.
+    """
+
+    def load(self) -> GeneralRDR:
+        """
+        :return: The classifier read back from the written model.
+        """
+        return GeneralRDR.load(str(self.directory), model_name=self.name)
+
+
+@pytest.fixture
+def saved_drawer_cabinet_rdr(request, drawer_cabinet_rdr) -> SavedRDRModel:
+    """
+    Write the drawer and cabinet classifier to a directory named after the test asking
+    for it, so a test reading a saved model neither waits on another test having written
+    one nor writes the path a test running beside it is writing.
+    """
+    directory = Path(__file__).parent.parent / "test_results" / request.node.name
+    return SavedRDRModel(directory, drawer_cabinet_rdr.save(str(directory)))

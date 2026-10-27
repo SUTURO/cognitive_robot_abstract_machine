@@ -1,17 +1,26 @@
+import copy
+import gc
+import itertools
 import operator
+import weakref
 
 import casadi as ca
 import numpy as np
 import pytest
 import scipy
+import scipy.sparse as sp
 
 import krrood.symbolic_math.symbolic_math as sm
+from krrood.adapters.json_serializer import from_json, to_json
 from krrood.symbolic_math.exceptions import (
+    FloatVariableAlreadyHasResolveError,
     HasFreeVariablesError,
+    NotColumnVectorError,
+    NotEnoughArgumentsError,
     NotSquareMatrixError,
 )
 from krrood.symbolic_math.symbolic_math import VariableParameters
-from test.krrood_test.test_symbolic_math.reference_implementations import (
+from .reference_implementations import (
     normalize_angle_positive,
     shortest_angular_distance,
     normalize_angle,
@@ -86,6 +95,46 @@ def test_to_sx():
     assert ca.is_equal(sx_list[2], 3)
 
 
+class TestBinaryLogic:
+    """
+    The two-valued logic operators.
+    """
+
+    @pytest.mark.parametrize(
+        "logic_operator, identity",
+        [
+            (sm.logic_and, sm.Scalar.const_true()),
+            (sm.logic_or, sm.Scalar.const_false()),
+        ],
+    )
+    def test_an_operator_combines_any_number_of_arguments(
+        self, logic_operator, identity
+    ):
+        """
+        Chaining several arguments gives the same value as combining them pairwise.
+        """
+        for values in itertools.product([0, 1], repeat=3):
+            arguments = [sm.Scalar(value) for value in values]
+            pairwise = identity
+            for argument in arguments:
+                pairwise = logic_operator(pairwise, argument)
+            assert float(logic_operator(*arguments)) == float(pairwise), f"{values}"
+
+    @pytest.mark.parametrize("logic_operator", [sm.logic_and, sm.logic_or])
+    def test_an_operator_of_one_argument_is_that_argument(self, logic_operator):
+        a = sm.FloatVariable(name="a")
+
+        assert logic_operator(a).free_variables() == [a]
+        assert ca.is_equal(logic_operator(a).casadi_sx, a.casadi_sx)
+
+    @pytest.mark.parametrize("logic_operator", [sm.logic_and, sm.logic_or])
+    def test_an_operator_without_arguments_is_rejected(self, logic_operator):
+        with pytest.raises(NotEnoughArgumentsError) as error:
+            logic_operator()
+        assert error.value.minimum_number_of_arguments == 1
+        assert error.value.actual_number_of_arguments == 0
+
+
 class TestLogic3:
     values = [
         TrinaryTrue,
@@ -111,6 +160,26 @@ class TestLogic3:
                     actual
                 ), f"a={i}, b={j}, expected {expected}, actual {actual}"
 
+    def test_and3_of_one_argument_is_that_argument(self):
+        for i in self.values:
+            assert i == sm.trinary_logic_and(sm.Scalar(i)), f"a={i}"
+
+    def test_or3_of_one_argument_is_that_argument(self):
+        for i in self.values:
+            assert i == sm.trinary_logic_or(sm.Scalar(i)), f"a={i}"
+
+    def test_and3_without_arguments(self):
+        with pytest.raises(NotEnoughArgumentsError) as error:
+            sm.trinary_logic_and()
+        assert error.value.minimum_number_of_arguments == 1
+        assert error.value.actual_number_of_arguments == 0
+
+    def test_or3_without_arguments(self):
+        with pytest.raises(NotEnoughArgumentsError) as error:
+            sm.trinary_logic_or()
+        assert error.value.minimum_number_of_arguments == 1
+        assert error.value.actual_number_of_arguments == 0
+
     def test_not3(self):
         for i in self.values:
             expected = logic_not(i)
@@ -133,6 +202,108 @@ class TestLogic3:
         )
         const_expr_str = sm.trinary_logic_to_str(const_expr)
         assert const_expr_str == '("a" or Unknown)'
+
+
+class TestTrinaryPredicates:
+    """
+    The Scalar methods asking which trinary truth value an expression carries.
+    """
+
+    predicate_of_value = {
+        TrinaryTrue: sm.Scalar.is_true,
+        TrinaryFalse: sm.Scalar.is_false,
+        TrinaryUnknown: sm.Scalar.is_unknown,
+    }
+    """
+    The predicate that holds for each trinary truth value.
+    """
+
+    def test_or3_accepts_a_constant_comparison_result(self):
+        constant_comparison = sm.Scalar(0) <= 0.05
+        assert isinstance(constant_comparison, sm.Scalar)
+        result = sm.trinary_logic_or(sm.Scalar(0), constant_comparison)
+        assert isinstance(result, sm.Scalar)
+        assert bool(result) is True
+
+    def test_and3_accepts_a_constant_comparison_result(self):
+        constant_comparison = sm.Scalar(0) <= 0.05
+        assert isinstance(constant_comparison, sm.Scalar)
+        result = sm.trinary_logic_and(sm.Scalar(1), constant_comparison)
+        assert isinstance(result, sm.Scalar)
+        assert bool(result) is True
+
+    def test_predicate_return_types_are_primitive_bool(self):
+        """
+        Verify that is_const_true, is_const_false, and is_const_unknown return primitive
+        bool values rather than Scalar expressions.
+        """
+        s_true = sm.Scalar(0) <= 0.05
+        s_false = sm.Scalar(1) <= 0.05
+        s_unknown = sm.Scalar(0.5)
+
+        assert isinstance(s_true.is_constant_true(), bool)
+        assert s_true.is_constant_true() is True
+        assert isinstance(s_true.is_constant_false(), bool)
+        assert s_true.is_constant_false() is False
+
+        assert isinstance(s_false.is_constant_true(), bool)
+        assert s_false.is_constant_true() is False
+        assert isinstance(s_false.is_constant_false(), bool)
+        assert s_false.is_constant_false() is True
+
+        assert isinstance(s_unknown.is_constant_unknown(), bool)
+        assert s_unknown.is_constant_unknown() is True
+        assert isinstance(s_true.is_constant_unknown(), bool)
+        assert s_true.is_constant_unknown() is False
+
+        v = sm.FloatVariable(name="v")
+        assert isinstance(v.is_constant_true(), bool)
+        assert v.is_constant_true() is False
+        assert isinstance(v.is_constant_false(), bool)
+        assert v.is_constant_false() is False
+        assert isinstance(v.is_constant_unknown(), bool)
+        assert v.is_constant_unknown() is False
+
+    def test_each_predicate_holds_only_for_its_own_value(self):
+        for value in self.predicate_of_value:
+            for predicate_value, predicate in self.predicate_of_value.items():
+                expected = float(value == predicate_value)
+                actual = float(predicate(sm.Scalar(value)))
+                assert expected == actual, (
+                    f"{predicate.__name__} of {value}, "
+                    f"expected {expected}, actual {actual}"
+                )
+
+    def test_each_predicate_holds_over_a_variable(self):
+        """
+        The predicates decide once a value is substituted, which is what lets a
+        condition be built from a variable whose value is not known yet.
+        """
+        variable = sm.FloatVariable(name="observation")
+        for value in self.predicate_of_value:
+            for predicate_value, predicate in self.predicate_of_value.items():
+                expected = float(value == predicate_value)
+                actual = float(predicate(variable).substitute([variable], [value]))
+                assert expected == actual, (
+                    f"{predicate.__name__} of {value}, "
+                    f"expected {expected}, actual {actual}"
+                )
+
+    def test_each_predicate_builds_an_expression_over_its_input(self):
+        variable = sm.FloatVariable(name="observation")
+        for predicate in self.predicate_of_value.values():
+            expression = predicate(variable)
+            assert isinstance(expression, sm.Scalar), predicate.__name__
+            assert expression.free_variables() == [variable], predicate.__name__
+
+    def test_no_predicate_holds_for_a_value_outside_the_trinary_set(self):
+        """
+        Each predicate matches its own value exactly, rather than a range around it.
+        """
+        not_a_truth_value = sm.Scalar(2)
+        for predicate in self.predicate_of_value.values():
+            actual = float(predicate(not_a_truth_value))
+            assert actual == TrinaryFalse, f"{predicate.__name__}, actual {actual}"
 
 
 class TestIfElse:
@@ -332,6 +503,19 @@ class TestFloatVariable:
         with pytest.raises(HasFreeVariablesError):
             bool(v)
 
+    def test_free_variables(self):
+        """
+        Use a method to create the variable to test if the weak ref dict cleans them up.
+        """
+
+        def create_variables(name: str) -> sm.FloatVariable:
+            return sm.FloatVariable(name=name)
+
+        expression = create_variables("muh") + create_variables("kikariki")
+        assert len(expression.free_variables()) == 2
+        assert expression.free_variables()[0].name == "muh"
+        assert expression.free_variables()[1].name == "kikariki"
+
     def test_create_with_resolver(self):
         v = sm.FloatVariable.create_with_resolver("v", lambda: 42)
         assert v.evaluate() == 42
@@ -410,14 +594,48 @@ class TestFloatVariable:
         d = {s: 1}
         assert d[s] == 1
 
+    def test_copying_yields_an_expression_over_the_same_symbol(self):
+        """
+        Every other operation on a variable yields a plain expression, and copying is no
+        different: a copy that is then changed is no longer that variable.
+        """
+        v = sm.FloatVariable(name="v")
+
+        copied = copy.copy(v)
+
+        assert type(copied) is sm.Scalar
+        assert copied.free_variables() == [v]
+
+    def test_substituting_a_variable_that_is_the_whole_expression(self):
+        """
+        A bare variable is an expression like any other, so substituting it replaces the
+        whole thing and leaves the variable itself untouched.
+        """
+        v = sm.FloatVariable(name="v")
+
+        substituted = v.substitute([v], [sm.Scalar(42)])
+
+        assert substituted.to_np() == 42
+        assert v.free_variables() == [v]
+
 
 class TestExpression:
 
     def test_free_variables(self):
-        m = sm.Vector(sm.create_float_variables(["a", "b", "c", "d"]))
+        m = sm.Vector(v := sm.create_float_variables(["a", "b", "c", "d"]))
         assert len(m.free_variables()) == 4
         a = sm.FloatVariable(name="a")
         assert a.equivalent(a.free_variables()[0])
+
+    def test_constant_expression_pins_no_free_variables(self):
+        assert sm.Vector([1, 2, 3]).pinned_free_variables == []
+
+    def test_symbolic_expression_pins_its_free_variables(self):
+        variables = sm.create_float_variables(["a", "b"])
+
+        pinned = sm.Vector(variables).pinned_free_variables
+
+        assert [variable.name for variable in pinned] == ["a", "b"]
 
     def test_pretty_str(self):
         e = sm.Matrix.eye(4)
@@ -781,6 +999,7 @@ class TestScalar:
             operator.lt,
             operator.le,
             operator.eq,
+            operator.ne,
             operator.ge,
             operator.gt,
         ]
@@ -791,8 +1010,8 @@ class TestScalar:
         for f in operators:
             r_np = f(f1, f2)
             r_cas = f(e1_cas, e2_cas)
-            assert isinstance(r_cas, bool), f"{f.__name__} result is not Scalar"
-            assert r_np == r_cas, f"{f.__name__} result is wrong"
+            assert isinstance(r_cas, sm.Scalar), f"{f.__name__} result is not Scalar"
+            assert bool(r_cas) == r_np, f"{f.__name__} result is wrong"
 
     def test_comparisons_with_variable(self):
         operators = [
@@ -905,8 +1124,13 @@ class TestVector:
         v = sm.Vector(data)
         assert v.to_list() == data.tolist()
 
+    def test_vector_from_multi_column_data(self):
+        with pytest.raises(NotColumnVectorError) as error:
+            sm.Vector(np.array([[1.0, 2.0], [3.0, 4.0]]))
+        assert error.value.actual_dimensions == (2, 2)
+
     def test_to_list_raises_on_variables(self):
-        v = sm.Vector([sm.FloatVariable(name="a"), 2.0])
+        v = sm.Vector(vec := [sm.FloatVariable(name="a"), 2.0])
         with pytest.raises(HasFreeVariablesError):
             _ = v.to_list()
 
@@ -1167,6 +1391,13 @@ class TestMatrix:
         # Shape should be (n,1) like Vector
         assert flat.shape == (np_flat.size, 1)
 
+    @pytest.mark.parametrize("sparse_format", ["csc", "csr", "coo"])
+    def test_from_sparse_matrix(self, sparse_format):
+        dense = np.array([[1.0, 0.0, 2.0], [0.0, 3.0, 0.0], [4.0, 0.0, 5.0]])
+        matrix = sp.coo_matrix(dense).asformat(sparse_format)
+        sm_matrix = sm.Matrix(matrix)
+        assert np.allclose(sm_matrix.to_np(), dense)
+
     def test_flatten_empty(self):
         data = np.eye(0)
         m = sm.Matrix(data)
@@ -1200,6 +1431,11 @@ class TestMatrix:
         mat = sm.Matrix(np_arr).reshape((2, 8))
         assert mat.shape == (2, 8)
         assert np.allclose(mat.to_np(), np_arr.reshape((2, 8)))
+
+    def test_inverse_of_non_square_matrix(self):
+        with pytest.raises(NotSquareMatrixError) as error:
+            sm.Matrix(np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])).inverse()
+        assert error.value.actual_dimensions == (2, 3)
 
     def test_trace(self):
         m = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -1439,3 +1675,152 @@ class TestMatrix:
         assert isinstance(m[2, :], sm.Vector)
         assert np.allclose(m[:2, :2], np.eye(2))
         assert isinstance(m[:2, :2], sm.Matrix)
+
+
+# %% JSON serialization
+
+
+def scalar_expression(x: sm.FloatVariable, y: sm.FloatVariable) -> sm.Scalar:
+    return sm.sin(x) * y + x
+
+
+def vector_expression(x: sm.FloatVariable, y: sm.FloatVariable) -> sm.Vector:
+    return sm.Vector([x, y * 2, 3])
+
+
+def matrix_expression(x: sm.FloatVariable, y: sm.FloatVariable) -> sm.Matrix:
+    return sm.Matrix([[x, y], [x * y, 1]])
+
+
+class TestJsonSerialization:
+    """
+    A symbolic math value round-trips through JSON, and the variables it depends on come
+    back as the variables they were while those still exist.
+    """
+
+    @pytest.mark.parametrize(
+        "constant",
+        [
+            sm.Scalar(1.5),
+            sm.Vector([1, 2]),
+            sm.Matrix([[1, 2], [3, 4]]),
+            sm.Matrix([[1, 2]]),
+        ],
+        ids=["scalar", "vector", "matrix", "row matrix"],
+    )
+    def test_constant_round_trips(self, constant: sm.SymbolicMathType):
+        constant_copy = from_json(to_json(constant))
+
+        assert type(constant_copy) is type(constant)
+        assert constant_copy.shape == constant.shape
+        assert np.array_equal(constant_copy.to_np(), constant.to_np())
+
+    def test_variable_round_trips_to_itself(self):
+        variable = sm.FloatVariable("x")
+
+        assert from_json(to_json(variable)) is variable
+
+    def test_variable_without_a_living_original_is_recreated(self):
+        variable = sm.FloatVariable("x")
+        variable_json = to_json(variable)
+        variable_id, variable_name = variable.id, variable.name
+        del variable
+        gc.collect()
+
+        variable_copy = from_json(variable_json)
+
+        assert type(variable_copy) is sm.FloatVariable
+        assert variable_copy.id == variable_id
+        assert variable_copy.name == variable_name
+
+    @pytest.mark.parametrize(
+        "build_expression",
+        [scalar_expression, vector_expression, matrix_expression],
+        ids=["scalar", "vector", "matrix"],
+    )
+    def test_expression_round_trips(self, build_expression):
+        x, y = sm.FloatVariable("x"), sm.FloatVariable("y")
+        expression = build_expression(x, y)
+        values = [2.0, 3.0]
+
+        expression_copy = from_json(to_json(expression))
+
+        assert type(expression_copy) is type(expression)
+        assert expression_copy.shape == expression.shape
+        assert {id(variable) for variable in expression_copy.free_variables()} == {
+            id(x),
+            id(y),
+        }
+        assert np.array_equal(
+            expression_copy.substitute([x, y], values).to_np(),
+            expression.substitute([x, y], values).to_np(),
+        )
+
+    def test_variables_sharing_a_name_stay_apart(self):
+        first, second = sm.FloatVariable("x"), sm.FloatVariable("x")
+        expression = sm.Vector([first, second * 2])
+        values = [2.0, 3.0]
+
+        expression_copy = from_json(to_json(expression))
+
+        assert np.array_equal(
+            expression_copy.substitute([first, second], values).to_np(),
+            expression.substitute([first, second], values).to_np(),
+        )
+
+    def test_recreated_variables_sharing_a_name_stay_apart(self):
+        first, second = sm.FloatVariable("x"), sm.FloatVariable("x")
+        expression = sm.Vector([first, second * 2])
+        values = [2.0, 3.0]
+        expected = expression.substitute([first, second], values).to_np()
+        expression_json = to_json(expression)
+        first_id, second_id = first.id, second.id
+        originals = [weakref.ref(first), weakref.ref(second)]
+        del first, second, expression
+        gc.collect()
+        assert [original() for original in originals] == [None, None]
+
+        expression_copy = from_json(expression_json)
+
+        variables_by_id = {
+            variable.id: variable for variable in expression_copy.free_variables()
+        }
+        assert variables_by_id.keys() == {first_id, second_id}
+        assert np.array_equal(
+            expression_copy.substitute(
+                [variables_by_id[first_id], variables_by_id[second_id]], values
+            ).to_np(),
+            expected,
+        )
+
+    def test_expression_keeps_shared_subexpressions(self):
+        x, y = sm.FloatVariable("x"), sm.FloatVariable("y")
+        shared = x * y
+        expression = sm.Vector([sm.sin(shared), sm.cos(shared)])
+
+        expression_copy = from_json(to_json(expression))
+
+        assert ca.n_nodes(expression_copy.casadi_sx) == ca.n_nodes(expression.casadi_sx)
+
+    def test_variable_shared_by_two_expressions_is_deserialized_once(self):
+        variable = sm.FloatVariable("x")
+        expressions_json = to_json([variable + 1, variable * 2])
+        del variable
+        gc.collect()
+
+        first, second = from_json(
+            expressions_json, **sm.FloatVariableTracker().create_kwargs()
+        )
+
+        (first_variable,) = first.free_variables()
+        (second_variable,) = second.free_variables()
+        assert first_variable is second_variable
+
+    def test_error_holding_a_variable_round_trips_it(self):
+        variable = sm.FloatVariable("x")
+
+        error_copy = from_json(
+            to_json(FloatVariableAlreadyHasResolveError(variable=variable))
+        )
+
+        assert error_copy.variable is variable

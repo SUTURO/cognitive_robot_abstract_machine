@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing_extensions import List, Optional, Type, Iterable
+from typing_extensions import ClassVar, List, Mapping, Optional, Type, Iterable
 
-from krrood.entity_query_language.predicate import Symbol, Predicate
-from semantic_digital_twin.mixin import HasSimulatorProperties
+from krrood.entity_query_language.predicate import Symbol, Predicate, Triple
+from krrood.entity_query_language.verbalization.fragments.base import (
+    VerbalizationFragment,
+)
+from krrood.entity_query_language.verbalization.vocabulary.english import Prepositions
+from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech import (
+    clause,
+    Noun,
+    Verb,
+)
 
 
 @dataclass(unsafe_hash=True)
@@ -115,7 +123,7 @@ class Wardrobe(View):
     container: Container
 
 
-@dataclass
+@dataclass(unsafe_hash=True)
 class Apple(Body): ...
 
 
@@ -143,3 +151,71 @@ class ContainsType(Predicate):
 
     def __call__(self) -> bool:
         return any(isinstance(obj, self.obj_type) for obj in self.iterable)
+
+    @classmethod
+    def _verbalization_fragment_(
+        cls, fields: Mapping[str, VerbalizationFragment]
+    ) -> VerbalizationFragment:
+        return clause(
+            Noun(fields["iterable"]),
+            Verb("contain"),
+            Noun("instance"),
+            Prepositions.OF,
+            Noun(fields["obj_type"]),
+        )
+
+
+@dataclass(eq=False)
+class TripleDeclaringItsObjectFirst(Triple[Handle, Drawer]):
+    """
+    A relation whose field holding its object comes before the field holding its
+    subject: a handle opens a drawer.
+    """
+
+    drawer: Drawer
+    """
+    The drawer the handle opens.
+    """
+
+    handle: Handle
+    """
+    The handle that opens the drawer.
+    """
+
+    @property
+    def subject(self) -> Handle:
+        return self.handle
+
+    @property
+    def object(self) -> Drawer:
+        return self.drawer
+
+    def __call__(self) -> bool:
+        return self.drawer.handle is self.handle
+
+
+@dataclass(unsafe_hash=True)
+class GraspConfig(WorldEntity):
+    """
+    A value object an action reaches through a relationship rather than owning directly.
+
+    Used to test set_of() with attributes that are transitive rather than direct.
+    """
+
+    rotate_gripper: float = field(default=0.0)
+    approach_direction: float = field(default=0.0)
+    manipulation_offset: float = field(default=0.0)
+
+
+@dataclass(unsafe_hash=True)
+class MoveAction(WorldEntity):
+    """
+    An action with direct fields alongside a relationship to a nested value object.
+
+    Used to test set_of() with both direct and transitive attributes.
+    """
+
+    robot_x: float = field(default=0.0)
+    robot_y: float = field(default=0.0)
+    hip_rotation: float = field(default=0.0)
+    grasp_config: GraspConfig = field(default=None)

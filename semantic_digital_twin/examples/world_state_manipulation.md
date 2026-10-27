@@ -32,7 +32,10 @@ import numpy as np
 from krrood.entity_query_language.factories import entity, variable, in_, the
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer, Handle, Slider, Dresser
+from semantic_digital_twin.specifications.connections import (
+    PrismaticConnectionSpecification,
+)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer, Handle, Dresser
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale, Box, Color
@@ -46,33 +49,28 @@ with world.modify_world():
     world.add_body(root)
 with world.modify_world():
     drawer= Drawer.create_with_new_body_in_world(
-        name=PrefixedName("drawer"),
+        name="drawer",
         scale=Scale(0.3, 0.3, 0.2),
         world=world,
         world_root_T_self=HomogeneousTransformationMatrix(),
+        parent_connection_specification=PrismaticConnectionSpecification(
+            axis=Vector3.X()
+        ),
     )
     handle = Handle.create_with_new_body_in_world(
-        name=PrefixedName("drawer_handle"),
+        name="drawer_handle",
         world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=-0.15),
         world=world,
     )
-    drawer.add_handle(handle)
-
-    slider = Slider.create_with_new_body_in_world(
-        name=PrefixedName("drawer_slider"),
-        world_root_T_self=HomogeneousTransformationMatrix(),
-        world=world,
-        active_axis=Vector3.X()
-    )
-    drawer.add_slider(slider)
+    drawer.add(handle)
 
     dresser = Dresser.create_with_new_body_in_world(
-        name=PrefixedName("dresser"),
+        name="dresser",
         scale=Scale(0.31, 0.31, 0.21),
         world=world,
     )
 
-    dresser.add_drawer(drawer)
+    dresser.add(drawer)
 
 rt = RayTracer(world)
 rt.update_scene()
@@ -92,7 +90,7 @@ drawer = the(
 We can update the drawer's state by altering the free variables position of its prismatic connection to the dresser.
 
 ```{code-cell} ipython3
-drawer.root.parent_connection.position = 0.1
+drawer.movable_joint.position = 0.1
 rt = RayTracer(world)
 rt.update_scene()
 rt.scene.show("jupyter")
@@ -130,7 +128,7 @@ from semantic_digital_twin.world_description.world_entity import Connection
 connection = variable(type_=Connection, domain=world.connections)
 free_connection = the(entity(connection).where(connection.parent == world.root)).first()
 with world.modify_world():
-    free_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(1., 1., 0., 0., 0., 0.5 * np.pi)
+    free_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(1., 1., 0., 0., 0., 0.5 * np.pi, reference_frame=world.root)
 rt = RayTracer(world)
 rt.update_scene()
 rt.scene.show("jupyter")

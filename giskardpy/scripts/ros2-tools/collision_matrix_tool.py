@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import sys
 import traceback
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Tuple, List, Optional, Dict
 
 import rclpy
@@ -45,12 +46,14 @@ from semantic_digital_twin.collision_checking.collision_rules import (
     SelfCollisionMatrixRule,
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.robots.abstract_robot import AbstractRobot
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world_description.geometry import Color
 from semantic_digital_twin.world_description.world_entity import Body
+
+logger = logging.getLogger(__name__)
 
 
 class DisableCollisionReason(Enum):
@@ -104,20 +107,22 @@ class SelfCollisionMatrixInterface:
         self.world = World()
         with self.world.modify_world():
             self.world.add_body(Body(name=PrefixedName("map")))
-        VizMarkerPublisher(
-            _world=self.world, node=rospy.node, shape_source=ShapeSource.COLLISION_ONLY
-        ).with_tf_publisher()
 
     def load_urdf(self, urdf_path: str):
         robot_world = URDFParser.from_file(urdf_path).parse()
         self.self_collision_matrix_rule = SelfCollisionMatrixRule()
-        self.robot = MinimalRobot.from_world(robot_world)
         with self.world.modify_world():
             self.world.clear()
             self.world.add_body(map := Body(name=PrefixedName("map")))
             self.world.merge_world(
                 robot_world, FixedConnection(parent=map, child=robot_world.root)
             )
+        self.robot = MinimalRobot.from_world(self.world)
+        VizMarkerPublisher(
+            _world=self.world,
+            node=rospy.get_node(),
+            shape_source=ShapeSource.COLLISION_ONLY,
+        )
 
     def dye_all_bodies_white_transparent(self):
         with self.world.modify_world():
@@ -184,9 +189,23 @@ class SelfCollisionMatrixInterface:
             )
 
     def safe_srdf(self, file_path: str):
+        self._sync_reasons_to_collision_pairs()
         self.self_collision_matrix_rule.save_self_collision_matrix(
             self.robot.name.name, file_path
         )
+
+    def _sync_reasons_to_collision_pairs(self):
+        """
+        Synchronizes the _reasons dictionary back into allowed_collision_pairs.
+        This ensures UI changes are persisted when saving the SRDF.
+        """
+        self.self_collision_matrix_rule.allowed_collision_pairs.clear()
+        for (body_a, body_b), reason in self._reasons.items():
+            if reason is not None:
+                collision_check = CollisionCheck.create_and_validate(body_a, body_b)
+                self.self_collision_matrix_rule.allowed_collision_pairs.add(
+                    collision_check
+                )
 
     def add_body(self, body: Body):
         self.self_collision_matrix_rule.allowed_collision_bodies.discard(body)
@@ -862,19 +881,72 @@ class Application(QMainWindow):
             QApplication.quit()
 
 
+class StatusMessage(StrEnum):
+    """
+    Messages the tool logs about its own state, for whoever launched it to read.
+    """
+
+    READY = "Collision matrix tool is ready."
+    """
+    Logged once the event loop runs, from which point SIGINT closes the tool.
+    """
+
+
+quit_requested = False
+"""
+Set when SIGINT arrives, so a signal that lands before the event loop starts is not lost.
+"""
+
+
 def handle_sigint(sig, frame):
-    """Handler for the SIGINT signal."""
-    rospy.shutdown()
+    """Handler for the SIGINT signal.
+
+    Only records the request and asks the event loop to quit -- rospy.shutdown() joins
+    the spinner thread and destroys the rclpy node, which is unsafe to run from a signal
+    handler interrupting Qt's event loop. The single rospy.shutdown() call after
+    app.exec_() returns handles it instead, whether the loop ended via this signal or a
+    normal window close.
+
+    Qt ignores a quit issued before ``exec_()`` starts, so the flag is what makes a
+    signal arriving during start-up take effect: :func:`quit_when_requested` delivers it
+    on the first tick of the running loop.
+    """
+    global quit_requested
+    quit_requested = True
     QApplication.quit()
 
 
+def announce_ready():
+    """
+    Log :attr:`StatusMessage.READY`, so whoever launched the tool knows SIGINT now closes it.
+    """
+    logger.info(StatusMessage.READY)
+
+
+def quit_when_requested():
+    """
+    Quit the application if SIGINT was received, including before the loop was running.
+    """
+    if quit_requested:
+        QApplication.quit()
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     rospy.init_node("self_collision_matrix_updater")
     signal.signal(signal.SIGINT, handle_sigint)
 
     app = QApplication(sys.argv)
+    # Qt's event loop blocks the interpreter, so it has to surface periodically for
+    # Python to run signal handlers at all, and to pick up a SIGINT that preceded it.
+    signal_timer = QTimer()
+    signal_timer.timeout.connect(quit_when_requested)
+    signal_timer.start(100)
+
     window = Application()
     window.show()
+    # Fires on the first iteration of the running event loop.
+    QTimer.singleShot(0, announce_ready)
     exit_code = app.exec_()
     rospy.shutdown()
     sys.exit(exit_code)

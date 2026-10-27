@@ -3,8 +3,20 @@ from dataclasses import dataclass
 from math import factorial
 from typing import Dict, List
 
-import krrood.entity_query_language.factories as eql
 import pytest
+
+import krrood.entity_query_language.factories as eql
+from krrood.entity_query_language.exceptions import (
+    MultipleSolutionFound,
+    UnsupportedNegation,
+    GreaterThanExpectedNumberOfSolutions,
+    LessThanExpectedNumberOfSolutions,
+    NonPositiveLimitValue,
+    LiteralConditionError,
+    UnsupportedExpressionTypeForDistinct,
+    TryingToModifyAnAlreadyBuiltQuery,
+    SymbolicDunderAccessError,
+)
 from krrood.entity_query_language.factories import (
     entity,
     set_of,
@@ -24,21 +36,21 @@ from krrood.entity_query_language.factories import (
     a,
     the,
 )
-from krrood.entity_query_language.exceptions import (
-    MultipleSolutionFound,
-    UnsupportedNegation,
-    GreaterThanExpectedNumberOfSolutions,
-    LessThanExpectedNumberOfSolutions,
-    NonPositiveLimitValue,
-    LiteralConditionError,
-    UnsupportedExpressionTypeForDistinct,
-    TryingToModifyAnAlreadyBuiltQuery,
-)
 from krrood.entity_query_language.predicate import (
     HasType,
     symbolic_function,
     Predicate,
 )
+from krrood.entity_query_language.verbalization.fragments.features import (
+    GrammaticalNumber,
+)
+from krrood.entity_query_language.verbalization.vocabulary.english import Prepositions
+from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech import (
+    clause,
+    Noun,
+    Verb,
+)
+from krrood.patterns.role_predicates import IsSameSemanticEntity
 from krrood.entity_query_language.query.quantifiers import (
     ResultQuantificationConstraint,
     Exactly,
@@ -49,10 +61,10 @@ from krrood.entity_query_language.query.quantifiers import (
 from krrood.entity_query_language.utils import (
     cartesian_product_while_passing_the_bindings_around,
 )
-from krrood.symbol_graph.symbol_graph import Symbol, SymbolGraph
-
-from ...dataset.example_classes import VectorsWithProperty
-from ...dataset.example_classes import VectorsWithProperty
+from ...dataset.example_classes import (
+    KRROODPosition,
+    KRROODVectorsWithProperty,
+)
 from ...dataset.semantic_world_like_classes import (
     Handle,
     Body,
@@ -66,6 +78,15 @@ from ...dataset.semantic_world_like_classes import (
     Drawer,
     Cabinet,
 )
+from ...dataset.value_comparisons import IsGreaterThan, IsGreaterThanByMargin
+
+
+def test_variable_from_type_setting(handles_and_containers_world):
+    world = handles_and_containers_world
+    B = variable_from(world.bodies)
+    assert (
+        B._type_ is None
+    ), "The type of the variable should be None when created only from a domain."
 
 
 def test_empty_conditions(handles_and_containers_world, doors_and_drawers_world):
@@ -134,7 +155,9 @@ def test_generate_with_using_attribute_and_callables(handles_and_containers_worl
 
     def generate_handles():
         B = variable(Body, domain=world.bodies)
-        yield from an(entity(B).where(B.name.startswith("Handle"))).evaluate()
+        query = an(entity(B).where(B.name.startswith("Handle")))
+        visualize_query_graph(query)
+        yield from query.evaluate()
 
     handles = list(generate_handles())
     assert len(handles) == 3, "Should generate 3 handles."
@@ -556,7 +579,7 @@ def test_not_and_or_with_domain_mapping(handles_and_containers_world):
 
 def test_generate_with_using_decorated_predicate(handles_and_containers_world):
     """
-    Test that symbolic functions can be used inside and outside of queries
+    Test that symbolic functions can be used inside and outside of queries.
     """
     world = handles_and_containers_world
 
@@ -595,6 +618,18 @@ def test_generate_with_using_inherited_predicate(handles_and_containers_world):
         def __call__(self):
             return self.body1.name[0] == self.body2.name[0] == self.body3.name[0]
 
+        @classmethod
+        def _verbalization_fragment_(cls, fields):
+            return clause(
+                Noun(fields["body1"]),
+                Verb("share", number=GrammaticalNumber.PLURAL),
+                Noun("first character"),
+                Prepositions.WITH,
+                Noun(fields["body2"]),
+                Noun("and"),
+                Noun(fields["body3"]),
+            )
+
     body1 = variable(Body, world.bodies)
     body2 = variable(Body, world.bodies)
     body3 = variable(Body, world.bodies)
@@ -610,7 +645,7 @@ def test_generate_with_using_inherited_predicate(handles_and_containers_world):
             ),
         )
     )
-
+    visualize_query_graph(query)
     body_pairs = list(query.evaluate())
     body_pairs = [
         (body_pair[body1], body_pair[body2], body_pair[body3])
@@ -647,6 +682,15 @@ def test_select_predicate(handles_and_containers_world):
         def __call__(self):
             return self.body.name == self.name
 
+        @classmethod
+        def _verbalization_fragment_(cls, fields):
+            return clause(
+                Noun(fields["body"]),
+                Verb("have"),
+                Noun.the("name"),
+                Noun(fields["name"]),
+            )
+
     body = variable(Body, world.bodies)
     has_name = HasName(body, "Handle1")
     query = the(entity(has_name).where(has_name))
@@ -656,6 +700,27 @@ def test_select_predicate(handles_and_containers_world):
     assert (
         handle1.body.name == "Handle1"
     ), "The generated handle should have the expected name."
+
+
+def test_is_same_entity_predicate_in_query(handles_and_containers_world):
+    """
+    ``IsSameEntity`` is a regular EQL predicate: used symbolically in a ``where`` clause
+    it is bound and evaluated by the query engine like any other predicate.
+
+    Only the literal target itself is the same entity as the target, so exactly one
+    solution is returned.
+    """
+    world = handles_and_containers_world
+    target = world.bodies[0]
+
+    body = variable(type_=Body, domain=world.bodies)
+    same = IsSameSemanticEntity(body, target)
+    query = the(entity(same).where(same))
+
+    matches = query.tolist()
+    assert len(matches) == 1
+    assert isinstance(matches[0], IsSameSemanticEntity)
+    assert matches[0].first_entity is target
 
 
 def test_literal_predicate(handles_and_containers_world):
@@ -669,9 +734,60 @@ def test_literal_predicate(handles_and_containers_world):
         def __call__(self):
             return self.body.name == self.name
 
+        @classmethod
+        def _verbalization_fragment_(cls, fields):
+            return clause(
+                Noun(fields["body"]),
+                Verb("have"),
+                Noun.the("name"),
+                Noun(fields["name"]),
+            )
+
     has_name = HasName(world.bodies[0], world.bodies[0].name)
     with pytest.raises(LiteralConditionError):
         query = the(entity(variable(Body, world.bodies)).where(has_name))
+
+
+def test_predicate_taking_one_variable_attribute_twice():
+    """
+    An attribute filling two arguments of a predicate gives its value to both of them.
+    """
+    values = [0.0, 1.0, 2.0]
+    position = variable(KRROODPosition, [KRROODPosition(x, x, 0.0) for x in values])
+    query = entity(position).where(IsGreaterThan(position.x, position.x))
+
+    assert query.tolist() == []
+
+
+def test_predicate_taking_one_variable_attribute_twice_keeps_what_satisfies_it():
+    """
+    An attribute filling two arguments of a predicate is compared with itself, so a
+    predicate every value satisfies against itself keeps every candidate.
+    """
+    values = [0.0, 1.0, 2.0]
+    positions = [KRROODPosition(x, x, 0.0) for x in values]
+    position = variable(KRROODPosition, positions)
+    query = entity(position).where(
+        IsGreaterThanByMargin(position.x, position.x, margin=-1.0)
+    )
+
+    assert query.tolist() == positions
+
+
+def test_predicate_argument_left_out_takes_its_default():
+    """
+    A predicate argument the query does not pass takes the predicate's default.
+    """
+    values = [0.0, 1.0, 2.0]
+    positions = [KRROODPosition(x, y, 0.0) for x in values for y in values]
+    position = variable(KRROODPosition, positions)
+    query = entity(position).where(IsGreaterThanByMargin(position.x, position.y))
+
+    assert query.tolist() == [
+        candidate
+        for candidate in positions
+        if candidate.x > candidate.y + IsGreaterThanByMargin.margin
+    ]
 
 
 def test_contains_type():
@@ -696,7 +812,7 @@ def test_equivalent_to_contains_type_using_exists():
     fb = variable(FruitBox, domain=None)
     fruit_box_query = an(
         entity(fb).where(
-            exists(fb, HasType(flat_variable(fb.fruits), Apple)),
+            exists(var := flat_variable(fb.fruits), HasType(var, Apple)),
         )
     )
 
@@ -930,6 +1046,46 @@ def test_flatten_iterable_attribute(handles_and_containers_world):
     assert {row.handle.name for row in results} == {"Handle1", "Handle2", "Handle3"}
 
 
+def test_two_indexings_by_one_key_variable_follow_the_same_element(
+    handles_and_containers_world,
+):
+    """
+    Indexing names which element it means, so two indexings by one key variable follow
+    that key together rather than ranging over the elements independently.
+    """
+    world = handles_and_containers_world
+
+    cabinet = variable(Cabinet, world.views)
+    position = variable(int, domain=[0, 1])
+    query = entity(cabinet).where(
+        cabinet.drawers[position].handle.name != cabinet.drawers[position].handle.name
+    )
+
+    assert query.distinct().tolist() == []
+
+
+def test_two_flattenings_of_one_attribute_range_independently(
+    handles_and_containers_world,
+):
+    """
+    Each flattening is a variable of its own, so a condition can relate one element of a
+    collection to a different element of the same collection.
+    """
+    world = handles_and_containers_world
+    cabinets = [view for view in world.views if isinstance(view, Cabinet)]
+
+    cabinet = variable(Cabinet, world.views)
+    one_drawer = flat_variable(cabinet.drawers)
+    another_drawer = flat_variable(cabinet.drawers)
+    query = entity(cabinet).where(one_drawer.handle.name != another_drawer.handle.name)
+
+    assert query.distinct().tolist() == [
+        candidate
+        for candidate in cabinets
+        if len({drawer.handle.name for drawer in candidate.drawers}) > 1
+    ]
+
+
 def test_flatten_iterable_attribute_and_use_not_equal(handles_and_containers_world):
     world = handles_and_containers_world
 
@@ -940,10 +1096,19 @@ def test_flatten_iterable_attribute_and_use_not_equal(handles_and_containers_wor
     query = an(entity(drawers).where(drawer_1 != drawers))
 
     results = list(query.evaluate())
-
+    visualize_query_graph(query)
     # We should get one row for each drawer and the parent view preserved
     assert len(results) == 2
     assert {row.handle.name for row in results} == {"Handle2", "Handle3"}
+
+
+def visualize_query_graph(query, **kwargs):
+    try:
+        from krrood.entity_query_language.query_graph import QueryGraph
+
+        QueryGraph(query).visualize(**kwargs)
+    except ImportError as e:
+        print(f"Failed to visualize query graph: {e}")
 
 
 def test_exists_and_for_all(handles_and_containers_world):
@@ -1017,7 +1182,7 @@ def test_property_selection():
     """
     Test that properties can be selected from entities in a query.
     """
-    v = variable(VectorsWithProperty, None)
+    v = variable(KRROODVectorsWithProperty, None)
     q = an(entity(v).where(v.vectors[0].x == 1))
 
 
@@ -1054,7 +1219,7 @@ def test_order_by_not_evaluated_variable(handles_and_containers_world):
 def test_ordering_the_query_by_the_query_itself(handles_and_containers_world):
     body = variable(Body, domain=handles_and_containers_world.bodies)
     query = entity(body).where(contains(body.name, "Handle"))
-    ordered_query = an(query.ordered_by(query.name[-1], descending=True))
+    ordered_query = a(query.ordered_by(query.name[-1], descending=True))
     filtered_values = [
         b for b in handles_and_containers_world.bodies if "Handle" in b.name
     ]
@@ -1117,19 +1282,23 @@ def test_recalling_where_statement_with_quantification(handles_and_containers_wo
     assert len(list(query.evaluate())) == 1
 
 
-def test_modifying_built_query_raises_error(handles_and_containers_world):
+def test_modifying_built_query_rebuilds(handles_and_containers_world):
     body = variable(Body, domain=handles_and_containers_world.bodies)
     query = entity(body).where(contains(body.name, "Handle"))
-    query.evaluate()
-    with pytest.raises(TryingToModifyAnAlreadyBuiltQuery):
-        query.where(contains(body.name, "1"))
+    results_before = list(query.evaluate())
+    # The query is no longer frozen after being built/evaluated: modifying it marks the compiled
+    # expression dirty and the next evaluation rebuilds it, reflecting the extra condition.
+    query.where(contains(body.name, "1"))
+    results_after = list(query.evaluate())
+    assert len(results_after) == 1
+    assert len(results_after) < len(results_before)
 
 
 def test_chain_evaluate_variables():
     var1 = variable(int, [1, 2])
     var2 = variable(int, [3, 4])
     values = []
-    for val in cartesian_product_while_passing_the_bindings_around((var1, var2), {}):
+    for val in cartesian_product_while_passing_the_bindings_around((var1, var2), None):
         values.append(tuple(val.bindings.values()))
     assert values == [(1, 3), (1, 4), (2, 3), (2, 4)]
 
@@ -1153,6 +1322,91 @@ def test_subquery_independence():
     # test with an()
     query = an(entity(var1).where(var1 != an(entity(var1).where(var1 == 2))))
     assert query.tolist() == [1, 4, 3]
+
+
+def test_editing_and_rebuilding_original_after_embedding_leaves_subquery_snapshot_unchanged():
+    """Embedding a query as a subquery captures an immutable snapshot, so editing **and rebuilding**
+    the original afterwards does not retroactively change the already-embedded copy."""
+    var1 = variable(int, [1, 2, 3, 4])
+    inner = entity(var1).where(var1 == 2)
+    outer = an(entity(var1).where(var1 != an(inner)))
+
+    before = sorted(outer.tolist())
+    assert before == [1, 3, 4]
+
+    # Mutate the original inner query and rebuild it (rebuilding rewires the live query node, which
+    # would corrupt the embedded copy if it were shared rather than snapshotted).
+    inner.where(var1 == 3)
+    inner.tolist()
+
+    assert sorted(outer.tolist()) == before
+
+
+def test_editing_distinct_subquery_after_embedding_leaves_snapshot_unchanged():
+    """A subquery that uses distinct is still snapshotted on embedding, so editing and rebuilding the
+    original afterwards does not change the embedded copy."""
+    var1 = variable(int, [1, 2, 3, 4])
+    inner = entity(var1).where(var1 == 2).distinct()
+    outer = an(entity(var1).where(var1 != an(inner)))
+
+    before = sorted(outer.tolist())
+    assert before == [1, 3, 4]
+
+    inner.where(var1 == 3)
+    inner.tolist()
+
+    assert sorted(outer.tolist()) == before
+
+
+def test_embedding_a_count_all_subquery_does_not_corrupt_the_original():
+    """Embedding a ``count_all`` query must not corrupt it: re-evaluating the original after embedding
+    still produces correct results."""
+    group_variable = variable(int, [10, 20])
+    counted = set_of(group_variable, eql.count_all()).grouped_by(group_variable)
+
+    before = sorted(tuple(row.values()) for row in counted.tolist())
+
+    embedding = an(entity(counted))
+    embedding.tolist()
+
+    assert sorted(tuple(row.values()) for row in counted.tolist()) == before
+
+
+def test_editing_and_rebuilding_a_count_all_subquery_after_embedding_leaves_snapshot_unchanged():
+    """A ``count_all`` subquery is snapshotted on embedding like any other query, so editing **and
+    rebuilding** the original afterwards does not change the already-embedded copy."""
+    group_variable = variable(int, [10, 10, 20])
+    counted = set_of(group_variable, eql.count_all()).grouped_by(group_variable)
+    outer = an(entity(counted))
+
+    before = sorted(tuple(row.values()) for row in outer.tolist())
+    assert before == [(10, 2), (20, 1)]
+
+    counted.where(group_variable != 20)
+    counted.tolist()
+
+    assert sorted(tuple(row.values()) for row in outer.tolist()) == before
+
+
+def test_embedded_subquery_captures_the_current_product_and_shares_variable_leaves():
+    """The operand embedded for a subquery is the source's compiled product captured at embed time,
+    sharing variable leaves so derived references stay valid. A later edit rebuilds the source into a
+    new product, leaving the already-embedded operand frozen."""
+    var1 = variable(int, [1, 2, 3])
+    source = entity(var1).where(var1 == 2)
+
+    condition = var1 != a(source)
+    source.build()
+
+    embedded = condition.right
+    assert embedded is source._expression_
+    assert any(descendant is var1 for descendant in embedded._descendants_)
+
+    # Editing and rebuilding the source produces a new product; the embedded operand is unchanged.
+    source.where(var1 == 3)
+    source.build()
+    assert condition.right is embedded
+    assert source._expression_ is not embedded
 
 
 def test_first():
@@ -1185,8 +1439,76 @@ def test_type_availability_in_mapped_variables(handles_and_containers_world):
     assert first_drawer_handle._type_ is Handle
 
 
-def test_indexing_on_dict_field():
+def test_accessing_a_dunder_attribute_symbolically_raises_a_helpful_error():
+    """
+    Dunder attribute access on a variable raises a helpful, AttributeError-compatible
+    error.
 
+    It must remain an :class:`AttributeError` so that ``copy``/``pickle`` machinery
+    probing optional dunder hooks still treats it as a missing attribute, while its
+    message points at ``@symbolic_function`` as the correct way to reach a dunder-named
+    member.
+    """
+    var = variable(int, [1, 2, 3])
+
+    with pytest.raises(SymbolicDunderAccessError) as exception_info:
+        var.__name__
+
+    assert isinstance(exception_info.value, AttributeError)
+    assert exception_info.value.attribute_name == "__name__"
+    message = str(exception_info.value)
+    assert "__name__" in message
+    assert "symbolic_function" in message
+
+    # The AttributeError contract keeps optional-hook probing working.
+    assert getattr(var, "__name__", "fallback") == "fallback"
+
+
+def test_descendants_yields_each_shared_node_only_once():
+    """A node reachable by more than one path is a descendant once, not once per path.
+
+    ``and_(v > 1, v < 3)`` makes ``v`` a child of both comparators, so a naive
+    depth-first walk revisits ``v`` (and, in a rule tree, every shared subtree)
+    once per path. On a deep rule-tree DAG this compounds into an exponential
+    traversal that stalls fitting, so ``_descendants_`` must yield every node at
+    most once.
+    """
+    var = variable(int, [1, 2, 3])
+    entity(var).where(and_(var > 1, var < 3))
+    descendant_ids = [descendant._id_ for descendant in var._root_._descendants_]
+
+    assert len(descendant_ids) == len(set(descendant_ids))
+
+
+def test_root_caches_all_descendant_ids_for_nested_queries():
+    """
+    Test that the root of a query has all descendant IDs in its _expression_id_cache_,
+    including those from nested sub-queries.
+    """
+    var = variable(int, [1, 2, 3, 4])
+
+    # Single-level query: root should cache all descendants
+    inner = the(entity(var).where(var == 2))
+    outer = an(entity(var).where(var != inner))
+    root = outer._root_
+    for descendant in root._descendants_:
+        assert (
+            descendant._id_ in root._expression_id_cache_
+        ), f"{descendant} (id={descendant._id_}) missing from root._expression_id_cache_"
+
+    # Doubly-nested: the inside the inside an
+    var2 = variable(int, [1, 2, 3, 4])
+    innermost = the(entity(var2).where(var2 == 1))
+    middle = the(entity(var2).where(var2 != innermost))
+    outermost = an(entity(var2).where(var2 != middle))
+    root2 = outermost._root_
+    for descendant in root2._descendants_:
+        assert (
+            descendant._id_ in root2._expression_id_cache_
+        ), f"{descendant} (id={descendant._id_}) missing from root2._expression_id_cache_"
+
+
+def test_indexing_on_dict_field():
     @dataclass
     class ItemWithDictionary:
         name: str
@@ -1212,6 +1534,7 @@ def test_indexing_on_dict_field():
 
     i = variable(ItemWithDictionary, world.items)
     q = an(entity(i).where(i.attrs["score"] == 2))
+    visualize_query_graph(q)
     res = list(q.evaluate())
     assert {x.name for x in res} == {"B", "C"}
 
@@ -1253,12 +1576,43 @@ def test_indexing_2():
     assert body_tha_has_red_shape[0].shapes[0].color == "red"
 
 
-def test_accessing_dunder_methods():
-    world_classes = [Body, Cabinet, Drawer, Handle, Container, Connection]
-    world_class = variable_from(world_classes)
-    world_class_starting_with_c = entity(world_class).where(
-        world_class.__name__.startswith("C")
-    )
-    results = world_class_starting_with_c.tolist()
-    assert len(results) == 3
-    assert set(results) == {c for c in world_classes if c.__name__.startswith("C")}
+def test_debugger_issue():
+    # a normal query using a property
+    var = variable(int, [1, 2, 3])
+    with pytest.raises(TypeError):
+        list(var)
+
+
+def test_presentation_example():
+    @dataclass
+    class Task:
+        name: str
+        completed: bool
+
+    @dataclass
+    class Robot:
+        name: str
+        battery: int
+        tasks: List[Task]
+
+    robots = [
+        Robot("Robot1", 100, [Task("Task1", True), Task("Task2", False)]),
+        Robot("Robot2", 50, [Task("Task3", False), Task("Task4", True)]),
+        Robot("Robot3", 75, [Task("Task5", False), Task("Task6", True)]),
+    ]
+    r = variable(Robot, robots)
+    q = an(entity(r).where(r.battery > 50, not_(r.tasks[0].completed)))
+    visualize_query_graph(q, figure_size=(20, 20), spacing_x=2, spacing_y=2)
+    assert q.tolist() == [robots[2]]
+
+
+def test_empty_data_to_aggregator():
+    data = variable(int, [])
+
+    @symbolic_function
+    def x_value(x_):
+        return x_
+
+    key = lambda x: x_value(x)
+    min_ = entity(eql.min(data, key=key))
+    assert min_.tolist() == [None]

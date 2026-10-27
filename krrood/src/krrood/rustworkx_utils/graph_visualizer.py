@@ -2,14 +2,28 @@ from __future__ import annotations
 
 from collections import defaultdict
 from textwrap import fill
+
 from typing_extensions import Optional, List, Dict, Tuple, TYPE_CHECKING, Any
 
-import igraph as ig
-import matplotlib as mpl
-import numpy as np
-from matplotlib import pyplot as plt
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
-from matplotlib.path import Path
+try:
+    import matplotlib as mpl
+
+    # Ensure a non-interactive backend for headless environments
+    # Needs to be done before importing pyplot
+    try:
+        mpl.use("Agg")
+    except Exception:
+        pass
+    from matplotlib import pyplot as plt
+    from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+    from matplotlib.path import Path
+except ModuleNotFoundError:
+    mpl = None
+
+try:
+    import numpy as np
+except ModuleNotFoundError:
+    np = None
 
 from krrood.rustworkx_utils.utils import ColorLegend
 
@@ -18,7 +32,8 @@ if TYPE_CHECKING:
 
 
 class GraphVisualizer:
-    """Responsible for rendering an RWXNode graph with a layered top-to-bottom layout.
+    """
+    Responsible for rendering an RWXNode graph with a layered top-to-bottom layout.
 
     The class encapsulates the visualization pipeline in small reusable steps while
     preserving the previous behavior.
@@ -82,17 +97,18 @@ class GraphVisualizer:
         self._style_and_save(fig, ax)
         return fig, ax
 
-    # ---- Steps ----
-    def _check_dependencies(self):
-        if not ig or not mpl or not fill:
-            raise RuntimeError(
-                "igraph, matplotlib, textwrap must be installed to visualize the graph."
+    @classmethod
+    def _check_dependencies(cls):
+        if mpl is None:
+            raise ModuleNotFoundError(
+                "matplotlib must be installed to visualize the graph. (pip install matplotlib)",
+                name="matplotlib",
             )
-        # Ensure a non-interactive backend for headless environments
-        try:
-            mpl.use("Agg")
-        except Exception:
-            pass
+        elif np is None:
+            raise ModuleNotFoundError(
+                "numpy must be installed to visualize the graph. (pip install numpy)",
+                name="numpy",
+            )
 
     def _build_rooted_subgraph(self):
         root = self.node.root
@@ -570,7 +586,9 @@ class GraphVisualizer:
         p_end: Tuple[float, float],
         ignore: Tuple[int, int],
     ):
-        """Return True if the segment p_start->p_end intersects any obstacle rectangle.
+        """
+        Return True if the segment p_start->p_end intersects any obstacle rectangle.
+
         Uses a robust Cohen–Sutherland style clipping check to detect any intersection,
         not only corner proximity or endpoint containment.
         """
@@ -638,7 +656,9 @@ class GraphVisualizer:
         prev_ortho_segments = self.ctx["prev_ortho_segments"]
         x_extent = self.ctx["x_extent"]
         y_extent = self.ctx["y_extent"]
-        arrow_color = "#666666"
+        ordered_nodes = self.ctx.get("ordered_nodes", [])
+        default_arrow_color = "#666666"
+        faded_arrow_color = "#cccccc"
 
         def within_x(xp: float) -> bool:
             return 0.0 <= xp <= x_extent
@@ -649,6 +669,12 @@ class GraphVisualizer:
         for idx, (u, v) in enumerate(edges):
             x0, y0 = norm_pos[u]
             x1, y1 = norm_pos[v]
+            target_node = ordered_nodes[v] if v < len(ordered_nodes) else None
+            edge_color = (
+                faded_arrow_color
+                if getattr(target_node, "faded", False)
+                else default_arrow_color
+            )
             # congestion probe (for arc/spline)
             near_count = 0
             nearest = None
@@ -713,7 +739,7 @@ class GraphVisualizer:
                         arrowstyle="-|>",
                         mutation_scale=16,
                         linewidth=4.0,
-                        color=arrow_color,
+                        color=edge_color,
                         alpha=0.5,
                         zorder=4,
                         clip_on=False,
@@ -731,7 +757,7 @@ class GraphVisualizer:
                         arrowstyle="-|>",
                         mutation_scale=16,
                         linewidth=4.0,
-                        color=arrow_color,
+                        color=edge_color,
                         alpha=0.5,
                         zorder=4,
                         clip_on=False,
@@ -909,7 +935,7 @@ class GraphVisualizer:
                                 arrowstyle="-|>",
                                 mutation_scale=16,
                                 linewidth=4.0,
-                                color=arrow_color,
+                                color=edge_color,
                                 alpha=0.5,
                                 zorder=4,
                                 clip_on=False,
@@ -1004,7 +1030,7 @@ class GraphVisualizer:
                     arrowstyle="-|>",
                     mutation_scale=16,
                     linewidth=4.0,
-                    color=arrow_color,
+                    color=edge_color,
                     alpha=0.5,
                     zorder=4,
                     clip_on=False,
@@ -1053,7 +1079,7 @@ class GraphVisualizer:
                 arrowstyle="-|>",
                 mutation_scale=16,
                 linewidth=4.0,
-                color=arrow_color,
+                color=edge_color,
                 alpha=0.5,
                 zorder=4,
                 clip_on=False,
@@ -1069,14 +1095,22 @@ class GraphVisualizer:
         colors = [
             n.color.color if n.color else ColorLegend().color for n in ordered_nodes
         ]
+        edgecolors = [
+            getattr(n, "border_color", None)
+            or ("#cccccc" if getattr(n, "faded", False) else "black")
+            for n in ordered_nodes
+        ]
+        linewidths = [
+            3.5 if getattr(n, "border_color", None) else 2.0 for n in ordered_nodes
+        ]
         # Base node markers
         ax.scatter(
             norm_pos[:, 0],
             norm_pos[:, 1],
             s=size_per_node,
             c=colors,
-            edgecolors="black",
-            linewidths=2.0,
+            edgecolors=edgecolors,
+            linewidths=linewidths,
             alpha=0.95,
             zorder=2,
         )
@@ -1110,6 +1144,7 @@ class GraphVisualizer:
                 va="center",
                 fontsize=font_size,
                 fontweight="medium",
+                color="black",
                 wrap=True,
                 bbox=dict(boxstyle="round,pad=0.28", facecolor="white", alpha=0.85),
                 zorder=3,
@@ -1147,18 +1182,38 @@ class GraphVisualizer:
                 markeredgewidth=2.5,
             )
             handles.append(enclosed_handle)
+        # Add red-border legend entry when any node has an unsatisfied/skipped marker
+        any_unsatisfied = any(
+            getattr(n, "border_color", None) is not None for n in ordered_nodes
+        )
+        if any_unsatisfied:
+            unsatisfied_handle = Line2D(
+                [0],
+                [0],
+                marker="o",
+                linestyle="None",
+                label="Not satisfied (red border)",
+                markerfacecolor="none",
+                markeredgecolor="red",
+                markeredgewidth=3.5,
+                markersize=10,
+            )
+            handles.append(unsatisfied_handle)
         fw, fh = fig.get_size_inches()
         scale = 0.7 * (max(0.5, fw / 12.0) + max(0.5, fh / 9.0))
         legend_fs = float(np.clip(10.0 * scale, 8.0, 28.0))
         title_fs = float(np.clip(legend_fs * 1.1, 9.0, 32.0))
-        ax.legend(
+        legend = ax.legend(
             handles=handles,
             title="Node types",
             loc="upper left",
             framealpha=0.9,
+            facecolor="white",
+            labelcolor="black",
             fontsize=legend_fs,
             title_fontsize=title_fs,
         )
+        legend.get_title().set_color("black")
 
     def _style_and_save(self, fig, ax):
         # White backgrounds
