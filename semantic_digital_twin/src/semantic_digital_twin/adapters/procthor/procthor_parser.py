@@ -32,7 +32,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Kitchen,
     Bedroom,
     Bathroom,
-    LivingRoom,
+    LivingRoom, Office,
 )
 from semantic_digital_twin.spatial_types.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -502,6 +502,8 @@ class ProcthorRoom:
             room = Kitchen(name=room_name, floor=floor)
         elif "Bathroom" in self.name:
             room = Bathroom(name=room_name, floor=floor)
+        elif "Office" in self.name:
+            room = Office(name=room_name, floor=floor)
         else:
             assert_never(self.name)
 

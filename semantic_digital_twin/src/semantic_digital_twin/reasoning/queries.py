@@ -16,6 +16,7 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.query.query import Entity
 from krrood.entity_query_language.predicate import symbolic_function, length
 from krrood.utils import recursive_subclasses
+from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 
 from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
@@ -27,6 +28,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Kitchen, KitchenIsland, Room, LivingRoom
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -222,3 +224,16 @@ def sort_annotations_by_volume(
     return entity(annotaion_var).ordered_by(
         get_volume(annotaion_var), descending=not order
     )
+
+def find_room(room:Room, world: World) -> (float,float):        #ToDo: add Test
+    for sem in world.get_semantic_annotations_by_type(room):
+        return (sem.bodies[0].global_pose.x, sem.bodies[0].global_pose.y)
+    return (0,0)
+
+# def check_if_free(x,y) -> bool:
+#     return True
+#
+# def give_free_position(x,y) -> (int,int):
+#     return (1,2)
+#
+
