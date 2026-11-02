@@ -2,11 +2,15 @@
 The HSR drives from the kitchen into the living room in MuJoCo. Run it from anywhere::
 
     python demo_in_kitchen.py
+
+The viewer stays open after the robot arrives; the program ends when it is closed.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass, field, replace
+from datetime import timedelta
 
 import numpy as np
 
@@ -67,6 +71,23 @@ class FloorPose:
             x=self.x, y=self.y, yaw=self.yaw, reference_frame=world.root
         )
 
+    def facing(self, target: FloorPose) -> FloorPose:
+        """
+        :param target: The place to face.
+        :return: This place, facing ``target``.
+        """
+        yaw = np.arctan2(float(target.y - self.y), float(target.x - self.x))
+        return replace(self, yaw=float(yaw))
+
+    @classmethod
+    def of_robot(cls, robot: AbstractRobot) -> FloorPose:
+        """
+        :param robot: The robot standing on the floor.
+        :return: Where ``robot`` stands, without regard to where it faces.
+        """
+        pose = robot.root.global_pose
+        return cls(x=float(pose.x), y=float(pose.y))
+
 
 # %% the demonstration
 
@@ -90,6 +111,11 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
     Where the HSR starts, in the doorway of the kitchen.
     """
 
+    viewer_frame_duration: timedelta = timedelta(seconds=1 / 60)
+    """
+    How much simulated time passes between two frames of the viewer that stays open
+    after the plan, matched by the same span of real time.
+    """
 
     def scene_specification(self) -> WorldSpecification:
         """
@@ -124,22 +150,54 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(target_location=self._living_room_pose(world)),
+                    *self._drive(
+                        world, FloorPose.of_robot(hsrb), self._living_room(world)
+                    ),
                 ]
             )
         )
         return statechart
 
-    def _living_room_pose(self, world: World) -> Pose:
+    def tear_down(self) -> None:
+        """
+        Keep the physics running in real time while the viewer is open, then
+        :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down`.
+        """
+        if self.simulation is not None and not self.headless:
+            renderer = self.simulation.simulator.renderer
+            frame_seconds = self.viewer_frame_duration.total_seconds()
+            while renderer.is_running():
+                frame_start = time.monotonic()
+                self.simulation.step_simulation(self.viewer_frame_duration)
+                time.sleep(max(0.0, frame_seconds - (time.monotonic() - frame_start)))
+        super().tear_down()
+
+    def _drive(
+        self, world: World, start: FloorPose, target: FloorPose
+    ) -> list[NavigateAction]:
+        """
+        :param world: The world the robot drives in.
+        :param start: Where the robot stands before it drives.
+        :param target: Where the robot drives to.
+        :return: The moves that turn the robot on the spot towards ``target`` and then
+            drive it straight there, so that it faces the way it is going.
+        """
+        heading = start.facing(target)
+        return [
+            NavigateAction(target_location=heading.in_world(world)),
+            NavigateAction(
+                target_location=replace(target, yaw=heading.yaw).in_world(world)
+            ),
+        ]
+
+    def _living_room(self, world: World) -> FloorPose:
         """
         :param world: The world holding the kitchen environment.
         :return: Where the HSR stands in the living room, as :func:`find_room` finds
-            it, facing :attr:`living_room_facing`.
+            it.
         """
         x, y = find_room(LivingRoom, world)
-        return FloorPose(x=x, y=y).in_world(
-            world
-        )
+        return FloorPose(x=x, y=y)
 
 
 def main(headless: bool = False) -> World:
