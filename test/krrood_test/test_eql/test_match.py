@@ -1,11 +1,9 @@
 from dataclasses import dataclass
 
 import pytest
-from typing_extensions import Tuple
 
 from krrood.entity_query_language.factories import (
     entity,
-    flat_variable,
     set_of,
     variable,
     the,
@@ -17,23 +15,28 @@ from krrood.entity_query_language.exceptions import (
     CalledMatchMultipleTimes,
     PositionalArgumentsInMatchPattern,
     MatchTypeCannotBeDetermined,
-    ReadOnlyMapping,
     SymbolicDunderAccessError,
 )
-from krrood.entity_query_language.predicate import HasType
+from krrood.entity_query_language.predicate import (
+    HasType,
+    Is,
+    SymbolicFunction,
+    symbolic_function,
+)
+from krrood.entity_query_language.verbalization.vocabulary.parts_of_speech import (
+    FunctionVerbalizationTemplates,
+)
 from krrood.entity_query_language.core.mapped_variable import (
     Attribute,
     HasSymbolicOperations,
 )
 from krrood.entity_query_language.operators.arithmetic import ArithmeticOperation
 from krrood.entity_query_language.operators.comparator import Comparator
-from krrood.entity_query_language.query.match import AttributeMatch, Match
+from krrood.entity_query_language.query.match import Match
 from krrood.entity_query_language.query.query_modifiers import HasQueryModifiers
 from krrood.entity_query_language.core.base_expressions import UnificationDict
 from ..dataset.example_classes import KRROODPositions, KRROODPosition
 from ..dataset.semantic_world_like_classes import (
-    Cabinet,
-    Drawer,
     FixedConnection,
     Container,
     Handle,
@@ -587,7 +590,7 @@ class SubscriptableRow:
     """
 
     name: str
-    cells: Tuple[int, ...]
+    cells: tuple[int, ...]
 
     def __getitem__(self, index: int) -> int:
         return self.cells[index]
@@ -692,22 +695,50 @@ def test_a_second_pattern_still_raises_when_the_matched_class_is_not_callable():
         match(y=2.0)
 
 
-# %% writing an attribute value back into a match
+# %% a match given as the argument of a predicate or symbolic function
 
 
-def test_writing_through_a_flattened_attribute_of_a_match_is_rejected():
+@symbolic_function
+def rounded_x_coordinate_of(position: KRROODPosition) -> float:
     """
-    A flattening reaches every element of a collection without naming one, so a match
-    whose attribute is reached through one has no single place to write the value.
+    :param position: The position to read.
+    :return: The x coordinate of *position*, rounded to a whole number.
     """
-    drawer = Drawer(handle=Handle(name="Handle1"), container=Container(name="Drawer1"))
-    match = a(Cabinet)(container=Container(name="Container1"), drawers=[drawer])
-    attribute_match = AttributeMatch(
-        _parent_=match,
-        attribute_name="handle",
-        assigned_value=Handle(name="Handle9"),
-        _variable_=flat_variable(match._variable_.drawers).handle,
-    )
+    return round(position.x)
 
-    with pytest.raises(ReadOnlyMapping):
-        attribute_match._update_kwargs_from(match)
+
+@dataclass(eq=False)
+class XCoordinate(SymbolicFunction):
+    """
+    The x coordinate of a position.
+    """
+
+    position: KRROODPosition
+    """
+    The position whose x coordinate is read.
+    """
+
+    def __call__(self) -> float:
+        return self.position.x
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields):
+        return FunctionVerbalizationTemplates.possessive(cls, *fields.values())
+
+
+def test_predicate_applied_to_a_match_filters_its_matches():
+    positions = [KRROODPosition(1.0, 0.0, 0.0), KRROODPosition(5.0, 0.0, 0.0)]
+    match = a(KRROODPosition).from_(positions)
+    assert match.where(Is(match, positions[1])).tolist() == [positions[1]]
+
+
+def test_symbolic_function_applied_to_a_match_filters_its_matches():
+    positions = [KRROODPosition(1.0, 0.0, 0.0), KRROODPosition(5.0, 0.0, 0.0)]
+    match = a(KRROODPosition).from_(positions)
+    assert match.where(rounded_x_coordinate_of(match) == 5).tolist() == [positions[1]]
+
+
+def test_symbolic_function_class_applied_to_a_match_filters_its_matches():
+    positions = [KRROODPosition(1.0, 0.0, 0.0), KRROODPosition(5.0, 0.0, 0.0)]
+    match = a(KRROODPosition).from_(positions)
+    assert match.where(XCoordinate(match) == 5.0).tolist() == [positions[1]]

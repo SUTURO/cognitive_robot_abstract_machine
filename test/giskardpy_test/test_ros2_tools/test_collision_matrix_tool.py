@@ -5,14 +5,12 @@ import signal
 import subprocess
 import sys
 import time
+from contextlib import ExitStack, contextmanager
 from importlib.resources import files
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Mock PyQt5 and ROS 2
-mock_ros2 = MagicMock()
-mock_rospy = MagicMock()
+from typing_extensions import Any, Iterator
 
 # Mock PyQt5
 QtWidgets = MagicMock()
@@ -52,31 +50,62 @@ QtWidgets.QFrame = MockQWidget
 QtWidgets.QScrollArea = MockQWidget
 
 
+@contextmanager
+def substituted_modules(substitutes: dict[str, Any]) -> Iterator[None]:
+    """
+    Makes imports of the given module names resolve to their substitutes inside the
+    block, and to what they resolved to before once it is left.
+
+    A submodule of a package that is imported already is also substituted as the
+    attribute of that package, which ``from package import submodule`` reads first.
+
+    :param substitutes: The substitute of each module name.
+    """
+    replaced_modules = {
+        name: sys.modules[name] for name in substitutes if name in sys.modules
+    }
+    with ExitStack() as package_attributes:
+        for name, substitute in substitutes.items():
+            package_name, _, attribute = name.rpartition(".")
+            if package_name in sys.modules and package_name not in substitutes:
+                package_attributes.enter_context(
+                    patch.object(
+                        sys.modules[package_name], attribute, substitute, create=True
+                    )
+                )
+        sys.modules.update(substitutes)
+        try:
+            yield
+        finally:
+            for name in substitutes:
+                del sys.modules[name]
+            sys.modules.update(replaced_modules)
+
+
 # Import the tool
 def import_tool(path):
     spec = importlib.util.spec_from_file_location("collision_matrix_tool", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["collision_matrix_tool"] = module
-    with patch.dict(
-        sys.modules,
-        {
-            "giskardpy.middleware.ros2": mock_ros2,
-            "giskardpy.middleware.ros2.rospy": mock_rospy,
-            "PyQt5": MagicMock(),
-            "PyQt5.QtCore": MagicMock(),
-            "PyQt5.QtCore.Qt": MagicMock(),
-            "PyQt5.QtGui": MagicMock(),
-            "PyQt5.QtWidgets": QtWidgets,
-        },
-    ):
-        spec.loader.exec_module(module)
+    spec.loader.exec_module(module)
     return module
 
 
 tool_path = os.path.abspath(
     files("giskardpy").joinpath("../../scripts/ros2-tools/collision_matrix_tool.py")
 )
-tool = import_tool(tool_path)
+# Mock PyQt5 and ROS 2 only while importing the tool
+with substituted_modules(
+    {
+        "giskardpy.middleware.ros2": MagicMock(),
+        "semantic_digital_twin.adapters.ros.rospy": MagicMock(),
+        "PyQt5": MagicMock(),
+        "PyQt5.QtCore": MagicMock(),
+        "PyQt5.QtGui": MagicMock(),
+        "PyQt5.QtWidgets": QtWidgets,
+    }
+):
+    tool = import_tool(tool_path)
 from collision_matrix_tool import SelfCollisionMatrixInterface, DisableCollisionReason
 
 STARTUP_TIMEOUT_SECONDS = 120
