@@ -227,7 +227,7 @@ def sort_annotations_by_volume(
 
 def find_room(room:Room, world: World) -> (float,float):        #ToDo: add Test
     for sem in world.get_semantic_annotations_by_type(room):
-        return (sem.bodies[0].global_pose.x, sem.bodies[0].global_pose.y)
+        return (float(sem.bodies[0].global_pose.x), float(sem.bodies[0].global_pose.y))
     return (0,0)
 
 # def check_if_free(x,y) -> bool:

@@ -21,8 +21,12 @@ from cramph.statechart import Statechart
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
+from semantic_digital_twin.reasoning.queries import find_room
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    LivingRoom,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.specifications.robots import RobotSpecification
@@ -86,20 +90,6 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
     Where the HSR starts, in the doorway of the kitchen.
     """
 
-    kitchen_centre: FloorPose = field(
-        default_factory=lambda: FloorPose(x=1.5, y=0.0, yaw=np.pi / 2)
-    )
-    """
-    The free floor in the middle of the kitchen, facing the living room, driven through
-    so that the robot passes clear of the desk next to the doorway.
-    """
-
-    living_room: FloorPose = field(
-        default_factory=lambda: FloorPose(x=1.5, y=2.5, yaw=np.pi / 2)
-    )
-    """
-    The free floor in the living room, beside the sofa.
-    """
 
     def scene_specification(self) -> WorldSpecification:
         """
@@ -134,12 +124,22 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(target_location=self.kitchen_centre.in_world(world)),
-                    NavigateAction(target_location=self.living_room.in_world(world)),
+                    NavigateAction(target_location=self._living_room_pose(world)),
                 ]
             )
         )
         return statechart
+
+    def _living_room_pose(self, world: World) -> Pose:
+        """
+        :param world: The world holding the kitchen environment.
+        :return: Where the HSR stands in the living room, as :func:`find_room` finds
+            it, facing :attr:`living_room_facing`.
+        """
+        x, y = find_room(LivingRoom, world)
+        return FloorPose(x=x, y=y).in_world(
+            world
+        )
 
 
 def main(headless: bool = False) -> World:
