@@ -1,5 +1,9 @@
-import numpy as np
+from __future__ import annotations
+
+from dataclasses import dataclass
 from enum import Enum
+
+import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor, LivingRoom, Kitchen, Bedroom, \
@@ -31,11 +35,8 @@ from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
     RevoluteConnectionSpecification,
 )
-from semantic_digital_twin.spatial_types.spatial_types import (
-    HomogeneousTransformationMatrix,
-    Point3,
-)
-from semantic_digital_twin.spatial_types.spatial_types import Vector3
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
+from krrood_spatial_math.spatial_types import Vector3
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
@@ -47,6 +48,9 @@ from semantic_digital_twin.world_description.geometry import Box, Scale, Color
 from semantic_digital_twin.world_description.geometry import Cylinder
 from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_source import WorldSource
+
+# %% speed limits
 
 
 class MaximumSpeed(float, Enum):
@@ -71,18 +75,17 @@ class MaximumSpeed(float, Enum):
     """
 
 
-class KitchenEnvironment:
+# %% kitchen
+
+
+@dataclass
+class KitchenEnvironment(WorldSource):
     """
-    Manages the Kitchen Environment world with walls, furniture, and room layouts.
+    The kitchen together with its neighbouring rooms: their walls, the furniture and the
+    rooms' floor areas.
     """
 
-    def get_world(self) -> World:
-        """
-        Constructs and returns a new World instance, setting up its environment,
-        including walls, furniture, and rooms.
-
-        :return: A new world instance with the initialized environment.
-        """
+    def create_world(self) -> World:
         world = World.create_with_root_body("root")
 
         self._build_environment_walls(world)
@@ -132,7 +135,7 @@ class KitchenEnvironment:
             ),
         )
 
-    def _build_environment_walls(self, world: World):
+    def _build_environment_walls(self, world: World) -> None:
         """
         Builds and configures the environment walls for a given world.
         """
@@ -253,9 +256,8 @@ class KitchenEnvironment:
             )
 
             world.add_connection(root_C_north_west_wall)
-            return world
 
-    def _build_environment_furniture(self, world: World):
+    def _build_environment_furniture(self, world: World) -> None:
         """
         Adds furniture items and room layouts to the scene graph.
         """
@@ -1713,9 +1715,8 @@ class KitchenEnvironment:
                 for shape in leg.root.visual.shapes:
                     shape.color = Color.BEIGE()
                 dining_table.add(leg)
-        return world
 
-    def _build_coffee_table(self, world):
+    def _build_coffee_table(self, world: World) -> None:
         """
         Builds a refined coffee table with a middle shelf and a closed front.
 
@@ -1815,7 +1816,10 @@ class KitchenEnvironment:
                 )
             )
 
-    def _build_environment_rooms(self, world: World):
+    def _build_environment_rooms(self, world: World) -> None:
+        """
+        Annotates the floor area of every room.
+        """
         room_annotations = []
 
         with world.modify_world():
@@ -1894,5 +1898,3 @@ class KitchenEnvironment:
             room_annotations.append(office)
 
             world.add_semantic_annotations(room_annotations)
-
-        return world
