@@ -28,7 +28,8 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Kitchen, KitchenIsland, Room, LivingRoom
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Kitchen, KitchenIsland, Room, LivingRoom, \
+    Milk
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -230,6 +231,14 @@ def find_room(room:Room, world: World) -> (float,float):        #ToDo: add Test
         return (float(sem.bodies[0].global_pose.x), float(sem.bodies[0].global_pose.y))
     return (0,0)
 
+def find_objeckt(objeckt: str, world: World) -> (float,float):
+    for obj in world.get_semantic_annotation_by_name(objeckt):
+        return (float(obj.bodies[0].global_pose.x), float(obj.bodies[0].global_pose.y))
+
+def find_objects_room(objeckt: SemanticAnnotation) -> [Room]:
+    world = objeckt._world
+    return [Kitchen]
+
 # def check_if_free(x,y) -> bool:
 #     return True
 #
@@ -237,3 +246,8 @@ def find_room(room:Room, world: World) -> (float,float):        #ToDo: add Test
 #     return (1,2)
 #
 
+world = KitchenEnvironment().create_world()
+mi = world.get_semantic_annotations_by_type(Milk)
+print(mi[0].bodies[0].global_pose.position.x)
+print(mi[0].bodies[0].global_pose.position.y)
+print(mi[0].bodies[0].global_pose.position.z)

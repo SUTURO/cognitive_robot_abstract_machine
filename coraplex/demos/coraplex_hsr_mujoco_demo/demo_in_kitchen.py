@@ -22,6 +22,7 @@ from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
@@ -29,10 +30,10 @@ from semantic_digital_twin.reasoning.queries import find_room
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    LivingRoom,
+    LivingRoom, Room, Kitchen, Office,
 )
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.spatial_types.spatial_types import Pose
+# from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+# from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
@@ -128,7 +129,7 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         """
         :return: The kitchen environment, without the robot.
         """
-        return KitchenEnvironment().get_world()
+        return KitchenEnvironment().create_world()
 
     def robot_specification(self) -> RobotSpecification:
         return RobotSpecification(self.used_robot, odom_T_robot_start=self.robot_start)
@@ -150,8 +151,10 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
+                    # NavigateAction(target_location=self._living_room(world))
                     *self._drive(
-                        world, FloorPose.of_robot(hsrb), self._living_room(world)
+                        # world, FloorPose.of_robot(hsrb), self._find_room(world, Kitchen),
+                        world, FloorPose.of_robot(hsrb), self._find_room(world, Office)
                     ),
                 ]
             )
@@ -190,13 +193,15 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
             ),
         ]
 
-    def _living_room(self, world: World) -> FloorPose:
+    def _find_room(self, world: World, room_type: Room) -> FloorPose:
         """
         :param world: The world holding the kitchen environment.
         :return: Where the HSR stands in the living room, as :func:`find_room` finds
             it.
         """
-        x, y = find_room(LivingRoom, world)
+
+        [room] = world.get_semantic_annotations_by_type(room_type)
+        x, y = float(room.bodies[0].global_pose.x), float(room.bodies[0].global_pose.y)
         return FloorPose(x=x, y=y)
 
 
