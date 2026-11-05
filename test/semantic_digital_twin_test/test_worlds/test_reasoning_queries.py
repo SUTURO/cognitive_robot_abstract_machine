@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import os
 
@@ -13,7 +15,10 @@ from semantic_digital_twin.reasoning.queries import (
     annotation_class_by_label,
     sort_annotations_by_volume,
     find_objects_room,
+    find_free_space_in_room,
+    find_room,
 )
+from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
 from semantic_digital_twin.semantic_annotations.semantic_annotations import *
@@ -329,3 +334,66 @@ def test_find_objects_room_returns_none_outside_every_room() -> None:
         )
 
     assert find_objects_room(outside) is None
+
+
+# %% free space for the robot
+
+
+def world_with_box_on_the_kitchen_point(box_width: float) -> World:
+    """The kitchen environment with a box standing on the point
+    :func:`find_room` gives for the kitchen.
+
+    :param box_width: The width and depth of the box, in m.
+    """
+    world = KitchenEnvironment().create_world()
+    kitchen_x, kitchen_y = find_room(Kitchen, world)
+    with world.modify_world():
+        Milk.create_with_new_body_in_world(
+            name="obstacle",
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=kitchen_x, y=kitchen_y, z=0.5, reference_frame=world.root
+            ),
+            scale=Scale(box_width, box_width, 1.0),
+        )
+    return world
+
+
+def test_find_free_space_in_room_returns_the_room_point_when_it_is_free() -> None:
+    """A robot fits on the room's own point when nothing stands there."""
+    world = KitchenEnvironment().create_world()
+
+    free_pose = find_free_space_in_room(Kitchen, world)
+
+    assert (float(free_pose.x), float(free_pose.y)) == pytest.approx(
+        find_room(Kitchen, world)
+    )
+
+
+@pytest.mark.parametrize("robot_diameter", [0.5])
+def test_find_free_space_in_room_moves_out_of_an_obstacle_on_the_room_point(
+    robot_diameter: float,
+) -> None:
+    """With a box on the room's point, the robot stands just clear of it,
+    inside the room."""
+    box_width = 0.4
+    world = world_with_box_on_the_kitchen_point(box_width)
+    kitchen_x, kitchen_y = find_room(Kitchen, world)
+    [kitchen] = world.get_semantic_annotations_by_type(Kitchen)
+
+    free_pose = find_free_space_in_room(Kitchen, world, robot_diameter=robot_diameter)
+
+    distance = math.hypot(
+        float(free_pose.x) - kitchen_x, float(free_pose.y) - kitchen_y
+    )
+    assert distance >= (box_width + robot_diameter) / 2
+    assert distance <= math.hypot(box_width, robot_diameter)
+    assert OverFloorPlan(free_pose, kitchen.floor.root)()
+
+
+def test_find_free_space_in_room_returns_none_when_no_place_in_reach_is_free() -> None:
+    """When the search may not leave the blocked room point, no place is
+    found."""
+    world = world_with_box_on_the_kitchen_point(box_width=0.4)
+
+    assert find_free_space_in_room(Kitchen, world, maximum_radius=0.0) is None

@@ -421,46 +421,80 @@ class InsideRegion(Triple[TBody, TRegion]):
 
 
 @dataclass(eq=False)
-class OverFloorPlan(Triple[TBody, TBody]):
-    """Whether a body's origin lies within the x-y extent of another body's
-    bounding box, regardless of height."""
+class OverFloorPlan(Triple[Pose, TBody]):
+    """
+    Whether a pose lies within the x-y extent of a body's bounding box,
+    regardless of height.
+    """
 
-    body: TBody
-    """The body that may stand over the floor plan."""
+    pose: Pose
+    """The pose that may lie over the floor plan."""
 
     floor: TBody
     """The body whose x-y extent is the floor plan."""
 
     @property
-    def subject(self) -> TBody:
-        return self.body
+    def subject(self) -> Pose:
+        return self.pose
 
     @property
     def object(self) -> TBody:
         return self.floor
 
     def __call__(self) -> bool:
+        world = self.floor._world
         floor_plan = self.floor.collision.as_bounding_box_collection_in_frame(
-            self.floor._world.root
+            world.root
         ).bounding_box()
-        position = self.body.global_pose
+        position = world.transform(self.pose, world.root)
         return floor_plan.x_interval.contains(
             float(position.x)
         ) and floor_plan.y_interval.contains(float(position.y))
 
     @classmethod
     def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
-        """Reads as *"the body is over the floor"*.
+        """Reads as *"the pose is over the floor"*.
 
         :param fields: The rendered fragment for each field, keyed by
             field name.
         """
         return clause(
-            Noun(fields["body"]),
+            Noun(fields["pose"]),
             Copula(),
             Prepositions.OVER,
             Noun(fields["floor"]),
         )
+@dataclass
+class GrowingCircleSearch:
+    """
+    Poses on the floor around a centre, on circles of growing radius,
+    nearest first.
+    """
+
+    center: Pose
+    """The pose the search starts at and circles around."""
+
+    radius_step: float = 0.1
+    """How much, in m, each circle is wider than the one before, and how far
+    apart the poses on one circle are."""
+
+    maximum_radius: float = 3.0
+    """The radius, in m, of the widest circle searched."""
+
+    def __iter__(self) -> Iterator[Pose]:
+        yield self.center
+        for circle in range(1, math.floor(self.maximum_radius / self.radius_step) + 1):
+            radius = circle * self.radius_step
+            pose_count = math.ceil(2 * math.pi * radius / self.radius_step)
+            for index in range(pose_count):
+                angle = 2 * math.pi * index / pose_count
+                yield Pose.from_xyz_rpy(
+                    x=float(self.center.x) + radius * math.cos(angle),
+                    y=float(self.center.y) + radius * math.sin(angle),
+                    z=float(self.center.z),
+                    reference_frame=self.center.reference_frame,
+                )
+
 
 
 @dataclass(eq=False)

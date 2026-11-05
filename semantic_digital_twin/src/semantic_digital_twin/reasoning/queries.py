@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from typing_extensions import Iterator
+
 from krrood.inheritance_path_length import (
     nearest_common_ancestor,
     inheritance_path_length,
@@ -22,7 +28,8 @@ from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
     Supports,
     OverFloorPlan,
-    compute_euclidean_planar_distance,
+    PlaceIsOccupied,
+    compute_euclidean_planar_distance, GrowingCircleSearch,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasSupportingSurface,
@@ -34,10 +41,16 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     KitchenIsland,
     Room,
     LivingRoom,
-    Milk, Sofa,
+    Milk,
+    Sofa,
+    Floor,
 )
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import Color
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from semantic_digital_twin.world_description.geometry import (
+    Color,
+    VolumetricBoundingBox,
+)
 
 from semantic_digital_twin.world_description.world_entity import (
     Body,
@@ -238,8 +251,71 @@ def find_room(room: Room, world: World) -> (float, float):  # ToDo: add Test
         return (float(sem.bodies[0].global_pose.x), float(sem.bodies[0].global_pose.y))
     return (0, 0)
 
-def find_free_space_in_room(room: Room, world: World) -> (float, float):
-    return (0,0)
+
+# %% free space for the robot
+
+
+
+
+def find_free_space_in_room(
+    room_type: type[Room],
+    world: World,
+    robot_diameter: float = 0.5,
+    robot_height: float = 1.35,
+    radius_step: float = 0.1,
+    maximum_radius: float = 3.0,
+) -> tuple[float, float] | None:
+    """
+    Finds the place nearest to the pose :func:`find_room` gives for a room
+    where a robot fits without touching anything, within that room.
+
+    :param room_type: The type of the room to stand in.
+    :param world: The world holding the room.
+    :param robot_diameter: The diameter of the robot's footprint, in m.
+    :param robot_height: The height of the robot, in m.
+    :param radius_step: See :attr:`GrowingCircleSearch.radius_step`.
+    :param maximum_radius: See
+        :attr:`GrowingCircleSearch.maximum_radius`.
+    :return: The pose of the robot's base on the floor, or None if no
+        place within the maximum radius is free.
+    """
+    [room] = world.get_semantic_annotations_by_type(room_type)
+    room_x, room_y = find_room(room_type, world)
+    half_width = robot_diameter / 2
+    robot_box = VolumetricBoundingBox(
+        -half_width,
+        -half_width,
+        -robot_height / 2,
+        half_width,
+        half_width,
+        robot_height / 2,
+        HomogeneousTransformationMatrix(reference_frame=world.root),
+    )
+    floor_bodies = [
+        body
+        for floor in world.get_semantic_annotations_by_type(Floor)
+        for body in floor.bodies
+    ]
+    print(floor_bodies)
+    search = GrowingCircleSearch(
+        center=Pose.from_xyz_rpy(
+            room_x, room_y, robot_height / 2, reference_frame=world.root
+        ),
+        radius_step=radius_step,
+        maximum_radius=maximum_radius,
+    )
+    robot_center = variable(Pose, list(search))
+    query = an(
+        entity(robot_center).where(
+            OverFloorPlan(robot_center, room.floor.root),
+            not_(PlaceIsOccupied(robot_box, robot_center, world, floor_bodies)),
+        )
+    )
+
+    free_pose = next(query.evaluate(), None)
+    if free_pose is None:
+        return None
+    return float(free_pose.x), float(free_pose.y)
 
 
 def find_objeckt(objeckt: str, world: World) -> (float, float):
@@ -256,17 +332,13 @@ def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
     """
     room = variable(Room, semantic_annotation._world.semantic_annotations)
     query = an(
-        entity(room).where(OverFloorPlan(semantic_annotation.root, room.floor.root))
+        entity(room).where(
+            OverFloorPlan(semantic_annotation.root.global_pose, room.floor.root)
+        )
     )
     return next(query.evaluate(), None)
 
 
-# def check_if_free(x,y) -> bool:
-#     return True
-#
-# def give_free_position(x,y) -> (int,int):
-#     return (1,2)
-#
 
 world = KitchenEnvironment().create_world()
 mi = world.get_semantic_annotations_by_type(Milk)
@@ -274,4 +346,5 @@ print(mi[0].bodies[0].global_pose.position.x)
 print(mi[0].bodies[0].global_pose.position.y)
 print(mi[0].bodies[0].global_pose.position.z)
 
-print(find_objects_room(world.get_semantic_annotations_by_type(Sofa)[0]).name)
+# items = world.semantic_annotations.where(OverFloorPlan(semantic_annotation.root.global_pose, Kitchen.floor.root))
+# print()
