@@ -1,3 +1,4 @@
+import pytest
 import os
 
 from semantic_digital_twin.adapters.urdf import URDFParser
@@ -11,6 +12,7 @@ from semantic_digital_twin.reasoning.queries import (
     filter_annotations_by_color,
     annotation_class_by_label,
     sort_annotations_by_volume,
+    find_objects_room,
 )
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
@@ -293,3 +295,37 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
     assert drawers
     for drawer in drawers:
         assert isinstance(drawer.movable_joint, PrismaticConnection)
+
+
+# %% room of an annotation
+
+
+@pytest.mark.parametrize(
+    ("annotation_name", "room_type"),
+    [("milk", Kitchen), ("sofa", LivingRoom), ("cooking_table", Bedroom)],
+)
+def test_find_objects_room_returns_the_room_the_annotation_stands_in(
+    annotation_name: str, room_type: type[Room]
+) -> None:
+    """An annotation is in the room whose floor plan its root body stands
+    over."""
+    world = KitchenEnvironment().create_world()
+    annotation = world.get_semantic_annotation_by_name(annotation_name)
+    [room] = world.get_semantic_annotations_by_type(room_type)
+
+    assert find_objects_room(annotation) is room
+
+
+def test_find_objects_room_returns_none_outside_every_room() -> None:
+    """An annotation that stands over no room's floor plan is in no room."""
+    world = KitchenEnvironment().create_world()
+    with world.modify_world():
+        outside = Milk.create_with_new_body_in_world(
+            name="milk_outside",
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=100, y=100, reference_frame=world.root
+            ),
+        )
+
+    assert find_objects_room(outside) is None

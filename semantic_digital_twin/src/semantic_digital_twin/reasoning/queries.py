@@ -21,6 +21,7 @@ from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnv
 from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
     Supports,
+    OverFloorPlan,
     compute_euclidean_planar_distance,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
@@ -28,8 +29,13 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Kitchen, KitchenIsland, Room, LivingRoom, \
-    Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Kitchen,
+    KitchenIsland,
+    Room,
+    LivingRoom,
+    Milk, Sofa,
+)
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -226,18 +232,34 @@ def sort_annotations_by_volume(
         get_volume(annotaion_var), descending=not order
     )
 
-def find_room(room:Room, world: World) -> (float,float):        #ToDo: add Test
+
+def find_room(room: Room, world: World) -> (float, float):  # ToDo: add Test
     for sem in world.get_semantic_annotations_by_type(room):
         return (float(sem.bodies[0].global_pose.x), float(sem.bodies[0].global_pose.y))
+    return (0, 0)
+
+def find_free_space_in_room(room: Room, world: World) -> (float, float):
     return (0,0)
 
-def find_objeckt(objeckt: str, world: World) -> (float,float):
+
+def find_objeckt(objeckt: str, world: World) -> (float, float):
     for obj in world.get_semantic_annotation_by_name(objeckt):
         return (float(obj.bodies[0].global_pose.x), float(obj.bodies[0].global_pose.y))
 
-def find_objects_room(objeckt: SemanticAnnotation) -> [Room]:
-    world = objeckt._world
-    return [Kitchen]
+
+def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
+    """Finds the room whose floor plan the root body of a semantic annotation
+    stands over.
+
+    :param semantic_annotation: The annotation to locate.
+    :return: The room the annotation is in, or None if it is in no room.
+    """
+    room = variable(Room, semantic_annotation._world.semantic_annotations)
+    query = an(
+        entity(room).where(OverFloorPlan(semantic_annotation.root, room.floor.root))
+    )
+    return next(query.evaluate(), None)
+
 
 # def check_if_free(x,y) -> bool:
 #     return True
@@ -251,3 +273,5 @@ mi = world.get_semantic_annotations_by_type(Milk)
 print(mi[0].bodies[0].global_pose.position.x)
 print(mi[0].bodies[0].global_pose.position.y)
 print(mi[0].bodies[0].global_pose.position.z)
+
+print(find_objects_room(world.get_semantic_annotations_by_type(Sofa)[0]).name)

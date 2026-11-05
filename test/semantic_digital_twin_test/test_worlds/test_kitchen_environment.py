@@ -9,10 +9,18 @@ import pytest
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point2,
+    Point3,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cooktop,
     CounterTop,
+    Floor,
     KitchenIsland,
+    Office,
+    Sofa,
 )
 from semantic_digital_twin.world import World
 
@@ -131,3 +139,79 @@ def test_the_island_worktop_still_carries_its_cooktop() -> None:
     assert worktop.get_objects_of_type(Cooktop) == [
         world.get_semantic_annotation_by_name("sideboard_cooktop")
     ]
+
+
+# %% driving between the rooms
+
+
+@pytest.mark.parametrize("robot_radius", [0.25])
+def test_a_path_on_the_apartment_floor_leads_from_the_kitchen_into_the_office_around_the_sofa(
+    robot_radius: float,
+) -> None:
+    """
+    The apartment floor spans every room, so a path laid out on it reaches the office
+    from the kitchen without a robot of the given radius touching the sofa.
+    """
+    world = KitchenEnvironment().create_world()
+    apartment_floor = world.get_semantic_annotation_by_name("apartment_floor")
+    [office] = world.get_semantic_annotations_by_type(Office)
+    [sofa] = world.get_semantic_annotations_by_type(Sofa)
+    office_position = office.bodies[0].global_pose
+    free_space = apartment_floor.planar_free_space(bloat_obstacles=robot_radius)
+
+    path = free_space.path_from_to(
+        Point2(0, 0, reference_frame=world.root),
+        Point2(
+            float(office_position.x),
+            float(office_position.y),
+            reference_frame=world.root,
+        ),
+    )
+
+    world_P_path = np.array(
+        [
+            world.transform(
+                Point3(
+                    waypoint.x, waypoint.y, 0, reference_frame=waypoint.reference_frame
+                ),
+                world.root,
+            ).to_np()[:2]
+            for waypoint in path
+        ]
+    )
+    sofa_box = sofa.as_bounding_box_collection_at_origin(
+        HomogeneousTransformationMatrix(reference_frame=world.root)
+    ).bounding_box()
+    world_P_driven = np.concatenate(
+        [
+            np.linspace(start, end, num=100)
+            for start, end in zip(world_P_path[:-1], world_P_path[1:])
+        ]
+    )
+    touches_sofa = (
+        (world_P_driven[:, 0] > sofa_box.min_x - robot_radius)
+        & (world_P_driven[:, 0] < sofa_box.max_x + robot_radius)
+        & (world_P_driven[:, 1] > sofa_box.min_y - robot_radius)
+        & (world_P_driven[:, 1] < sofa_box.max_y + robot_radius)
+    )
+    assert isinstance(apartment_floor, Floor)
+    assert world_P_path[-1] == pytest.approx(
+        [float(office_position.x), float(office_position.y)]
+    )
+    assert not touches_sofa.any()
+
+
+def test_the_apartment_floor_has_its_top_where_a_robot_stands() -> None:
+    """
+    A robot placed on the ground of the world stands on the apartment floor rather than
+    sunk into it.
+    """
+    world = KitchenEnvironment().create_world()
+    apartment_floor = world.get_semantic_annotation_by_name("apartment_floor")
+
+    floor_box = apartment_floor.as_bounding_box_collection_at_origin(
+        HomogeneousTransformationMatrix(reference_frame=world.root)
+    ).bounding_box()
+
+    # Mesh files store positions as 32-bit floats.
+    assert floor_box.max_z == pytest.approx(float(world.root.global_pose.z), abs=1e-6)

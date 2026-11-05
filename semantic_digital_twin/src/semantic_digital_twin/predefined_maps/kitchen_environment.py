@@ -6,8 +6,15 @@ from enum import Enum
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor, LivingRoom, Kitchen, Bedroom, \
-    Office, Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Room,
+    Floor,
+    LivingRoom,
+    Kitchen,
+    Bedroom,
+    Office,
+    Milk,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Table,
     Sofa,
@@ -30,6 +37,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Oven,
     WallPanel,
     KitchenIsland,
+    SemanticEnvironmentAnnotation,
 )
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
@@ -91,6 +99,7 @@ class KitchenEnvironment(WorldSource):
         self._build_environment_walls(world)
         self._build_environment_furniture(world)
         self._build_environment_rooms(world)
+        self._build_apartment_floor(world)
 
         return world
 
@@ -1911,3 +1920,32 @@ class KitchenEnvironment(WorldSource):
             room_annotations.append(office)
 
             world.add_semantic_annotations(room_annotations)
+
+    def _build_apartment_floor(self, world: World, thickness: float = 0.01) -> None:
+        """
+        Annotates one floor spanning the whole environment with its top at the height
+        the robot stands at, so that a path between two rooms can be laid out on a
+        single floor.
+
+        :param world: The world holding the environment.
+        :param thickness: The thickness of the floor, in m.
+        """
+        with world.modify_world():
+            footprint = (
+                SemanticEnvironmentAnnotation(root=world.root, _world=world)
+                .as_bounding_box_collection_at_origin(
+                    HomogeneousTransformationMatrix(reference_frame=world.root)
+                )
+                .bounding_box()
+            )
+            Floor.create_with_new_body_in_world(
+                name="apartment_floor",
+                world=world,
+                scale=Scale(footprint.depth, footprint.width, thickness),
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=float(footprint.center.x),
+                    y=float(footprint.center.y),
+                    z=-thickness / 2,
+                    reference_frame=world.root,
+                ),
+            )

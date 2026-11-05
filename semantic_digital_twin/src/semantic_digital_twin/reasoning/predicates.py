@@ -421,6 +421,49 @@ class InsideRegion(Triple[TBody, TRegion]):
 
 
 @dataclass(eq=False)
+class OverFloorPlan(Triple[TBody, TBody]):
+    """Whether a body's origin lies within the x-y extent of another body's
+    bounding box, regardless of height."""
+
+    body: TBody
+    """The body that may stand over the floor plan."""
+
+    floor: TBody
+    """The body whose x-y extent is the floor plan."""
+
+    @property
+    def subject(self) -> TBody:
+        return self.body
+
+    @property
+    def object(self) -> TBody:
+        return self.floor
+
+    def __call__(self) -> bool:
+        floor_plan = self.floor.collision.as_bounding_box_collection_in_frame(
+            self.floor._world.root
+        ).bounding_box()
+        position = self.body.global_pose
+        return floor_plan.x_interval.contains(
+            float(position.x)
+        ) and floor_plan.y_interval.contains(float(position.y))
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """Reads as *"the body is over the floor"*.
+
+        :param fields: The rendered fragment for each field, keyed by
+            field name.
+        """
+        return clause(
+            Noun(fields["body"]),
+            Copula(),
+            Prepositions.OVER,
+            Noun(fields["floor"]),
+        )
+
+
+@dataclass(eq=False)
 class KinematicStructureEntitySpatialRelation(Predicate, ABC):
     """
     Base class for spatial relations between two KinematicStructureEntity instances.

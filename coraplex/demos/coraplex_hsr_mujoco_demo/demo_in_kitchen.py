@@ -1,5 +1,6 @@
 """
-The HSR drives from the kitchen into the living room in MuJoCo. Run it from anywhere::
+The HSR drives from the kitchen into the office in MuJoCo, around the furniture in
+its way. Run it from anywhere::
 
     python demo_in_kitchen.py
 
@@ -17,7 +18,10 @@ import numpy as np
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.navigation import (
+    NavigateAction,
+    PathPlanningNavigateAction,
+)
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
@@ -30,8 +34,12 @@ from semantic_digital_twin.reasoning.queries import find_room
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    LivingRoom, Room, Kitchen, Office,
+    LivingRoom,
+    Room,
+    Kitchen,
+    Office,
 )
+
 # from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
 # from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.specifications.robots import RobotSpecification
@@ -151,10 +159,8 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
-                    # NavigateAction(target_location=self._living_room(world))
-                    *self._drive(
-                        # world, FloorPose.of_robot(hsrb), self._find_room(world, Kitchen),
-                        world, FloorPose.of_robot(hsrb), self._find_room(world, Office)
+                    PathPlanningNavigateAction(
+                        target=self._find_room(world, LivingRoom).in_world(world)
                     ),
                 ]
             )
@@ -199,7 +205,6 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         :return: Where the HSR stands in the living room, as :func:`find_room` finds
             it.
         """
-
         [room] = world.get_semantic_annotations_by_type(room_type)
         x, y = float(room.bodies[0].global_pose.x), float(room.bodies[0].global_pose.y)
         return FloorPose(x=x, y=y)
