@@ -43,7 +43,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     LivingRoom,
     Milk,
     Sofa,
-    Floor,
+    Floor, Bedroom, Table, Office, CounterTop,
 )
 from semantic_digital_twin.world import World
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
@@ -246,7 +246,7 @@ def sort_annotations_by_volume(
     )
 
 
-def find_room(room: Room, world: World) -> (float, float):  # ToDo: add Test
+def find_room(room: Room, world: World) -> (float, float):
     for sem in world.get_semantic_annotations_by_type(room):
         return (float(sem.bodies[0].global_pose.x), float(sem.bodies[0].global_pose.y))
     return (0, 0)
@@ -265,8 +265,7 @@ def find_free_space_in_room(
     radius_step: float = 0.1,
     maximum_radius: float = 3.0,
 ) -> tuple[float, float] | None:
-    """
-    Finds the place nearest to the pose :func:`find_room` gives for a room
+    """Finds the place nearest to the pose :func:`find_room` gives for a room
     where a robot fits without touching anything, within that room.
 
     :param room_type: The type of the room to stand in.
@@ -315,12 +314,29 @@ def find_free_space_in_room(
     free_pose = next(query.evaluate(), None)
     if free_pose is None:
         return None
-    return float(free_pose.x), float(free_pose.y)
+    return Pose.from_xyz_rpy(
+        float(free_pose.x), float(free_pose.y), 0, reference_frame=world.root
+    )
 
 
-def find_objeckt(objeckt: str, world: World) -> (float, float):
-    for obj in world.get_semantic_annotation_by_name(objeckt):
-        return (float(obj.bodies[0].global_pose.x), float(obj.bodies[0].global_pose.y))
+def find_objects_in_room(
+    object_type: type[HasRootBody], room_type: type[Room], world: World
+) -> list[HasRootBody]:
+    """
+    Finds every semantic annotation of a type whose root body stands over the
+    floor plan of a room.
+
+    :param object_type: The type of the annotations to find, e.g. :class:`Apple`.
+    :param room_type: The type of the room to search in, e.g. :class:`Kitchen`.
+    :param world: The world holding the room and the annotations.
+    :return: The annotations of the given type inside the room.
+    """
+    [room] = world.get_semantic_annotations_by_type(room_type)
+    annotation = variable(object_type, world.semantic_annotations)
+    query = entity(annotation).where(
+        OverFloorPlan(annotation.root.global_pose, room.floor.root)
+    )
+    return list(query.evaluate())
 
 
 def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
@@ -337,14 +353,3 @@ def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
         )
     )
     return next(query.evaluate(), None)
-
-
-
-world = KitchenEnvironment().create_world()
-mi = world.get_semantic_annotations_by_type(Milk)
-print(mi[0].bodies[0].global_pose.position.x)
-print(mi[0].bodies[0].global_pose.position.y)
-print(mi[0].bodies[0].global_pose.position.z)
-
-# items = world.semantic_annotations.where(OverFloorPlan(semantic_annotation.root.global_pose, Kitchen.floor.root))
-# print()

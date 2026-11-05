@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # %% Imports
+import math
 from abc import ABC
 from dataclasses import dataclass
 

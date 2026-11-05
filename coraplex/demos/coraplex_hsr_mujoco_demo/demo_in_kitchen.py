@@ -30,7 +30,7 @@ from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, P
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
-from semantic_digital_twin.reasoning.queries import find_room
+from semantic_digital_twin.reasoning.queries import find_room, find_free_space_in_room
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -160,7 +160,7 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
                     PathPlanningNavigateAction(
-                        target=self._find_room(world, LivingRoom).in_world(world)
+                        target=find_free_space_in_room(Kitchen, world)
                     ),
                 ]
             )
@@ -198,16 +198,6 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
                 target_location=replace(target, yaw=heading.yaw).in_world(world)
             ),
         ]
-
-    def _find_room(self, world: World, room_type: Room) -> FloorPose:
-        """
-        :param world: The world holding the kitchen environment.
-        :return: Where the HSR stands in the living room, as :func:`find_room` finds
-            it.
-        """
-        [room] = world.get_semantic_annotations_by_type(room_type)
-        x, y = float(room.bodies[0].global_pose.x), float(room.bodies[0].global_pose.y)
-        return FloorPose(x=x, y=y)
 
 
 def main(headless: bool = False) -> World:
