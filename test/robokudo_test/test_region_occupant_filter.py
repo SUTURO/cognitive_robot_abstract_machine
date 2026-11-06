@@ -13,16 +13,21 @@ from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
 from robokudo.cas import CASViews
 from robokudo.pipeline import Pipeline
+from robokudo.types.camera import CameraObservation
 from robokudo.types.scene import HumanHypothesis, ObjectHypothesis
 from robokudo_msgs.action import Query
 from robokudo_msgs.msg import ObjectDesignator
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point2
+from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
+from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.robot_parts import Camera
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     RegionSpecification,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
-from semantic_digital_twin.world_description.world_entity import Region
+from semantic_digital_twin.world_description.world_entity import Body, Region
 
 # %% a world with one region in front of the camera
 
@@ -44,8 +49,35 @@ def seat_region() -> Iterator[Region]:
     rk_world.clear_world()
 
 
+def camera_at_the_origin_of(world: World) -> CameraObservation:
+    """
+    :return: An observation of a camera standing at the origin of ``world``, looking
+        along its axes.
+    """
+    camera_body = Body(name=PrefixedName(name="camera"))
+    camera_model = PinholeCameraModel(
+        image_resolution=CameraResolution(width=200, height=200),
+        focal_length_x=100.0,
+        focal_length_y=100.0,
+        principal_point=Point2(x=100.0, y=100.0),
+    )
+    return CameraObservation(
+        camera=Camera(
+            name=PrefixedName(name="camera"),
+            root=camera_body,
+            camera_model=camera_model,
+        ),
+        effective_camera_model=camera_model,
+        world_T_camera=HomogeneousTransformationMatrix(
+            reference_frame=world.root, child_frame=camera_body
+        ),
+        timestamp_nanoseconds=0,
+    )
+
+
 @pytest.fixture
 def occupant_filter(
+    seat_region: Region,
     annotator_output_buffer: AnnotatorOutputPerPipelineMap,
 ) -> RegionOccupantFilter:
     """
@@ -55,7 +87,7 @@ def occupant_filter(
     annotator = RegionOccupantFilter()
     pipeline.add_child(annotator)
     pipeline.setup()
-    pipeline.cas.camera_to_world_transform = HomogeneousTransformationMatrix()
+    pipeline.cas.camera_observation = camera_at_the_origin_of(seat_region._world)
     return annotator
 
 

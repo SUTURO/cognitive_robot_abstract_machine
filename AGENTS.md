@@ -90,18 +90,24 @@
 
 # Documentation
 <!-- from DocumentationRules in krrood/development_tools/agents/shipped_rules/documentation.py -->
-- Every class and method has meaningful, non-trivial documentation in reStructuredText. Every field has its own docstring directly below it, not a description in the class docstring
-- An override that keeps its base contract has no docstring and inherits the base one. One that changes the contract documents only the difference and references the overridden method with `:meth:`
+- Every module, class, function and field has a docstring. A field's docstring goes directly below the field, not in the class docstring. A method implementing an abstract method is exempt: the abstract method's docstring is enough (checked by `krrood check`)
+- Documentation is written in reStructuredText and is meaningful and non-trivial: it says something the name and the type hints do not
+- An implementation of an abstract method has no docstring and inherits the base one. An override of an implemented method documents only what differs from the base and references the overridden method with `:meth:`
 - A docstring states what the code does and its contract, short and to the point. It never contains:
   - how the code does it
   - the ways a caller can supply a value (for example, that it may also be given as a query instead of a concrete object)
   - the current callers or consumers ("used by X and Y") - that goes stale and reads as exhaustive
   - justification of design decisions, comparison with rejected or hypothetical designs, or review and implementation history
   - type information - the type hints carry it
-- Keep docstrings and comments short and never write walls of text. Comments are meaningful and DRY; remove comments that restate the code
+- A docstring holds at most 4 lines of prose, field lists and literal blocks aside, and a comment block at most 3 lines (checked by `krrood check`)
+- Comments are meaningful and DRY; remove comments that restate the code
 - Reference code with Sphinx roles (`:func:`, `:class:`, `:attr:`, `:meth:`), never with plain backticks, and use directives such as `.. note::` and `.. warning::` for notes and warnings
 - Never use all-caps words for emphasis in docstrings or comments; use RST emphasis (`*word*`). Genuine identifiers, acronyms and enum/constant names (`UUID`, `WHERE`, `Definiteness.DEFINITE`) are exempt
 - Always format modified Python files with ruff followed by docformatter, through the repository's pre-commit hook
+
+# Entity query language
+<!-- from EntityQueryLanguageRules in krrood/development_tools/agents/shipped_rules/entity_query_language.py -->
+- Pick `a` or `an` so the query reads as correct English with the entity it quantifies: `a(Drawer)` and `an(Interval.around)`, never `an(Drawer)` or `a(Interval.around)`
 
 # Imports
 <!-- from ImportsRules in krrood/development_tools/agents/shipped_rules/imports.py -->
@@ -113,6 +119,10 @@
 <!-- from RuleApplicationRules in krrood/development_tools/agents/shipped_rules/rule_application.py -->
 - Existing code that breaks these rules stays as it is unless a change touches it or the user asks for the cleanup. When you modify a function or class, bring that function or class in line with these rules as part of the change, and leave code the change does not otherwise modify alone. If the cleanup renames a method and so changes the API, ask the user first
 - When a rule seems wrong for the case at hand - a failing test that is itself wrong, an exception that has to be caught, a value that genuinely has to live at module level - ask the user before departing from it; never decide the exception on your own
+
+# Rule modelling
+<!-- from RuleModellingRules in krrood/development_tools/agents/shipped_rules/rule_application.py -->
+- When a script can check part of a rule, split the rule: the checkable part becomes a rule of its own that carries its checker, and the part only a person can judge stays a rule without one
 
 # Testing
 
@@ -161,6 +171,12 @@
 - When you work in a fork, never push to the upstream repository - no branch, no tag, whatever the reason. Push only to the fork; work reaches upstream only through a pull request opened from the fork. Before any push, read the full, untruncated `git remote -v` output and confirm the target remote is the fork
 - Never comment on or modify pull requests on the upstream repository unless the user has explicitly allowed it - through existing personal notes or instructions, or by accepting when you ask
 
+# Cramph isolation
+<!-- from CramphIsolationRules in agent_rules.py -->
+- `cramph`, including its tests under `test/cramph_test`, imports only `krrood` and `semantic_digital_twin` among the workspace packages - in particular not `giskardpy`, `coraplex`, `segmind`, `physics_simulators`, `robokudo` or `experiments`
+- ROS is a soft dependency of `cramph`: only a tool that needs it, such as the statechart inspector, imports ROS packages, and nothing else in `cramph` imports that tool
+- Generic statechart behaviour (life cycles, transition conditions, ticking, composite nodes, generic monitors, plotting) belongs in `cramph`; motion-specific behaviour (QP constraints, tasks, world and robot monitors) belongs in `giskardpy`, built on top of `cramph`
+
 # Domain specific conventions
 <!-- from DomainSpecificConventionsRules in agent_rules.py -->
 - For spatial types and connections, follow `semantic_digital_twin/doc/style_guide.md`
@@ -179,3 +195,19 @@
 - `krrood`, including its tests under `test/krrood_test`, never imports another workspace package - in particular not `coraplex`, `semantic_digital_twin`, `giskardpy`, `physics_simulators`, `robokudo` or `experiments`. The only exceptions are `random_events` and `probabilistic_model`, which `krrood`'s source already depends on
 - When a `krrood` test needs behaviour another package triggers, mimic the relevant classes and patterns in `test/krrood_test/dataset` and test against the mimics. Keep the test in `krrood` and do not depend on another package to reproduce the scenario
 - Those mimic classes import only `krrood`, `random_events` and `probabilistic_model`
+
+# Pull request labels
+<!-- from PullRequestLabelsRules in agent_rules.py -->
+- Label every pull request you open with its kinds of change. Where you cannot set a label, because the repository lacks it or the pull request is opened through a link, name the labels to the user instead
+- On a pull request you do not open yourself - one you prepare for the developer to open, review, or are asked about - set no labels; suggest to its developer which labels to add and, for an `api-break`, what the rules below ask of it
+- Apply every kind-of-change label that describes a part of the change:
+  - `api-break`: the change can break code that already uses it - it removes or renames a public module, class, method, field or parameter, changes a signature incompatibly, changes the documented behaviour or return value of a public method, or changes an ORM schema or a serialized format
+  - `new-feature`: the change adds public API or user-visible behaviour without breaking existing users
+  - `bug-fix`: the change makes existing behaviour match its documented or intended contract
+  - `maintenance`: the change modifies code without changing its behaviour or API - refactoring, cleanup, dependency updates
+- Apply `api-break` whenever any part of the change breaks existing users, however small that part is
+- The workflow `.github/workflows/pr_api_break_check.yml` adds `api-break` when a public signature breaks; look for the breaks it cannot see: changed documented behaviour or return values, ORM schemas and serialized formats
+- Never set or suggest framework labels, `documentation` or `dev-tools`: the labeler sets them on every pull request from the files it changes, as `.github/labeler.yml` maps them
+- Before review is requested on an `api-break` pull request:
+  - its description states what breaks and how users migrate
+  - tell the user to discuss the break with the code owners of the affected frameworks, listed in `.github/CODEOWNERS`, or in the Cramgineers channel

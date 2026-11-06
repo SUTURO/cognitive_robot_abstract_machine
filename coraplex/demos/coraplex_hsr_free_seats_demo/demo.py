@@ -10,7 +10,7 @@ Running it as a script drives the real robot and fetches the world from the runn
 server. :func:`main` alone runs the whole plan in kinematic simulation, where the people
 on the sofa are read from the world model, so nothing on the network is needed.
 
-..warning:: A real run needs a perception pipeline answering
+.. warning:: A real run needs a perception pipeline answering
     :data:`~coraplex.perception.ROBOKUDO_QUERY_ACTION_NAME` as well as the world server:
     every seat place is looked at and the pipeline is asked for the people sitting in it.
     Start the controller and the pipeline separately, as on the robot. RoboKudo's entry
@@ -23,16 +23,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import numpy as np
-
-from coraplex.datastructures.dataclasses import Context
-from coraplex.datastructures.enums import ExecutionType
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.plans.factories import sequential
-from coraplex.plans.plan_node import PlanNode
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import (
+    KinematicallySimulatedPlanExecutor,
+    PlanExecutor,
+    RealRobotPlanExecutor,
+)
 from coraplex.robot_plans.actions.core.misc import DetectOccupantsAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
+from cramph.composites import Sequence
+from cramph.context import ContextExtension, StatechartContext
+from cramph.statechart import Statechart
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
@@ -41,8 +45,6 @@ from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Sofa
-from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
@@ -71,11 +73,7 @@ class FreeSeatsDemonstration(RobotDemonstration):
     """
 
     def scene_specification(self) -> WorldSpecification:
-        """
-        :return: A world holding nothing but a map body, which :meth:`populate_scene`
-            furnishes.
-        """
-        return WorldSpecification(world_parser=None)
+        return WorldSpecification(world_source=KitchenEnvironment())
 
     def robot_specification(self) -> RobotSpecification:
         """
@@ -92,41 +90,30 @@ class FreeSeatsDemonstration(RobotDemonstration):
             for seat in SofaSeat
         )
 
-    def populate_scene(self, world: World) -> None:
-        """
-        Spawn the kitchen lab, with the seat places of its sofa.
-        """
-        KitchenEnvironment().populate(world)
+    def build_context_extensions(self, world: World) -> list[ContextExtension]:
+        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
 
-    def build_context(self, world: World) -> Context:
-        """
-        Build the plan context around the HSR in ``world``.
-
-        ..note:: The ROS node has to be in the context for a real robot.
-        """
-        return Context(
-            world=world,
-            robot=world.get_semantic_annotations_by_type(self.used_robot)[0],
-            ros_node=self.ros_node,
-            alternative_motion_mappings=self.alternative_motion_mappings,
-            _debug=self.debug,
-        )
-
-    def build_plan(self, context: Context) -> PlanNode:
+    def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Raise the torso, park the arm, drive in front of the sofa and look for people on
         each of its seat places.
         """
         world = context.world
-        return sequential(
-            [
-                MoveTorsoAction(TorsoState.HIGH),
-                ParkArmsAction(context.robot.all_arms),
-                NavigateAction(self.scanning_pose(world)),
-                DetectOccupantsAction([seat.region_in(world) for seat in SofaSeat]),
-            ],
-            context=context,
+        hsrb = context.require_extension(RobotAccess).robot
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            Sequence(
+                nodes=[
+                    MoveTorsoAction(torso_state=TorsoState.HIGH),
+                    ParkArmsAction(arms=hsrb.all_arms),
+                    NavigateAction(target_location=self.scanning_pose(world)),
+                    DetectOccupantsAction(
+                        regions=[seat.region_in(world) for seat in SofaSeat]
+                    ),
+                ]
+            )
         )
+        return statechart
 
     def scanning_pose(self, world: World) -> Pose:
         """
@@ -138,12 +125,12 @@ class FreeSeatsDemonstration(RobotDemonstration):
         sofa_front = (
             sofa.root.collision.as_bounding_box_collection_in_frame(sofa.root)
             .bounding_box()
-            .max_x
+            .min_x
         )
         world_T_scanning_pose = (
             sofa.root.global_transform
             @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=sofa_front + self.scanning_distance, yaw=np.pi
+                x=sofa_front - self.scanning_distance
             )
         ).pose
         return Pose.from_xyz_rpy(
@@ -155,18 +142,19 @@ class FreeSeatsDemonstration(RobotDemonstration):
 
 
 def main(
-    execution_type: ExecutionType = ExecutionType.KINEMATICALLY_SIMULATED,
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
 ) -> list[SofaSeat]:
     """
     Run the demonstration.
 
-    :param execution_type: Whether to drive the real robot or simulate it.
+    :param executor_type: The executor running the plan, which decides whether it drives
+        the real robot or simulates it.
     :return: The seat places no one was seen sitting on.
     """
-    world = FreeSeatsDemonstration(execution_type=execution_type).run()
+    world = FreeSeatsDemonstration(executor_type=executor_type).run()
     return [seat for seat in SofaSeat if seat.is_free_in(world)]
 
 
 if __name__ == "__main__":
-    free_seats = main(execution_type=ExecutionType.REAL)
+    free_seats = main(executor_type=RealRobotPlanExecutor)
     print("Free seats:", ", ".join(seat.name for seat in free_seats) or "none")

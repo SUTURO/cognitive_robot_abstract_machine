@@ -16,5 +16,4 @@ class WorldDescriptor(BaseWorldDescriptor):
     """
 
     def __init__(self) -> None:
-        super().__init__()
-        KitchenEnvironment().populate(self.world)
+        super().__init__(world=KitchenEnvironment().create_world())
