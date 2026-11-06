@@ -4,11 +4,13 @@ reports which of them are free.
 
 Run it from this folder::
 
-    python demo.py
+    python demo.py                    # the real robot
+    python rviz_demo.py [LEFT] [RIGHT]   # kinematic simulation, shown in RViz
+    python mujoco_demo.py [LEFT] [RIGHT] # physical simulation in MuJoCo
 
-Running it as a script drives the real robot and fetches the world from the running world
-server. :func:`main` alone runs the whole plan in kinematic simulation, where the people
-on the sofa are read from the world model, so nothing on the network is needed.
+The seat places named on the command line of a simulation have a person sitting on them.
+The real robot fetches its world from the running world server. A simulation reads the
+people on the sofa from the world model, so nothing on the network is needed.
 
 .. warning:: A real run needs a perception pipeline answering
     :data:`~coraplex.perception.ROBOKUDO_QUERY_ACTION_NAME` as well as the world server:
@@ -21,7 +23,8 @@ on the sofa are read from the world model, so nothing on the network is needed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
@@ -44,10 +47,14 @@ from semantic_digital_twin.predefined_maps.kitchen_environment import (
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Sofa
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Human, Sofa
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    BodySpecification,
+)
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Color, Scale
 
 # %% the demonstration
 
@@ -72,16 +79,40 @@ class FreeSeatsDemonstration(RobotDemonstration):
     in meters.
     """
 
+    robot_start: HomogeneousTransformationMatrix = field(
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(x=1, y=1)
+    )
+    """
+    Where the robot starts in a simulated run, on free floor of the kitchen lab.
+    """
+
+    occupied_seats: list[SofaSeat] = field(default_factory=list)
+    """
+    The seat places a person sits on in a simulated run.
+    """
+
+    person_size: Scale = field(default_factory=lambda: Scale(0.4, 0.4, 0.8))
+    """
+    The extents of the box a person sitting on the sofa is shaped as, in meters.
+    """
+
+    person_color: Color = field(
+        default_factory=lambda: Color(hue=0.0, saturation=0.8, value=0.9)
+    )
+    """
+    The color a person sitting on the sofa is drawn in.
+    """
+
     def scene_specification(self) -> WorldSpecification:
         return WorldSpecification(world_source=KitchenEnvironment())
 
     def robot_specification(self) -> RobotSpecification:
         """
-        :return: The HSR on free floor of the kitchen lab.
+        :return: The HSR at :attr:`robot_start`.
         """
         return RobotSpecification(
             semantic_annotation_type=self.used_robot,
-            odom_T_robot_start=HomogeneousTransformationMatrix.from_xyz_rpy(1, 1),
+            odom_T_robot_start=self.robot_start,
         )
 
     def is_scene_populated(self, world: World) -> bool:
@@ -89,6 +120,20 @@ class FreeSeatsDemonstration(RobotDemonstration):
             world.is_kinematic_structure_entity_in_world_by_name(seat.value)
             for seat in SofaSeat
         )
+
+    def populate_scene(self, world: World) -> None:
+        """
+        Sit a person on each of the :attr:`occupied_seats`.
+        """
+        for seat in self.occupied_seats:
+            name = f"person_on_{seat.value}"
+            seat.place_person_in(
+                world,
+                Human.get_annotation_specification(
+                    name,
+                    BodySpecification.box(name, self.person_size, self.person_color),
+                ),
+            )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
@@ -141,20 +186,37 @@ class FreeSeatsDemonstration(RobotDemonstration):
         )
 
 
+def occupied_seats_from_command_line() -> list[SofaSeat]:
+    """
+    :return: The seat places named on the command line, such as ``LEFT RIGHT``.
+    """
+    return [SofaSeat[argument.upper()] for argument in sys.argv[1:]]
+
+
 def main(
     executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
+    occupied_seats: list[SofaSeat] | None = None,
+    headless: bool = False,
 ) -> list[SofaSeat]:
     """
-    Run the demonstration.
+    Run the demonstration and print the free seat places.
 
     :param executor_type: The executor running the plan, which decides whether it drives
         the real robot or simulates it.
+    :param occupied_seats: The seat places a person sits on in a simulated run.
+    :param headless: Whether the physics of a physically simulated run steps without a
+        viewer.
     :return: The seat places no one was seen sitting on.
     """
-    world = FreeSeatsDemonstration(executor_type=executor_type).run()
-    return [seat for seat in SofaSeat if seat.is_free_in(world)]
+    world = FreeSeatsDemonstration(
+        executor_type=executor_type,
+        occupied_seats=occupied_seats or [],
+        headless=headless,
+    ).run()
+    free_seats = SofaSeat.free_in(world)
+    print("Free seats:", ", ".join(seat.name for seat in free_seats) or "none")
+    return free_seats
 
 
 if __name__ == "__main__":
-    free_seats = main(executor_type=RealRobotPlanExecutor)
-    print("Free seats:", ", ".join(seat.name for seat in free_seats) or "none")
+    main(executor_type=RealRobotPlanExecutor)

@@ -14,7 +14,11 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
+from semantic_digital_twin.specifications.semantic_annotations import (
+    SemanticAnnotationWithRootSpecification,
+)
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
 from semantic_digital_twin.world_description.world_entity import Region
 
 # %% seat places of the sofa
@@ -107,3 +111,50 @@ def test_a_seat_with_a_person_on_it_is_taken(kitchen_world: World):
     assert [seat for seat in SofaSeat if seat.is_free_in(kitchen_world)] == [
         SofaSeat.LEFT
     ]
+
+
+# %% seating people
+
+
+@pytest.fixture
+def person() -> SemanticAnnotationWithRootSpecification[Human]:
+    """
+    A person shaped like a box, small enough to sit on one seat place.
+    """
+    return Human.get_annotation_specification(
+        "person", BodySpecification.box("person", Scale(0.4, 0.4, 0.8))
+    )
+
+
+def test_a_person_placed_on_a_seat_takes_only_that_seat(
+    kitchen_world: World, person: SemanticAnnotationWithRootSpecification[Human]
+):
+    SofaSeat.LEFT.place_person_in(kitchen_world, person)
+
+    assert [seat for seat in SofaSeat if seat.is_free_in(kitchen_world)] == [
+        SofaSeat.RIGHT
+    ]
+
+
+def test_a_person_placed_on_a_seat_is_fixed_to_the_sofa(
+    kitchen_world: World,
+    sofa: Sofa,
+    person: SemanticAnnotationWithRootSpecification[Human],
+):
+    seated = SofaSeat.RIGHT.place_person_in(kitchen_world, person)
+
+    assert seated.root.parent_kinematic_structure_entity == sofa.root
+
+
+def test_every_seat_of_an_empty_sofa_is_listed_free_from_left_to_right(
+    kitchen_world: World,
+):
+    assert SofaSeat.free_in(kitchen_world) == [SofaSeat.LEFT, SofaSeat.RIGHT]
+
+
+def test_a_taken_seat_is_not_listed_free(
+    kitchen_world: World, person: SemanticAnnotationWithRootSpecification[Human]
+):
+    SofaSeat.RIGHT.place_person_in(kitchen_world, person)
+
+    assert SofaSeat.free_in(kitchen_world) == [SofaSeat.LEFT]

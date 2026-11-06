@@ -2420,11 +2420,11 @@ class MultiSimBuilder(ABC):
         self.element_names = SimulatorModelNames()
         self._start_build(file_path=file_path)
 
-        for body in world.bodies_topologically_sorted:
-            self.build_body(body=body)
-
-        for region in world.regions:
-            self.build_region(region=region)
+        for entity in world.kinematic_structure_entities_topologically_sorted:
+            if isinstance(entity, Body):
+                self.build_body(body=entity)
+            elif isinstance(entity, Region):
+                self.build_region(region=entity)
 
         for connection in world.connections_topologically_sorted:
             self._build_connection(connection=connection)
