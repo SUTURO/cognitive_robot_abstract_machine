@@ -18,7 +18,12 @@ import numpy as np
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
+from coraplex.plans.plan_transformation import (
+    ConfigurationTransformation,
+    PlanRewriting,
+)
 from coraplex.robot_plans.actions.core.navigation import (
+    DrivesBase,
     NavigateAction,
     PathPlanningNavigateAction,
 )
@@ -26,14 +31,19 @@ from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
+from giskardpy.motion_statechart.goals.base_pose_goals import StraightLineBaseGoal
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
+)
+from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
 )
 from semantic_digital_twin.reasoning.queries import find_room, find_free_space_in_room
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
     LivingRoom,
     Room,
     Kitchen,
@@ -98,13 +108,31 @@ class FloorPose:
         return cls(x=float(pose.x), y=float(pose.y))
 
 
+# %% driving facing forward
+
+
+@dataclass
+class DriveFacingForward(ConfigurationTransformation[DrivesBase]):
+    """
+    Drives the base to each pose with a :class:`StraightLineBaseGoal`, so that it faces
+    the way it moves instead of sliding sideways while turning.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        return True
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_goal_type = StraightLineBaseGoal
+
+
 # %% the demonstration
 
 
 @dataclass
 class KitchenToLivingRoomDemonstration(RobotDemonstration):
     """
-    The HSR parks its arm and drives from the kitchen into the living room.
+    The HSR parks its arm and drives from the kitchen into the living room, facing the
+    way it moves and keeping clear of the furniture.
     """
 
     used_robot: type[AbstractRobot] = HSRB
@@ -112,6 +140,8 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
     ros_node_name: str = "hsr_kitchen_to_living_room_demo"
 
     executor_type: type[PlanExecutor] = PhysicallySimulatedPlanExecutor
+
+    collision_avoidance: bool = True
 
     robot_start: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0)
@@ -139,6 +169,27 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         """
         return KitchenEnvironment().create_world()
 
+    def acquire_world(self) -> World:
+        """
+        Differs from :meth:`~coraplex.demonstrations.RobotDemonstration.acquire_world`
+        in letting the robot touch the floors, which collision avoidance would otherwise
+        keep it from standing on.
+        """
+        world = super().acquire_world()
+        robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
+        floor_bodies = [
+            body
+            for floor in world.get_semantic_annotations_by_type(Floor)
+            for body in floor.bodies
+        ]
+        with world.modify_world():
+            world.collision_manager.add_ignore_collision_rule(
+                AllowCollisionBetweenGroups(
+                    body_group_a=robot.bodies_with_collision, body_group_b=floor_bodies
+                )
+            )
+        return world
+
     def robot_specification(self) -> RobotSpecification:
         return RobotSpecification(self.used_robot, odom_T_robot_start=self.robot_start)
 
@@ -146,7 +197,10 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         return world.is_kinematic_structure_entity_in_world_by_name("living_room_floor")
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0]),
+            PlanRewriting(transformations=[DriveFacingForward()]),
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
@@ -160,7 +214,7 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
                     PathPlanningNavigateAction(
-                        target=find_free_space_in_room(Kitchen, world)
+                        target=find_free_space_in_room(Office, world)
                     ),
                 ]
             )

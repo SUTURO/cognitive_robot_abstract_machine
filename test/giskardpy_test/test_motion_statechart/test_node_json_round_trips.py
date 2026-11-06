@@ -15,6 +15,7 @@ from giskardpy.motion_statechart import ros2_nodes
 from giskardpy.motion_statechart.goals.base_pose_goals import (
     DifferentialDriveBaseGoal,
     HolonomicBaseGoal,
+    StraightLineBaseGoal,
 )
 from giskardpy.motion_statechart.goals.cartesian_goals import CartesianPoseStraight
 from giskardpy.motion_statechart.goals.collision_avoidance import (
@@ -94,6 +95,7 @@ from giskardpy.motion_statechart.tasks.drive_tasks import (
     BaseHeading,
     BaseOrientation,
     BasePosition,
+    BaseStraightLinePosition,
     BaseTurnTowardsGoalPosition,
     DrivenBaseTask,
 )
@@ -382,6 +384,16 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
             ],
             WorldFixture.CYLINDER_BOT_DIFF_WORLD,
         ),
+        NodeRoundTripCase(
+            StraightLineBaseGoal,
+            lambda world: [
+                StraightLineBaseGoal(
+                    mobile_base=world.get_semantic_annotations_by_type(MobileBase)[0],
+                    goal_pose=_pose(world),
+                )
+            ],
+            WorldFixture.CYLINDER_BOT_WORLD,
+        ),
         *[
             NodeRoundTripCase(
                 node_type,
@@ -395,6 +407,7 @@ def _cartesian_cases() -> list[NodeRoundTripCase]:
                 BaseOrientation,
                 BaseHeading,
                 BaseTurnTowardsGoalPosition,
+                BaseStraightLinePosition,
             ]
         ],
         NodeRoundTripCase(

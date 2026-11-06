@@ -254,9 +254,6 @@ def find_room(room: Room, world: World) -> (float, float):
 
 # %% free space for the robot
 
-
-
-
 def find_free_space_in_room(
     room_type: type[Room],
     world: World,
@@ -295,7 +292,6 @@ def find_free_space_in_room(
         for floor in world.get_semantic_annotations_by_type(Floor)
         for body in floor.bodies
     ]
-    print(floor_bodies)
     search = GrowingCircleSearch(
         center=Pose.from_xyz_rpy(
             room_x, room_y, robot_height / 2, reference_frame=world.root
@@ -353,3 +349,7 @@ def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
         )
     )
     return next(query.evaluate(), None)
+
+world = KitchenEnvironment().create_world()
+
+print(find_free_space_in_room(Kitchen, world))

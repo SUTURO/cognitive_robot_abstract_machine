@@ -1466,7 +1466,14 @@ class KitchenEnvironment(WorldSource):
             )
             for color in sofa.bodies[0].visual.shapes:
                 color.color = Color.BEIGE()
-
+            test_table= Table.create_with_new_body_in_world(
+                world=world,
+                name="test_table",
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=2.317, y=-0.843, z=5.5
+                ),
+                scale=Scale(x=0.5, y=0.5, z=1),
+            )
             # --- COFFEE TABLE ---
             self._build_coffee_table(world)
 
