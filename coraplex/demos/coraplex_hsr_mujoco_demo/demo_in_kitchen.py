@@ -39,7 +39,7 @@ from semantic_digital_twin.predefined_maps.kitchen_environment import (
 from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
 )
-from semantic_digital_twin.reasoning.queries import find_room, find_free_space_in_room
+from semantic_digital_twin.reasoning.queries import find_room, find_free_space_in_room, find_free_space_next_to
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -48,6 +48,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Room,
     Kitchen,
     Office,
+    Bedroom,
 )
 
 # from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
@@ -144,7 +145,9 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
     collision_avoidance: bool = True
 
     robot_start: HomogeneousTransformationMatrix = field(
-        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0)
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=0, y=0
+        )  # x=2.35034, y=-0.892141
     )
     """
     Where the HSR starts, in the doorway of the kitchen.
@@ -209,12 +212,15 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         world = context.world
         hsrb = context.require_extension(RobotAccess).robot
         statechart = Statechart(context=context)
+        counter_top = world.get_semantic_annotation_by_name("sideboard")
         statechart.add_node(
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
                     PathPlanningNavigateAction(
-                        target=find_free_space_in_room(Office, world)
+                        target=find_free_space_next_to(
+                            counter_top, preferred_point=hsrb.root.global_pose
+                        )
                     ),
                 ]
             )
