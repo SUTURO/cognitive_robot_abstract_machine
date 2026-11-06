@@ -2188,14 +2188,6 @@ class KitchenEnvironment(WorldSource):
                     yaw=self.measurements.sofa_yaw,
                 ),
             )
-            test_table = Table.create_with_new_body_in_world(
-                world=world,
-                name="test_table",
-                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=2.317, y=-0.843, z=5.5
-                ),
-                scale=Scale(x=0.5, y=0.5, z=1),
-            )
 
             # %% Coffee table
             self._build_coffee_table(world)

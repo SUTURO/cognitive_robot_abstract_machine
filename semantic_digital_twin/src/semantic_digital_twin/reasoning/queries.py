@@ -432,9 +432,3 @@ def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
         )
     )
     return next(query.evaluate(), None)
-
-# world = KitchenEnvironment().create_world()
-# cookT = world.get_semantic_annotation_by_name("cooking_table")
-# print(cookT)
-#
-# print(find_free_space_next_to(cookT))

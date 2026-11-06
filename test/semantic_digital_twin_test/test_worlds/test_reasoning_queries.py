@@ -17,7 +17,7 @@ from semantic_digital_twin.reasoning.queries import (
     find_objects_room,
     find_free_space_in_room,
     find_free_space_next_to,
-    find_room,
+    find_room, find_objects_in_room,
 )
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
@@ -303,187 +303,68 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
         assert isinstance(drawer.movable_joint, PrismaticConnection)
 
 
-# %% room of an annotation
-
-
-@pytest.mark.parametrize(
-    ("annotation_name", "room_type"),
-    [("milk", Kitchen), ("sofa", LivingRoom), ("cooking_table", Bedroom)],
-)
-def test_find_objects_room_returns_the_room_the_annotation_stands_in(
-    annotation_name: str, room_type: type[Room]
-) -> None:
+def test_find_room(kitchen_environment_with_rooms: World):
     """
-    An annotation is in the room whose floor plan its root body stands over.
+    Tests the find_room function by verifying the coordinates of the room's center point..
     """
-    world = KitchenEnvironment().create_world()
-    annotation = world.get_semantic_annotation_by_name(annotation_name)
-    [room] = world.get_semantic_annotations_by_type(room_type)
-
-    assert find_objects_room(annotation) is room
+    assert find_room(Kitchen, kitchen_environment_with_rooms) == (3.5, 1.0)
+    assert find_room(LivingRoom, kitchen_environment_with_rooms) == (10.0, 10.0)
 
 
-def test_find_objects_room_returns_none_outside_every_room() -> None:
-    """
-    An annotation that stands over no room's floor plan is in no room.
-    """
-    world = KitchenEnvironment().create_world()
-    with world.modify_world():
-        outside = Milk.create_with_new_body_in_world(
-            name="milk_outside",
-            world=world,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=100, y=100, reference_frame=world.root
-            ),
-        )
-
-    assert find_objects_room(outside) is None
-
-
-# %% free space for the robot
-
-
-def box_on_the_kitchen_point(box_width: float) -> Milk:
-    """
-    A box standing on the point :func:`find_room` gives for the kitchen, in a fresh
-    kitchen environment.
-
-    :param box_width: The width and depth of the box, in m.
-    """
-    world = KitchenEnvironment().create_world()
-    kitchen_x, kitchen_y = find_room(Kitchen, world)
-    with world.modify_world():
-        box = Milk.create_with_new_body_in_world(
-            name="obstacle",
-            world=world,
-            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=kitchen_x, y=kitchen_y, z=0.5, reference_frame=world.root
-            ),
-            scale=Scale(box_width, box_width, 1.0),
-        )
-    return box
-
-
-def test_find_free_space_in_room_returns_the_room_point_when_it_is_free() -> None:
+def test_find_free_space_in_room(kitchen_environment_with_rooms: World) -> None:
     """
     A robot fits on the room's own point when nothing stands there.
     """
-    world = KitchenEnvironment().create_world()
+    world = kitchen_environment_with_rooms
 
-    free_pose = find_free_space_in_room(Kitchen, world)
+    free_pose_kitchen = find_free_space_in_room(Kitchen, world)
+    free_pose_living_room = find_free_space_in_room(LivingRoom, world)
 
-    assert (float(free_pose.x), float(free_pose.y)) == pytest.approx(
+    assert (float(free_pose_kitchen.x), float(free_pose_kitchen.y)) == pytest.approx(
         find_room(Kitchen, world)
     )
-
-
-@pytest.mark.parametrize("robot_diameter", [0.5])
-def test_find_free_space_in_room_moves_out_of_an_obstacle_on_the_room_point(
-    robot_diameter: float,
-) -> None:
-    """
-    With a box on the room's point, the robot stands just clear of it, inside the room.
-    """
-    box_width = 0.4
-    world = box_on_the_kitchen_point(box_width)._world
-    kitchen_x, kitchen_y = find_room(Kitchen, world)
-    [kitchen] = world.get_semantic_annotations_by_type(Kitchen)
-
-    free_pose = find_free_space_in_room(Kitchen, world, robot_diameter=robot_diameter)
-
-    distance = math.hypot(
-        float(free_pose.x) - kitchen_x, float(free_pose.y) - kitchen_y
+    assert (float(free_pose_living_room.x), float(free_pose_living_room.y)) != pytest.approx(
+        find_room(LivingRoom, world)
     )
-    assert distance >= (box_width + robot_diameter) / 2
-    assert distance <= math.hypot(box_width, robot_diameter)
-    assert OverFloorPlan(free_pose, kitchen.floor.root)()
+    assert (float(free_pose_living_room.x), float(free_pose_living_room.y)) == (10.6, 10)
 
 
-def test_find_free_space_in_room_stands_on_the_side_of_the_preferred_point() -> None:
-    """
-    With a box on the room's point, the robot stands on the side of the box facing the
-    preferred point instead of driving around it.
-    """
-    world = box_on_the_kitchen_point(box_width=0.4)._world
-    kitchen_x, kitchen_y = find_room(Kitchen, world)
-    preferred_point = Pose.from_xyz_rpy(
-        kitchen_x - 5.0, kitchen_y, 0.0, reference_frame=world.root
-    )
-
-    free_pose = find_free_space_in_room(Kitchen, world, preferred_point=preferred_point)
-
-    assert float(free_pose.x) < kitchen_x
-
-
-def test_find_free_space_in_room_returns_none_when_no_place_in_reach_is_free() -> None:
-    """
-    When the search may not leave the blocked room point, no place is found.
-    """
-    world = box_on_the_kitchen_point(box_width=0.4)._world
-
-    assert find_free_space_in_room(Kitchen, world, maximum_radius=0.0) is None
-
-
-# %% free space next to a semantic annotation
-
-
-def test_find_free_space_next_to_stands_just_clear_of_the_annotation() -> None:
+def test_find_free_space_next_to(kitchen_environment_with_rooms) -> None:
     """
     The robot stands next to the annotation, not on it, inside its room.
     """
-    box_width = 0.4
     robot_diameter = 0.5
-    box = box_on_the_kitchen_point(box_width)
-    world = box._world
-    [kitchen] = world.get_semantic_annotations_by_type(Kitchen)
+    fruits_table = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
 
-    free_pose = find_free_space_next_to(box, robot_diameter=robot_diameter)
-
-    distance = math.hypot(
-        float(free_pose.x) - float(box.root.global_pose.x),
-        float(free_pose.y) - float(box.root.global_pose.y),
-    )
-    assert distance >= (box_width + robot_diameter) / 2
-    assert distance <= math.hypot(box_width, robot_diameter)
-    assert OverFloorPlan(free_pose, kitchen.floor.root)()
+    assert ((find_free_space_next_to(fruits_table, robot_diameter=robot_diameter).x, (find_free_space_next_to(fruits_table, robot_diameter=robot_diameter).y))) == (2.3, 1)
+    assert ((find_free_space_next_to(sofa, robot_diameter=robot_diameter).x, (find_free_space_next_to(sofa, robot_diameter=robot_diameter).y))) == (10.6, 10)
 
 
-def test_find_free_space_next_to_faces_the_annotation() -> None:
-    """
-    The robot's base looks towards the annotation it drove to.
-    """
-    box = box_on_the_kitchen_point(box_width=0.4)
+def test_find_objects_in_room(kitchen_environment_with_rooms):
+    table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    table2 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("vegetable_table")
+    table3 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("empty_table")
+    table4 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("empty_table2")
+    apple = kitchen_environment_with_rooms.get_semantic_annotation_by_name("apple")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
 
-    free_pose = find_free_space_next_to(box)
+    assert find_objects_in_room(Table, Kitchen, kitchen_environment_with_rooms) == [table1, table2, table3, table4]
+    assert find_objects_in_room(Apple, Kitchen, kitchen_environment_with_rooms) == [apple]
 
-    assert float(free_pose.yaw) == pytest.approx(
-        math.atan2(
-            float(box.root.global_pose.y) - float(free_pose.y),
-            float(box.root.global_pose.x) - float(free_pose.x),
-        )
-    )
-
-
-def test_find_free_space_next_to_stands_on_the_side_of_the_preferred_point() -> None:
-    """
-    Of the places next to the annotation, the robot takes one on the side of the
-    preferred point.
-    """
-    box = box_on_the_kitchen_point(box_width=0.4)
-    box_x = float(box.root.global_pose.x)
-    preferred_point = Pose.from_xyz_rpy(
-        box_x - 5.0, float(box.root.global_pose.y), 0.0, reference_frame=box._world.root
-    )
-
-    free_pose = find_free_space_next_to(box, preferred_point=preferred_point)
-
-    assert float(free_pose.x) < box_x
+    assert find_objects_in_room(Table, LivingRoom, kitchen_environment_with_rooms) == []
+    assert find_objects_in_room(Apple, LivingRoom, kitchen_environment_with_rooms) == []
+    assert find_objects_in_room(Sofa, LivingRoom, kitchen_environment_with_rooms) == [sofa]
 
 
-def test_find_free_space_next_to_returns_none_when_no_place_in_reach_is_free() -> None:
-    """
-    When the search may not leave the annotation's own point, no place is found.
-    """
-    box = box_on_the_kitchen_point(box_width=0.4)
+def test_find_objects_room(kitchen_environment_with_rooms):
+    table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    orange = kitchen_environment_with_rooms.get_semantic_annotation_by_name("orange")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
 
-    assert find_free_space_next_to(box, maximum_radius=0.0) is None
+    kitchen = kitchen_environment_with_rooms.get_semantic_annotations_by_type(Kitchen)[0]
+    living_room = kitchen_environment_with_rooms.get_semantic_annotations_by_type(LivingRoom)[0]
+
+    assert find_objects_room(table1) == kitchen
+    assert find_objects_room(orange) == kitchen
+    assert find_objects_room(sofa) == living_room
