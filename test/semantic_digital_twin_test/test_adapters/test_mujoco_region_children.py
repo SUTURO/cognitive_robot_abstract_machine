@@ -79,3 +79,34 @@ def test_looking_up_an_entity_that_was_never_built_names_it(tmp_path):
 
     assert error.value.entity_type == mujoco.mjtObj.mjOBJ_BODY
     assert error.value.entity_name == builder.element_names.of(never_built)
+
+
+# %% how a region is drawn
+
+
+def test_the_shapes_of_a_region_are_drawn_translucent(
+    world_with_a_body_in_a_region: World, tmp_path
+):
+    builder = MujocoBuilder()
+    builder.build_world(
+        world=world_with_a_body_in_a_region, file_path=str(tmp_path / "scene.xml")
+    )
+    seat = world_with_a_body_in_a_region.get_kinematic_structure_entity_by_name("seat")
+
+    [geom] = builder.spec.body(builder.element_names.of(seat)).geoms
+    assert geom.rgba[3] == pytest.approx(builder.region_opacity)
+
+
+def test_the_shapes_of_a_body_keep_their_own_opacity(
+    world_with_a_body_in_a_region: World, tmp_path
+):
+    builder = MujocoBuilder()
+    builder.build_world(
+        world=world_with_a_body_in_a_region, file_path=str(tmp_path / "scene.xml")
+    )
+    person = world_with_a_body_in_a_region.get_kinematic_structure_entity_by_name(
+        "person"
+    )
+
+    [geom] = builder.spec.body(builder.element_names.of(person)).geoms
+    assert geom.rgba[3] == pytest.approx(person.visual.shapes[0].color.A)

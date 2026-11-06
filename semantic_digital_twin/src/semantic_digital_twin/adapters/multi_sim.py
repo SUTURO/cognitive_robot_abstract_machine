@@ -2596,6 +2596,12 @@ class MujocoBuilder(MultiSimBuilder):
 
     spec: mujoco.MjSpec = field(default=mujoco.MjSpec())
 
+    region_opacity: float = 0.2
+    """
+    How opaque the shapes of a region are drawn, whatever the opacity of their own color,
+    so what lies inside a region stays visible.
+    """
+
     minimum_mass: float = 1e-3
     """
     The mass, in kilograms, every body weighs at least, so that a frame without an
@@ -2711,6 +2717,9 @@ class MujocoBuilder(MultiSimBuilder):
         geom_props = MujocoGeomConverter.convert(
             shape, visible=is_visible, collidable=is_collidable
         )
+        if isinstance(parent, Region):
+            *color, _ = geom_props[MujocoGeomConverter.rgba_str]
+            geom_props[MujocoGeomConverter.rgba_str] = [*color, self.region_opacity]
         parent_body_spec = self.body_spec_of(parent)
         if geom_props["type"] == mujoco.mjtGeom.mjGEOM_MESH:
             if not self._parse_geom(geom_props=geom_props):
