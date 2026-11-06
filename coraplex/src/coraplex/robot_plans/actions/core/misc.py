@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 from coraplex.datastructures.enums import DetectionTechnique, DetectionState
 from coraplex.perception import PerceptionQuery
 from coraplex.plans.factories import sequential, execute_single
 from coraplex.plans.plan_node import PlanNode
 from coraplex.robot_plans.actions.base import ActionDescription
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveManipulatorAction
 from coraplex.robot_plans.mixins import HasApproachesGraspPoses, HasTcpGoalThresholds
-from coraplex.robot_plans.motions.misc import DetectingMotion
+from coraplex.robot_plans.motions.misc import DetectingMotion, DetectingOccupantsMotion
 from semantic_digital_twin.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
@@ -29,6 +28,7 @@ from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Human,
     SemanticEnvironmentAnnotation,
 )
 
@@ -129,6 +129,34 @@ class DetectAction(ActionDescription):
 
 
 @dataclass
+class DetectOccupantsAction(ActionDescription):
+    """
+    Looks at each region in turn and updates the people in the world within it to the
+    ones perceived there.
+    """
+
+    regions: list[Region]
+    """
+    The regions to look at, in the order they are looked at.
+    """
+
+    @property
+    def _action_plan(self) -> PlanNode:
+        return sequential(
+            [
+                step
+                for region in self.regions
+                for step in (
+                    LookAtAction(Pose.from_xyz_rpy(reference_frame=region)),
+                    DetectingOccupantsMotion(
+                        PerceptionQuery.in_region(Human, region, self.robot)
+                    ),
+                )
+            ]
+        )
+
+
+@dataclass
 class MoveToReach(ActionDescription, HasApproachesGraspPoses, HasTcpGoalThresholds):
     """
     Let the robot move to a position facing the target and reach with a end_effector.
@@ -162,9 +190,7 @@ class MoveToReach(ActionDescription, HasApproachesGraspPoses, HasTcpGoalThreshol
             [
                 NavigateAction(self.standing_pose),
                 MoveManipulatorAction(
-                    self.end_effector.tool_frame_goal_for_grasp(
-                        self.reference_T_grasp
-                    ),
+                    self.end_effector.tool_frame_goal_for_grasp(self.reference_T_grasp),
                     self.end_effector,
                     allow_gripper_collision=False,
                     position_threshold=self.position_threshold,

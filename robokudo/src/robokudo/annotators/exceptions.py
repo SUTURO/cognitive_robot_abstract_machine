@@ -32,3 +32,24 @@ class NotAPoseModelException(RoboKudoError, ValueError):
 
     def suggest_correction(self) -> str:
         return "set 'pretrained_model' to a YOLO pose model, e.g. 'yolov8n-pose.pt'."
+
+
+# %% query locations
+
+
+@dataclass
+class LocationNotInWorld(RoboKudoError, KeyError):
+    """
+    Raised when a query asks to look in a location the runtime world holds no region of.
+    """
+
+    location: str
+    """
+    The location the query named.
+    """
+
+    def error_message(self) -> str:
+        return f"The runtime world holds no region named '{self.location}'."
+
+    def suggest_correction(self) -> str:
+        return "bootstrap a world descriptor that defines this region."

@@ -24,6 +24,7 @@ from semantic_digital_twin.world_description.geometry import VolumetricBoundingB
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    Region,
 )
 from typing_extensions import Any, Self, TYPE_CHECKING
 
@@ -86,6 +87,35 @@ class PerceptionQuery(SubclassJSONSerializer):
     existing orientation is kept. See :meth:`Detection.apply_to`.
     """
 
+    location: Region | None = None
+    """
+    The named region of the world :attr:`region` bounds, which a perception source that
+    knows the world's regions by name looks in; ``None`` when the query names none.
+    """
+
+    @classmethod
+    def in_region(
+        cls,
+        semantic_annotation: type[SemanticAnnotation],
+        location: Region,
+        robot: AbstractRobot,
+    ) -> Self:
+        """
+        :param semantic_annotation: The semantic annotation for which to perceive.
+        :param location: The region to look in.
+        :param robot: The robot that should perceive.
+        :return: A query looking for ``semantic_annotation`` within ``location``,
+            bounded by the region's extents in its own frame, so the bounds stay with the
+            region however the robot moves.
+        """
+        return cls(
+            semantic_annotation,
+            location.area.as_bounding_box_collection_in_frame(location).bounding_box(),
+            robot,
+            location._world,
+            location=location,
+        )
+
     def from_world(self) -> list[Body]:
         """
         Answer this query from the world model alone.
@@ -120,17 +150,24 @@ class PerceptionQuery(SubclassJSONSerializer):
         result["region"] = to_json(self.region, **kwargs)
         result["robot_id"] = to_json(self.robot.id, **kwargs)
         result["trust_detected_orientation"] = self.trust_detected_orientation
+        result["location_id"] = (
+            None if self.location is None else to_json(self.location.id, **kwargs)
+        )
         return result
 
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+        location_id = data.get("location_id")
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
             robot=tracker.get(from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
+            location=(
+                None if location_id is None else tracker.get(from_json(location_id))
+            ),
         )
 
 
@@ -257,7 +294,7 @@ class PerceptionInterface(ABC):
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> Detection:
         """
-        Answer a perception query.
+        Answer a perception query with the one object it asks for.
 
         :param query: What to look for and where.
         :param accept_first_if_multiple: Whether several candidates may be resolved by
@@ -299,7 +336,7 @@ class PerceptionInterface(ABC):
     @staticmethod
     def for_execution_type(
         execution_type: ExecutionType | None, ros_node: Node | None = None
-    ) -> PerceptionInterface:
+    ) -> WorldPerception | RoboKudoPerception:
         """
         Pick the source that matches how the plan is being executed.
 
@@ -316,8 +353,24 @@ class PerceptionInterface(ABC):
         return WorldPerception()
 
 
+class ExhaustivePerceptionInterface(ABC):
+    """
+    A source of detections that can report every object matching a query.
+    """
+
+    @abstractmethod
+    def detect_all(self, query: PerceptionQuery) -> list[Detection]:
+        """
+        Answer a perception query with everything that matches it.
+
+        :param query: What to look for and where.
+        :return: Every object this source saw that matches the query; empty if it saw
+            none.
+        """
+
+
 @dataclass
-class WorldPerception(PerceptionInterface):
+class WorldPerception(PerceptionInterface, ExhaustivePerceptionInterface):
     """
     Source that reads the objects straight out of the world model.
 
@@ -329,13 +382,18 @@ class WorldPerception(PerceptionInterface):
     def detect(
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> Detection:
+        return self.narrow_to_single_detection(
+            self.detect_all(query), query, accept_first_if_multiple
+        )
+
+    def detect_all(self, query: PerceptionQuery) -> list[Detection]:
         annotation_by_body = {}
         for annotation in query.world.get_semantic_annotations_by_type(
             query.semantic_annotation
         ):
             annotation_by_body.setdefault(annotation.root, type(annotation))
 
-        detections = [
+        return [
             Detection(
                 semantic_annotation=annotation_by_body[body], pose=body.global_pose
             )
@@ -343,13 +401,9 @@ class WorldPerception(PerceptionInterface):
             if body in annotation_by_body
         ]
 
-        return self.narrow_to_single_detection(
-            detections, query, accept_first_if_multiple
-        )
-
 
 @dataclass
-class RoboKudoPerception(PerceptionInterface):
+class RoboKudoPerception(PerceptionInterface, ExhaustivePerceptionInterface):
     """
     Source that asks a running RoboKudo pipeline over its query action.
     """
@@ -372,6 +426,11 @@ class RoboKudoPerception(PerceptionInterface):
     def detect(
         self, query: PerceptionQuery, accept_first_if_multiple: bool = False
     ) -> Detection:
+        return self.narrow_to_single_detection(
+            self.detect_all(query), query, accept_first_if_multiple
+        )
+
+    def detect_all(self, query: PerceptionQuery) -> list[Detection]:
         # RoboKudo's messages only exist where its pipeline is installed, so they are
         # imported here rather than at module level: reading the world in simulation must
         # not depend on them.
@@ -383,18 +442,17 @@ class RoboKudoPerception(PerceptionInterface):
             raise PerceptionSourceUnavailable(self.action_name)
 
         goal = Query.Goal(
-            obj=ObjectDesignator(type=query.semantic_annotation.__name__.lower())
+            obj=ObjectDesignator(
+                type=query.semantic_annotation.__name__.lower(),
+                location="" if query.location is None else query.location.name.name,
+            )
         )
         result = client.send_goal(goal).result
-        detections = [
+        return [
             self._to_detection(designator, query)
             for designator in result.res
             if designator.pose and self._can_be_requested_object(designator, query)
         ]
-
-        return self.narrow_to_single_detection(
-            detections, query, accept_first_if_multiple
-        )
 
     @staticmethod
     def _can_be_requested_object(

@@ -30,6 +30,7 @@ from coraplex.exceptions import (
     NothingDetected,
     PerceivedObjectNotInWorld,
     PerceptionSourceUnavailable,
+    QueryWithoutLocation,
     UnidentifiedDetections,
     UnknownExecutionType,
 )
@@ -46,7 +47,12 @@ from coraplex.plans.factories import execute_single
 from coraplex.plans.plan_node import MotionNode
 from coraplex.robot_plans import MoveToolCenterPointMotion
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.motions.misc import DetectingMotion, PerceptionTask
+from coraplex.robot_plans.motions.misc import (
+    DetectingMotion,
+    OccupantPerceptionTask,
+    PerceptionTask,
+    WorldWritingPerceptionTask,
+)
 from giskardpy.motion_statechart.context import MotionStatechartContext
 from giskardpy.motion_statechart.data_types import ObservationStateValues
 from giskardpy.motion_statechart.graph_node import EndMotion
@@ -57,11 +63,23 @@ from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl, Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bowl,
+    Human,
+    Milk,
+)
 from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.spatial_types.spatial_types import Pose
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    BodySpecification,
+    RegionSpecification,
+)
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.geometry import (
+    Scale,
+    VolumetricBoundingBox,
+)
+from semantic_digital_twin.world_description.world_entity import Region
 
 PERCEIVED_MILK_POSITION = (2.6, 2.2, 1.05)
 """
@@ -369,6 +387,35 @@ def test_world_perception_reports_nothing_outside_the_queried_region(
         WorldPerception().detect(query)
 
 
+def test_world_perception_reports_every_visible_match(
+    pr2_apartment_context, whole_scene_region
+):
+    """
+    Asking for every match answers with each body of the queried annotation in view,
+    rather than narrowing them down to one.
+    """
+    world, view, context = pr2_apartment_context
+    milk_body = world.get_body_by_name("milk.stl")
+    second_milk_body = BodySpecification.box(
+        "second_milk",
+        Scale(0.06, 0.06, 0.2),
+        parent_T_self=milk_body.global_transform
+        @ HomogeneousTransformationMatrix.from_xyz_rpy(y=0.15),
+    ).spawn(world)
+    with world.modify_world():
+        world.add_semantic_annotation(Milk(root=second_milk_body))
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    detections = WorldPerception().detect_all(query)
+
+    assert {
+        tuple(detection.pose.position.to_np().flatten()[:3]) for detection in detections
+    } == {
+        tuple(body.global_pose.position.to_np().flatten()[:3])
+        for body in (milk_body, second_milk_body)
+    }
+
+
 def test_ambiguity_is_reported_with_the_number_of_candidates(
     pr2_apartment_context, whole_scene_region
 ):
@@ -513,6 +560,7 @@ class RecordedQueryServer:
 
         self.reports = reports
         self.received_types = []
+        self.received_locations = []
         self.node = rclpy.create_node(node_name)
         self.server = ActionServer(self.node, Query, action_name, self.execute_callback)
         self.executor = SingleThreadedExecutor()
@@ -529,6 +577,7 @@ class RecordedQueryServer:
         from std_msgs.msg import Header
 
         self.received_types.append(goal_handle.request.obj.type)
+        self.received_locations.append(goal_handle.request.obj.location)
         goal_handle.succeed()
 
         designators = []
@@ -608,6 +657,81 @@ def test_robokudo_detection_is_named_and_placed_by_the_pipeline(
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )
+
+
+@pytest.fixture
+def counter_region(pr2_apartment_context) -> Region:
+    """
+    A named region of the apartment a query can be restricted to.
+    """
+    world, _, _ = pr2_apartment_context
+    return RegionSpecification.box("counter_region", Scale(1.0, 1.0, 1.0)).spawn(world)
+
+
+def test_robokudo_is_asked_to_look_in_the_named_region(
+    pr2_apartment_context, counter_region, rclpy_node, robokudo_query_server
+):
+    """
+    The pipeline knows regions by name, so a query restricted to a region asks it to
+    look there.
+    """
+    world, view, context = pr2_apartment_context
+    query = PerceptionQuery.in_region(Milk, counter_region, view)
+
+    RoboKudoPerception(ros_node=rclpy_node).detect_all(query)
+
+    assert robokudo_query_server.received_locations == [counter_region.name.name]
+
+
+def test_robokudo_is_asked_to_look_anywhere_without_a_named_region(
+    pr2_apartment_context, whole_scene_region, rclpy_node, robokudo_query_server
+):
+    world, view, context = pr2_apartment_context
+    query = PerceptionQuery(Milk, whole_scene_region, view, world)
+
+    RoboKudoPerception(ros_node=rclpy_node).detect_all(query)
+
+    assert robokudo_query_server.received_locations == [""]
+
+
+def test_a_query_in_a_region_looks_within_that_regions_bounds(
+    pr2_apartment_context, counter_region
+):
+    world, view, context = pr2_apartment_context
+
+    query = PerceptionQuery.in_region(Milk, counter_region, view)
+
+    expected_region = counter_region.area.as_bounding_box_collection_in_frame(
+        counter_region
+    ).bounding_box()
+    assert query.location is counter_region
+    assert query.world is world
+    assert query.region.origin.reference_frame is counter_region
+    np.testing.assert_allclose(
+        query.region.to_array_bounds().lower, expected_region.to_array_bounds().lower
+    )
+    np.testing.assert_allclose(
+        query.region.to_array_bounds().upper, expected_region.to_array_bounds().upper
+    )
+
+
+def test_a_query_in_a_region_keeps_its_bounds_when_the_robot_moves(
+    pr2_apartment_context, counter_region
+):
+    """
+    A plan builds its queries before the robot drives to where it perceives, so the
+    bounds must stay on the region rather than travel with the robot.
+    """
+    world, view, context = pr2_apartment_context
+    query = PerceptionQuery.in_region(Milk, counter_region, view)
+
+    world.get_body_by_name(
+        "base_footprint"
+    ).parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        3.0, 3.0, 0.0
+    )
+
+    assert query.region.contains(counter_region.global_pose.position)
 
 
 def test_robokudo_detection_moves_the_body_in_the_world(
@@ -741,7 +865,7 @@ def test_labelled_candidates_are_narrowed_to_the_requested_type(
 
 
 def build_perception_task(
-    task: PerceptionTask, world: World, ros_node: Node
+    task: WorldWritingPerceptionTask, world: World, ros_node: Node
 ) -> MotionStatechartContext:
     """
     Put a perception task through the build phase a motion state chart would give it.
@@ -757,7 +881,9 @@ def build_perception_task(
     return context
 
 
-def run_perception_task(task: PerceptionTask, context: MotionStatechartContext) -> None:
+def run_perception_task(
+    task: WorldWritingPerceptionTask, context: MotionStatechartContext
+) -> None:
     """
     Start a built perception task and tick it once, as its chart does.
 
@@ -889,6 +1015,23 @@ def test_perception_task_survives_a_json_round_trip(
     assert restored.query.region.origin.reference_frame is receiving_world.root
 
 
+def test_query_location_survives_a_json_round_trip(
+    pr2_apartment_context, counter_region
+):
+    """
+    The named region arrives pointing at the receiving world's copy of it.
+    """
+    world, view, context = pr2_apartment_context
+    receiving_world = deepcopy(world)
+    query = PerceptionQuery.in_region(Milk, counter_region, view)
+
+    restored = from_json(to_json(query), **receiving_world_kwargs(receiving_world))
+
+    assert restored.location is receiving_world.get_world_entity_with_id_by_id(
+        counter_region.id
+    )
+
+
 def test_perception_task_without_an_execution_type_is_rejected(
     pr2_apartment_context, whole_scene_region, rclpy_node
 ):
@@ -987,4 +1130,117 @@ def test_detection_in_a_chart_corrects_a_reach_planned_before_it(
         reach.root_T_goal_reference_frame.position.evaluate().flatten()[:3],
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
+    )
+
+
+# %% occupants of a region
+
+
+@pytest.fixture
+def reported_region(pr2_apartment_context) -> Region:
+    """
+    A named region around the position the stand-in pipeline reports its objects at.
+    """
+    world, _, _ = pr2_apartment_context
+    return RegionSpecification.box(
+        "reported_region",
+        Scale(0.5, 0.5, 0.5),
+        parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            *PERCEIVED_MILK_POSITION
+        ),
+    ).spawn(world)
+
+
+def run_occupant_task(
+    region: Region, world: World, view, ros_node: Node
+) -> OccupantPerceptionTask:
+    """
+    Build and run an occupant task asking the real source for the people in ``region``.
+
+    :return: The task that ran.
+    """
+    task = OccupantPerceptionTask(
+        query=PerceptionQuery.in_region(Human, region, view),
+        execution_type=ExecutionType.REAL,
+    )
+    run_perception_task(task, build_perception_task(task, world, ros_node))
+    return task
+
+
+def test_occupant_task_adds_a_human_where_the_pipeline_saw_one(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, context = pr2_apartment_context
+    query_server_reporting([ReportedObject("", PERCEIVED_MILK_POSITION)])
+
+    run_occupant_task(reported_region, world, view, rclpy_node)
+
+    [occupant] = reported_region.semantic_annotations_within(Human)
+    np.testing.assert_allclose(
+        occupant.root.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_occupant_task_removes_humans_the_pipeline_no_longer_sees(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    """
+    A person who left a region since it was last looked at must not keep it occupied.
+    """
+    world, view, context = pr2_apartment_context
+    Human.get_annotation_specification(
+        "earlier_occupant", BodySpecification("earlier_occupant")
+    ).spawn(world, parent=reported_region)
+    query_server_reporting([])
+
+    run_occupant_task(reported_region, world, view, rclpy_node)
+
+    assert reported_region.semantic_annotations_within(Human) == []
+
+
+def test_occupant_task_leaves_humans_outside_its_region(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, context = pr2_apartment_context
+    elsewhere = Human.get_annotation_specification(
+        "elsewhere", BodySpecification("elsewhere")
+    ).spawn(world)
+    query_server_reporting([])
+
+    run_occupant_task(reported_region, world, view, rclpy_node)
+
+    assert world.get_semantic_annotations_by_type(Human) == [elsewhere]
+
+
+def test_occupant_task_without_a_location_is_rejected(
+    pr2_apartment_context, whole_scene_region, rclpy_node
+):
+    world, view, context = pr2_apartment_context
+    task = OccupantPerceptionTask(
+        query=PerceptionQuery(Human, whole_scene_region, view, world),
+        execution_type=ExecutionType.REAL,
+    )
+
+    with pytest.raises(QueryWithoutLocation):
+        build_perception_task(task, world, rclpy_node)
+
+
+def test_occupant_task_survives_a_json_round_trip(
+    pr2_apartment_context, reported_region
+):
+    world, view, context = pr2_apartment_context
+    receiving_world = deepcopy(world)
+    task = OccupantPerceptionTask(
+        query=PerceptionQuery.in_region(Human, reported_region, view),
+        execution_type=ExecutionType.REAL,
+    )
+
+    restored = from_json(to_json(task), **receiving_world_kwargs(receiving_world))
+
+    assert type(restored) is OccupantPerceptionTask
+    assert restored.execution_type == ExecutionType.REAL
+    assert restored.query.location is receiving_world.get_world_entity_with_id_by_id(
+        reported_region.id
     )

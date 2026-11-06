@@ -2,6 +2,7 @@ import numpy as np
 from enum import Enum
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeatRegions
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Table,
@@ -83,12 +84,16 @@ class KitchenEnvironment:
         :return: A new world instance with the initialized environment.
         """
         world = World.create_with_root_body("root")
+        self.populate(world)
+        return world
 
+    def populate(self, world: World) -> None:
+        """
+        Spawn the kitchen's walls, furniture and rooms into an existing world.
+        """
         self._build_environment_walls(world)
         self._build_environment_furniture(world)
         self._build_environment_rooms(world)
-
-        return world
 
     @staticmethod
     def _door_hinge_specification(
@@ -1431,16 +1436,22 @@ class KitchenEnvironment:
                     drawer.add(handle)
 
             # --- SOFA ---
+            # The sofa faces the coffee table along its +x axis.
+            sofa_scale = Scale(x=0.94, y=1.68, z=0.68)
             sofa = Sofa.create_with_new_body_in_world(
                 world=world,
                 name="sofa",
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=3.60, y=1.601, z=0.34, yaw=4.7124
+                    x=3.60, y=1.601, z=0.34, yaw=np.pi / 2
                 ),
-                scale=Scale(x=0.94, y=1.68, z=0.68),
+                scale=sofa_scale,
             )
             for color in sofa.bodies[0].visual.shapes:
                 color.color = Color.BEIGE()
+            # The sofa is a plain box, so its seat is its top and spans its whole depth.
+            SofaSeatRegions(
+                cushion_height=sofa_scale.z / 2, backrest_front=-sofa_scale.x / 2
+            ).spawn(world, sofa)
 
             # --- COFFEE TABLE ---
             self._build_coffee_table(world)
