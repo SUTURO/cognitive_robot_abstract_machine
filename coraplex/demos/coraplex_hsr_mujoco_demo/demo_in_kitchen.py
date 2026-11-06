@@ -44,15 +44,8 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
-    LivingRoom,
-    Room,
-    Kitchen,
-    Office,
-    Bedroom,
 )
 
-# from semantic_digital_twin.spatial_types import HomogeneousTransformationMatrix
-# from semantic_digital_twin.spatial_types.spatial_types import Pose
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
@@ -147,7 +140,7 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
     robot_start: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
             x=0, y=0
-        )  # x=2.35034, y=-0.892141
+        )
     )
     """
     Where the HSR starts, in the doorway of the kitchen.

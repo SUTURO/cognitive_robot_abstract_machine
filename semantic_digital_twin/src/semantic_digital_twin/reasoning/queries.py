@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from typing_extensions import Iterator
 
 from krrood.inheritance_path_length import (
-    nearest_common_ancestor,
-    inheritance_path_length,
     inheritance_distance,
 )
 
@@ -22,7 +17,6 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.query.query import Entity
 from krrood.entity_query_language.predicate import symbolic_function, length
 from krrood.utils import recursive_subclasses
-from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 
 from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
@@ -38,17 +32,8 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     HasRootBody,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Kitchen,
-    KitchenIsland,
     Room,
-    LivingRoom,
-    Milk,
-    Sofa,
     Floor,
-    Bedroom,
-    Table,
-    Office,
-    CounterTop,
 )
 from semantic_digital_twin.world import World
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose

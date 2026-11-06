@@ -8,17 +8,12 @@ import numpy as np
 import pytest
 
 from semantic_digital_twin.specifications.connections import (
-    ConnectionSpecification,
-    ActiveConnection1DOFSpecification,
     PrismaticConnectionSpecification,
 )
 from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.callbacks.callback import Callback
 from semantic_digital_twin.robots.daisy import DAiSy
-from semantic_digital_twin.semantic_annotations.mixins import (
-    HasRootBody,
-    HasRootKinematicStructureEntity,
-)
+
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )

@@ -19,7 +19,6 @@ from semantic_digital_twin.reasoning.queries import (
     find_free_space_next_to,
     find_room, find_objects_in_room,
 )
-from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
 from semantic_digital_twin.semantic_annotations.semantic_annotations import *
@@ -305,7 +304,7 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
 
 def test_find_room(kitchen_environment_with_rooms: World):
     """
-    Tests the find_room function by verifying the coordinates of the room's center point..
+    Tests the find_room function by verifying the coordinates of the room's center point.
     """
     assert find_room(Kitchen, kitchen_environment_with_rooms) == (3.5, 1.0)
     assert find_room(LivingRoom, kitchen_environment_with_rooms) == (10.0, 10.0)
@@ -313,7 +312,7 @@ def test_find_room(kitchen_environment_with_rooms: World):
 
 def test_find_free_space_in_room(kitchen_environment_with_rooms: World) -> None:
     """
-    A robot fits on the room's own point when nothing stands there.
+    Tests the find_free_space_in_room function by verifying the coordinates of the free space in the room near the center.
     """
     world = kitchen_environment_with_rooms
 
@@ -331,7 +330,7 @@ def test_find_free_space_in_room(kitchen_environment_with_rooms: World) -> None:
 
 def test_find_free_space_next_to(kitchen_environment_with_rooms) -> None:
     """
-    The robot stands next to the annotation, not on it, inside its room.
+    Tests the find_free_space_next_to function by verifying the coordinates of the free space near a given object.
     """
     robot_diameter = 0.5
     fruits_table = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
@@ -342,6 +341,9 @@ def test_find_free_space_next_to(kitchen_environment_with_rooms) -> None:
 
 
 def test_find_objects_in_room(kitchen_environment_with_rooms):
+    """
+    Tests the find_objects_in_room function by returning the list of objects in a given room.
+    """
     table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
     table2 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("vegetable_table")
     table3 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("empty_table")
@@ -358,6 +360,9 @@ def test_find_objects_in_room(kitchen_environment_with_rooms):
 
 
 def test_find_objects_room(kitchen_environment_with_rooms):
+    """
+    Tests the find_objects_room function by returning the room where an object is located.
+    """
     table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
     orange = kitchen_environment_with_rooms.get_semantic_annotation_by_name("orange")
     sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
