@@ -1316,6 +1316,16 @@ class MissingWorldModificationContextError(UsageError):
         )
 
 
+class IncorrectScaleError(ValueError):
+    """
+    An exception raised when the scale of a DoorFactory is incorrect.
+    """
+
+    def __init__(self, scale):
+        self.scale = scale
+        super().__init__(f"Scale {scale} is invalid: x must be smaller than y and z.")
+
+
 @dataclass
 class MismatchingPublishChangesAttribute(UsageError):
     """
