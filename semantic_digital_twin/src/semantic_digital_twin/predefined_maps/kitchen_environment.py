@@ -12,13 +12,11 @@ import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Room,
     Floor,
     LivingRoom,
     Kitchen,
     Bedroom,
     Office,
-    Milk,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
@@ -1250,19 +1248,6 @@ class KitchenEnvironment(WorldSource):
             )
             for shape in counter_top.root.visual.shapes:
                 shape.color = Color.BEIGE()
-
-            milk = Milk.create_with_new_body_in_world(
-                world=world,
-                name="milk",
-                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=2.55674,
-                    y=-2.2179,
-                    z=0.854088 + 0.05,
-                ),
-                scale=Scale(x=0.05, y=0.05, z=0.10),
-            )
-            for shape in milk.root.visual.shapes:
-                shape.color = Color.RED()
 
             counter_base_facing = WallPanel.create_with_new_body_in_world(
                 world=world,
