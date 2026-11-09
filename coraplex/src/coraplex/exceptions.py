@@ -389,3 +389,63 @@ class NotOnASingleLevelException(DataclassException):
 
     def suggest_correction(self) -> str:
         return f"Move the robot to a recognized level"
+
+
+# %% scene perception
+
+
+@dataclass
+class ScenePerceptionFailed(DataclassException):
+    """
+    A scene request did not produce a successful final result.
+    """
+
+    reason: str
+    """
+    Failure reported by the action transport or its completion policy.
+    """
+
+    def error_message(self) -> str:
+        return f"Scene perception failed: {self.reason}."
+
+    def suggest_correction(self) -> str:
+        return "Check the perception pipeline and its action result before requesting another report."
+
+
+# %% robot speech transport
+
+
+@dataclass
+class SpeechMessagesUnavailable(DataclassException):
+    """
+    The selected robot message interface is not available in this environment.
+    """
+
+    message_type: str
+    """
+    ROS type needed by the running robot's speech node.
+    """
+
+    def error_message(self) -> str:
+        return f"Robot speech requires the existing ROS message interface {self.message_type}."
+
+    def suggest_correction(self) -> str:
+        return "Source the robot ROS workspace or run inside its ROS container; omit --speak to print the scene report."
+
+
+@dataclass
+class SpeechInputUnavailable(DataclassException):
+    """
+    The existing speech node was not discovered or did not acknowledge transport.
+    """
+
+    topic: str
+    """
+    Input on which speech was requested.
+    """
+
+    def error_message(self) -> str:
+        return f"Robot speech input {self.topic} is unavailable or unacknowledged."
+
+    def suggest_correction(self) -> str:
+        return "Check the robot voice node and ROS connectivity; a published request does not establish that audio finished."

@@ -26,6 +26,7 @@ from krrood_spatial_math.spatial_types import (
     RotationMatrix,
 )
 from krrood_spatial_math.spatial_types import Pose, Point3
+from semantic_digital_twin.world_description.connections import FixedConnection
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.world_entity import (
@@ -178,27 +179,34 @@ class Detection:
         body = matching_annotation.root
         robot = world.get_semantic_annotations_by_type(AbstractRobot)[0]
 
-        # Foundation Pose may return a upside down pose. this detects and fixes it by rotation around x by 180 degree
         detected_global_pose = world.transform(self.pose, world.root).homogeneous_matrix
         detected_global_pose = self._with_z_up_and_x_towards(
             root_T_frame=detected_global_pose,
             root_P_target=robot.root.global_transform.position,
         )
 
-        if trust_orientation:
-            body.parent_connection.origin = detected_global_pose
-        else:
-            parent_T_object = world.transform(
-                detected_global_pose, body.parent_connection.parent
+        connection = body.parent_connection
+        parent_T_object = world.transform(detected_global_pose, connection.parent)
+        if not trust_orientation:
+            parent_origin = (
+                connection.parent_T_connection_expression
+                if isinstance(connection, FixedConnection)
+                else connection.origin
             )
-            parent_origin = body.parent_connection.origin
-            body.parent_connection.origin = (
+            parent_T_object = (
                 HomogeneousTransformationMatrix.from_point_rotation_matrix(
                     point=parent_T_object.position,
                     rotation_matrix=parent_origin.rotation_matrix,
-                    reference_frame=body.parent_connection.parent,
+                    reference_frame=connection.parent,
                 )
             )
+        if isinstance(connection, FixedConnection):
+            with world.modify_world():
+                connection.parent_T_connection_expression = parent_T_object
+        elif trust_orientation:
+            connection.origin = detected_global_pose
+        else:
+            connection.origin = parent_T_object
         return matching_annotations
 
     @staticmethod
