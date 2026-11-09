@@ -2,7 +2,7 @@
 Exceptions raised by GPSR annotators.
 """
 
-# %% imports
+# %% Imports
 from dataclasses import dataclass
 
 from krrood.exceptions import DataclassException
@@ -33,7 +33,7 @@ class FaceImageDirectoryMissing(DataclassException, RuntimeError):
         return "The face image directory is not configured."
 
     def suggest_correction(self) -> str:
-        return "Configure a face image directory or its ROS package and data path."
+        return "Configure a face image directory."
 
 
 @dataclass
@@ -85,13 +85,13 @@ class FaceStoragePathMissing(DataclassException):
         return "The face image directory is not configured."
 
     def suggest_correction(self) -> str:
-        return "Configure a face image directory or its ROS package."
+        return "Configure a face image directory."
 
 
 @dataclass
 class InvalidFaceHypothesis(DataclassException):
     """
-    A face storage operation received an invalid person hypothesis.
+    A face storage operation received an invalid human hypothesis.
     """
 
     actual_type: type

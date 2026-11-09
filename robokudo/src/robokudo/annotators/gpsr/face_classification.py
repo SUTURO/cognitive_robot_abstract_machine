@@ -1,36 +1,39 @@
+"""
+Classification of detected faces against a directory of known face images.
+"""
+
 from __future__ import annotations
 
-# %% imports
+# %% Imports
 import copy
-from pathlib import Path
 from timeit import default_timer
 
 import face_recognition
 import py_trees
 from typing_extensions import TYPE_CHECKING
 
-import robokudo
 import robokudo.annotators.core
 import robokudo.types.annotation
 import robokudo.types.scene
 import robokudo.utils.annotator_helper
-import robokudo.utils.cv_helper
 import robokudo.utils.error_handling
 from robokudo.cas import CASViews
+from robokudo.annotators.gpsr.face_detector import FaceDetector
 from robokudo.annotators.gpsr.exceptions import (
     FaceImageDirectoryMissing,
     FaceLabelsMismatch,
 )
-from robokudo.utils.file_loader import FileLoader
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import numpy as np
 
 
 # %% face classification
 class FaceClassification(robokudo.annotators.core.BaseAnnotator):
     """
-    Classifies detected faces based on face_recognition library.
+    Classifies detected faces with the face_recognition library.
     """
 
     class Descriptor(robokudo.annotators.core.BaseAnnotator.Descriptor):
@@ -44,51 +47,57 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
             """
 
             def __init__(self) -> None:
-                self.ros_pkg_path: str | None = None
-                """ROS package containing the face image directory."""
+                """
+                Start without a face directory or known faces.
+                """
                 self.face_directory: Path | None = None
-                """
-                Directory containing face images, if configured directly.
-                """
-                self.data_path: str | None = None
-                """Face image directory relative to the ROS package."""
+                """Directory containing face images."""
                 self.file_names: list[str] = []
                 """Names of face image files to load."""
                 self.labels: list[str] = []
                 """Person label for each face image."""
-                self.distance: float = 0.45
+                self.maximum_face_distance: float = 0.45
                 """Maximum distance for matching face encodings."""
 
         parameters = (
             Parameters()
         )  # overwrite the parameters explicitly to enable auto-completion
+        """
+        Default parameters on the class. Each descriptor instance gets its own copy.
+        """
 
     def __init__(
         self,
         name: str = "FaceClassification",
         descriptor: FaceClassification.Descriptor | None = None,
     ) -> None:
+        """
+        Load the known faces of the descriptor.
+
+        :param name: Name of this annotator in the tree.
+        :param descriptor: Configuration of this annotator.
+        :raises FaceImageDirectoryMissing: If no face directory is configured.
+        :raises FaceLabelsMismatch: If images and labels differ in number.
+        """
         super().__init__(name, descriptor)
-        self.rk_logger.debug("%s.__init__()" % self.__class__.__name__)
+        self.rk_logger.debug("%s.__init__()" % self.get_class_name())
         self.known_face_encodings = []
-        self.known_person_image = []
+        """Encodings of the known faces."""
+        self.known_face_image = []
+        """Face image loaded last."""
         self.load_faces()
 
     def load_faces(self) -> py_trees.common.Status | None:
         """
         Load face encodings, reporting failure if an image contains no face.
+
+        :return: :attr:`Status.FAILURE` if an image contains no face, otherwise *None*.
+        :raises FaceImageDirectoryMissing: If no image directory is configured.
+        :raises FaceLabelsMismatch: If images and labels differ in number.
         """
-        data_folder_path = self.descriptor.parameters.face_directory
-        if data_folder_path is None:
-            if (
-                self.descriptor.parameters.ros_pkg_path is None
-                or self.descriptor.parameters.data_path is None
-            ):
-                raise FaceImageDirectoryMissing()
-            data_folder_path = FileLoader.get_path_to_file_in_ros_package(
-                ros_pkg_name=self.descriptor.parameters.ros_pkg_path,
-                relative_path=self.descriptor.parameters.data_path,
-            )
+        face_directory = self.descriptor.parameters.face_directory
+        if face_directory is None:
+            raise FaceImageDirectoryMissing()
 
         if len(self.descriptor.parameters.file_names) != len(
             self.descriptor.parameters.labels
@@ -96,17 +105,17 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
             raise FaceLabelsMismatch()
 
         for file_name in self.descriptor.parameters.file_names:
-            file_path: Path = data_folder_path.joinpath(f"{file_name}")
+            file_path = face_directory / file_name
             if not file_path.exists():
                 self.rk_logger.error(f"No face image file found at '{file_path}'")
 
-            self.known_person_image = face_recognition.load_image_file(str(file_path))
+            self.known_face_image = face_recognition.load_image_file(str(file_path))
             known_face_encodings = face_recognition.face_encodings(
-                self.known_person_image
+                self.known_face_image
             )
             if known_face_encodings:
-                known_person_encoding = known_face_encodings[0]
-                self.known_face_encodings.append(known_person_encoding)
+                known_face_encoding = known_face_encodings[0]
+                self.known_face_encodings.append(known_face_encoding)
             else:
                 self.rk_logger.warning(f"No face detected in image '{file_path}'")
                 return py_trees.common.Status.FAILURE
@@ -114,8 +123,14 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
 
     @robokudo.utils.error_handling.catch_and_raise_to_blackboard
     def update(self) -> py_trees.common.Status:
+        """
+        Overrides :meth:`BaseAnnotator.update` to add a classification to each person
+        whose face matches a known face.
+
+        :return: :attr:`Status.SUCCESS`.
+        """
         start_timer = default_timer()
-        self.load_faces()  # Reload faces before comparison
+        self.load_faces()
 
         color = self.get_cas().get(CASViews.COLOR_IMAGE)
 
@@ -124,7 +139,7 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
         )
 
         if len(human_hypotheses) == 0:
-            self.rk_logger.warning(f"Could not find any HumanHypothesis")
+            self.rk_logger.warning("Could not find any HumanHypothesis")
             return py_trees.common.Status.SUCCESS
 
         for human_hypothesis in human_hypotheses:
@@ -132,27 +147,24 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
                 robokudo.types.annotation.Encoding, human_hypothesis.annotations
             )
             for encoding_annotation in encoding_annotations:
-                if encoding_annotation.source != "FaceDetector":
+                if encoding_annotation.source != FaceDetector.__name__:
                     continue
 
-                # Classify the given face by comparing against the loaded face encodings
-                # results = face_recognition.compare_faces(known_face_encodings=self.known_face_encodings,
-                #                                         face_encoding_to_check=encoding_annotation.encoding[0],
-                #                                         tolerance=self.descriptor.parameters.tolerance)
-
-                distance = face_recognition.face_distance(
+                face_distances = face_recognition.face_distance(
                     self.known_face_encodings, encoding_annotation.encoding[0]
                 )
 
                 detected_classes = [
                     (match, name)
                     for (match, name) in zip(
-                        distance, self.descriptor.parameters.labels
+                        face_distances, self.descriptor.parameters.labels
                     )
-                    if match < self.descriptor.parameters.distance
+                    if match < self.descriptor.parameters.maximum_face_distance
                 ]
                 if len(detected_classes) > 0:
-                    detected_class = min(detected_classes, key=lambda x: x[0])[1]
+                    detected_class = min(
+                        detected_classes, key=lambda detection: detection[0]
+                    )[1]
                     classification = robokudo.types.annotation.Classification()
                     classification.source = self.name
                     classification.classification_type = "face"
@@ -160,19 +172,20 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
                     human_hypothesis.annotations.append(classification)
                 break
 
-        visualization_img = copy.deepcopy(color)
-        self.draw_visualization(visualization_img)
-        self.get_annotator_output_struct().set_image(visualization_img)
+        visualization_image = copy.deepcopy(color)
+        self.draw_visualization(visualization_image)
+        self.get_annotator_output_struct().set_image(visualization_image)
 
         end_timer = default_timer()
         self.feedback_message = f"Processing took {(end_timer - start_timer):.4f}s"
         return py_trees.common.Status.SUCCESS
 
-    def draw_visualization(self, visualization_img: np.ndarray) -> np.ndarray:
+    def draw_visualization(self, visualization_image: np.ndarray) -> np.ndarray:
         """
-        Fetch object hypothesis with Annotations done by this Annotator and visualize them in 2D
-        :param visualization_img:
-        :return: The updated visualization_img with the bounding boxes and class information
+        Draw the faces classified by this annotator on an image.
+
+        :param visualization_image: Image the bounding boxes are drawn on.
+        :return: The image with the bounding boxes and class information.
         """
         human_hypotheses = self.get_cas().filter_annotations_by_type(
             robokudo.types.scene.HumanHypothesis
@@ -184,36 +197,36 @@ class FaceClassification(robokudo.annotators.core.BaseAnnotator):
                 robokudo.types.annotation.Encoding, human_hypothesis.annotations
             )
             for encoding_annotation in encoding_annotations:
-                if encoding_annotation.source != "FaceDetector":
+                if encoding_annotation.source != FaceDetector.__name__:
                     continue
 
                 human_hypotheses_with_face_encodings.append(human_hypothesis)
-                # only add one hypothesis with an encoding
                 break
 
-        # Fetch the class annotations done by this annotator
-        # Warning:If you have multiple Annotators of this type in your BT, you need to switch from self.get_class_name()
-        # in the annotation to self.name and set different names in the CTOR. We also assume,
-        # that no annotations from this Annotator have existed in the CAS prior to the call of this Annotator
-        def get_class_label_from_h(h: robokudo.types.scene.HumanHypothesis) -> str:
+        # Multiple annotators of this type in one behavior tree need different names,
+        # and no annotation of this annotator may exist in the CAS before it runs.
+        def get_classification_label(
+            human_hypothesis: robokudo.types.scene.HumanHypothesis,
+        ) -> str:
             """
-            Return the classifier label for a person, if unambiguous.
+            :param human_hypothesis: The person to read the classification of.
+            :return: The classifier label of the person, or ``NO-CLASS`` if it is ambiguous.
             """
-            class_annotations = [
-                a
-                for a in h.annotations
-                if isinstance(a, robokudo.types.annotation.Classification)
-                and a.source == self.name
+            classifications = [
+                annotation
+                for annotation in human_hypothesis.annotations
+                if isinstance(annotation, robokudo.types.annotation.Classification)
+                and annotation.source == self.name
             ]
 
-            if len(class_annotations) == 1:
-                return class_annotations[0].classname
+            if len(classifications) == 1:
+                return classifications[0].classname
             return "NO-CLASS"
 
         robokudo.utils.annotator_helper.draw_bounding_boxes_from_object_hypotheses(
-            visualization_img,
+            visualization_image,
             human_hypotheses_with_face_encodings,
-            lambda h: f"{get_class_label_from_h(h)}",
+            get_classification_label,
         )
 
-        return visualization_img
+        return visualization_image
