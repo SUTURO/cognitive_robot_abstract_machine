@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # %% Imports
+import math
 from abc import ABC
 from dataclasses import dataclass
 
@@ -419,6 +420,118 @@ class InsideRegion(Triple[TBody, TRegion]):
             Prepositions.INSIDE,
             Noun(fields["region"]),
         )
+
+@dataclass(eq=False)
+class OverFloorPlan(Triple[Pose, TBody]):
+    """
+    Whether a pose lies within the x-y extent of a body's bounding box, regardless of
+    height.
+    """
+
+    pose: Pose
+    """
+    The pose that may lie over the floor plan.
+    """
+
+    floor: TBody
+    """
+    The body whose x-y extent is the floor plan.
+    """
+
+    @property
+    def subject(self) -> Pose:
+        return self.pose
+
+    @property
+    def object(self) -> TBody:
+        return self.floor
+
+    def __call__(self) -> bool:
+        world = self.floor._world
+        floor_plan = self.floor.collision.as_bounding_box_collection_in_frame(
+            world.root
+        ).bounding_box()
+        position = world.transform(self.pose, world.root)
+        return floor_plan.x_interval.contains(
+            float(position.x)
+        ) and floor_plan.y_interval.contains(float(position.y))
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        Reads as *"the pose is over the floor"*.
+
+        :param fields: The rendered fragment for each field, keyed by field name.
+        """
+        return clause(
+            Noun(fields["pose"]),
+            Copula(),
+            Prepositions.OVER,
+            Noun(fields["floor"]),
+        )
+
+@dataclass
+class GrowingCircleSearch:
+    """
+    Poses on the floor around a centre, on circles of growing radius, nearest first.
+    """
+
+    center: Pose
+    """
+    The pose the search starts at and circles around.
+    """
+
+    radius_step: float = 0.1
+    """
+    How much, in m, each circle is wider than the one before, and how far apart the
+    poses on one circle are.
+    """
+
+    maximum_radius: float = 3.0
+    """
+    The radius, in m, of the widest circle searched.
+    """
+
+    preferred_point: Pose | None = None
+    """
+    The point the poses on each circle are ordered towards, nearest first, such as where
+    the robot stands now.
+
+    Without one, each circle starts on the centre's x axis and runs counter-clockwise.
+    """
+
+    def __iter__(self) -> Iterator[Pose]:
+        yield self.center
+        for circle in range(1, math.floor(self.maximum_radius / self.radius_step) + 1):
+            yield from self._poses_on_circle(circle * self.radius_step)
+
+    def _poses_on_circle(self, radius: float) -> list[Pose]:
+        """
+        :param radius: The radius of the circle, in m.
+        :return: The poses on the circle around :attr:`center`, nearest to
+            :attr:`preferred_point` first.
+        """
+        pose_count = math.ceil(2 * math.pi * radius / self.radius_step)
+        angles = [2 * math.pi * index / pose_count for index in range(pose_count)]
+        if self.preferred_point is not None:
+            preferred_angle = math.atan2(
+                float(self.preferred_point.y) - float(self.center.y),
+                float(self.preferred_point.x) - float(self.center.x),
+            )
+            angles.sort(
+                key=lambda angle: abs(
+                    math.remainder(angle - preferred_angle, 2 * math.pi)
+                )
+            )
+        return [
+            Pose.from_xyz_rpy(
+                x=float(self.center.x) + radius * math.cos(angle),
+                y=float(self.center.y) + radius * math.sin(angle),
+                z=float(self.center.z),
+                reference_frame=self.center.reference_frame,
+            )
+            for angle in angles
+        ]
 
 
 @dataclass(eq=False)

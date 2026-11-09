@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # %% Imports
+import math
 import tracemalloc
 from copy import deepcopy
 from dataclasses import dataclass, fields
@@ -18,6 +19,7 @@ from semantic_digital_twin.reasoning.predicates import (
     LeftOf,
     RightOf,
     Behind,
+    GrowingCircleSearch,
     InFrontOf,
     InsideOf,
     InsideRegion,
@@ -1432,3 +1434,34 @@ def test_a_relation_named_for_its_object_still_reads_as_a_sentence(
     operands.update(relation._example_operand_values_())
 
     assert verbalize_expression(relation(**operands)) == sentence
+
+
+# %% searching outward from a centre, nearest to a preferred point first
+
+
+def test_growing_circle_search_orders_each_circle_by_distance_to_the_preferred_point() -> (
+    None
+):
+    """
+    The poses on one circle come nearest to the preferred point first.
+    """
+    center = Pose.from_xyz_rpy(1.0, 2.0, 0.0)
+    preferred_point = Pose.from_xyz_rpy(-4.0, 2.0, 0.0)
+    radius_step = 0.1
+    search = GrowingCircleSearch(
+        center=center,
+        radius_step=radius_step,
+        maximum_radius=radius_step,
+        preferred_point=preferred_point,
+    )
+
+    [_, *first_circle] = list(search)
+
+    distances = [
+        math.hypot(
+            float(pose.x) - float(preferred_point.x),
+            float(pose.y) - float(preferred_point.y),
+        )
+        for pose in first_circle
+    ]
+    assert distances == sorted(distances)

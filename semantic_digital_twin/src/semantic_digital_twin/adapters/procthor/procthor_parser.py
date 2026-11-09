@@ -37,6 +37,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bedroom,
     Bathroom,
     LivingRoom,
+    Office,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -507,6 +508,8 @@ class ProcthorRoom:
             room = Kitchen(name=room_name, floor=floor)
         elif "Bathroom" in self.name:
             room = Bathroom(name=room_name, floor=floor)
+        elif "Office" in self.name:
+            room = Office(name=room_name, floor=floor)
         else:
             assert_never(self.name)
 

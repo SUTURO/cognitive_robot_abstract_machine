@@ -24,7 +24,9 @@ from giskardpy.motion_statechart.tasks.drive_tasks import (
     BaseHeading,
     BaseOrientation,
     BasePosition,
+    BaseStraightLinePosition,
     BaseTurnTowardsGoalPosition,
+    DrivenBaseTask,
 )
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -264,25 +266,28 @@ class HolonomicBaseGoal(DrivenBaseGoal):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DifferentialDriveBaseGoal(DrivenBaseGoal):
+class TravelFacingBaseGoal(DrivenBaseGoal, ABC):
     """
-    Moves the robot to a goal pose using a differential drive, running these steps in
-    one :class:`~cramph.composites.Sequence`:
+    Moves the base to a goal pose while it faces the way it travels, running these steps
+    in one :class:`~cramph.composites.Sequence`:
 
     1. Turn towards the goal position, without driving
-    2. Drive to goal position, steering towards it
+    2. Drive to goal position, with the tasks :meth:`driving_tasks` creates
     3. Orient to goal orientation
-    """
-
-    mobile_base: MobileBase[DifferentialDrive]
-    """
-    The base moved, by the differential drive attaching its robot to its parent.
     """
 
     sequence: Sequence = expanded_child_field()
     """
     The sequence running the three steps.
     """
+
+    @abstractmethod
+    def driving_tasks(self, task_parameters: dict[str, Any]) -> list[DrivenBaseTask]:
+        """
+        :param task_parameters: The parameters every task is created with.
+        :return: New tasks driving the base to the goal position while keeping it facing
+            the goal position.
+        """
 
     @property
     def motion(self) -> StatechartNode:
@@ -293,10 +298,7 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
             BaseTurnTowardsGoalPosition(name=f"{self.name}/step1", **task_parameters),
             Parallel(
                 name=f"{self.name}/step2",
-                nodes=[
-                    BasePosition(name=f"{self.name}/step2/position", **task_parameters),
-                    BaseHeading(name=f"{self.name}/step2/heading", **task_parameters),
-                ],
+                nodes=self.driving_tasks(task_parameters),
             ),
             Parallel(
                 name=f"{self.name}/step3",
@@ -309,3 +311,42 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
             ),
         ]
         self.sequence = Sequence(name=f"{self.name}/sequence", nodes=steps)
+
+
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class DifferentialDriveBaseGoal(TravelFacingBaseGoal):
+    """
+    Moves the robot to a goal pose using a differential drive, steering towards the goal
+    position from wherever the drive has carried the base.
+    """
+
+    mobile_base: MobileBase[DifferentialDrive]
+    """
+    The base moved, by the differential drive attaching its robot to its parent.
+    """
+
+    def driving_tasks(self, task_parameters: dict[str, Any]) -> list[DrivenBaseTask]:
+        return [
+            BasePosition(name=f"{self.name}/step2/position", **task_parameters),
+            BaseHeading(name=f"{self.name}/step2/heading", **task_parameters),
+        ]
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class StraightLineBaseGoal(TravelFacingBaseGoal):
+    """
+    Moves a base that can drive in any direction to a goal pose along the straight line
+    to the goal position, facing along that line while it drives.
+    """
+
+    def driving_tasks(self, task_parameters: dict[str, Any]) -> list[DrivenBaseTask]:
+        return [
+            BaseStraightLinePosition(
+                name=f"{self.name}/step2/position", **task_parameters
+            ),
+            BaseTurnTowardsGoalPosition(
+                name=f"{self.name}/step2/heading", **task_parameters
+            ),
+        ]
