@@ -780,6 +780,9 @@ class Bathroom(Room): ...
 @dataclass(eq=False)
 class LivingRoom(Room): ...
 
+@dataclass(eq=False)
+class Office(Room): ...
+
 
 @dataclass(eq=False)
 class Level(HasRootRegion):

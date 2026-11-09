@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from cramph.context import StatechartContext
+from cramph.exceptions import TickLimitReachedError
 from cramph.executor import StatechartExecutor
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
@@ -17,6 +18,7 @@ from giskardpy.motion_statechart.goals.base_pose_goals import (
     MobileBasePoseGoal,
     DifferentialDriveBaseGoal,
     HolonomicBaseGoal,
+    StraightLineBaseGoal,
 )
 from giskardpy.motion_statechart.exceptions import RobotWithoutMobileBaseError
 from giskardpy.motion_statechart.graph_node import EndMotion
@@ -70,7 +72,9 @@ def test_a_differential_drive_goal_drives_the_drive_of_the_robot(
     assert goal.threshold == 0.05
 
 
-@pytest.mark.parametrize("goal_type", [HolonomicBaseGoal, DifferentialDriveBaseGoal])
+@pytest.mark.parametrize(
+    "goal_type", [HolonomicBaseGoal, DifferentialDriveBaseGoal, StraightLineBaseGoal]
+)
 def test_a_drive_goal_cannot_move_a_robot_without_a_mobile_base(
     self_collision_bot_world: World, goal_type: type[MobileBasePoseGoal]
 ) -> None:
@@ -232,3 +236,122 @@ def test_a_base_turns_as_fast_towards_a_far_away_yaw_as_towards_a_close_one(
         peak_speeds.append(_peak_yaw_per_tick_towards(cylinder_bot_world, yaw))
 
     assert peak_speeds[1] <= orientation_speed_ratio_tolerance * peak_speeds[0]
+
+
+# %% driving in a straight line facing the goal position
+
+
+def _base_poses_until_end(
+    executor: StatechartExecutor, robot: MinimalRobot, tick_limit: int = 1_000
+) -> list[Pose]:
+    """
+    :param tick_limit: How many ticks the statechart may take to end.
+    :return: The pose of the root of `robot` after every tick, until the statechart of
+        `executor` ended.
+    :raises TickLimitReachedError: If the statechart has not ended after `tick_limit`
+        ticks.
+    """
+    poses = []
+    for _ in range(tick_limit):
+        executor.tick()
+        poses.append(robot.root.global_pose)
+        if executor.statechart.is_ended():
+            executor.finish_run()
+            return poses
+    executor.finish_run()
+    raise TickLimitReachedError(tick_limit=tick_limit)
+
+
+def test_a_straight_line_base_goal_reaches_its_target(
+    cylinder_bot_world: World,
+) -> None:
+    robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
+    target = _target(cylinder_bot_world)
+    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    executor = _compiled(cylinder_bot_world, goal)
+
+    executor.tick_until_end()
+
+    base_pose = robot.root.global_pose
+    np.testing.assert_allclose(
+        [float(base_pose.x), float(base_pose.y), float(base_pose.yaw)],
+        [float(target.x), float(target.y), float(target.yaw)],
+        atol=0.01,
+    )
+
+
+def test_a_straight_line_base_goal_faces_the_way_the_base_moves(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    A base that could move sideways still faces the goal position whenever it drives, so
+    that it looks where it is going.
+    """
+    robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
+    target = _target(cylinder_bot_world)
+    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    executor = _compiled(cylinder_bot_world, goal)
+    start = robot.root.global_pose
+    direction_to_target = np.arctan2(
+        float(target.y - start.y), float(target.x - start.x)
+    )
+
+    poses = _base_poses_until_end(executor, robot)
+
+    yaws_while_driving = [
+        float(pose.yaw)
+        for pose, next_pose in zip(poses, poses[1:])
+        if np.hypot(float(next_pose.x - pose.x), float(next_pose.y - pose.y)) > 1e-3
+    ]
+    assert yaws_while_driving
+    np.testing.assert_allclose(yaws_while_driving, direction_to_target, atol=0.05)
+
+
+def test_a_straight_line_base_goal_stays_on_the_line_to_its_target(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    The base drives along the line to the goal position instead of bringing x and y to
+    the goal one after the other.
+    """
+    robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
+    target = _target(cylinder_bot_world)
+    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    executor = _compiled(cylinder_bot_world, goal)
+    start = robot.root.global_pose
+    line = np.array([float(target.x - start.x), float(target.y - start.y)])
+    line /= np.linalg.norm(line)
+
+    poses = _base_poses_until_end(executor, robot)
+
+    distances_from_line = [
+        abs(line[0] * float(pose.y - start.y) - line[1] * float(pose.x - start.x))
+        for pose in poses
+    ]
+    np.testing.assert_allclose(distances_from_line, 0, atol=0.01)
+
+
+def test_a_straight_line_base_goal_returns_to_the_line_after_being_pushed_off_it(
+    cylinder_bot_world: World,
+) -> None:
+    robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
+    target = Pose.from_xyz_rpy(2, 0, 0, reference_frame=cylinder_bot_world.root)
+    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    executor = _compiled(cylinder_bot_world, goal)
+    for _ in range(1_000):
+        executor.tick()
+        if float(robot.root.global_pose.x) >= 0.5:
+            break
+    drive = robot.root.parent_connection
+    pushed_pose = robot.root.global_pose
+    drive.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        float(pushed_pose.x), 0.2, 0, reference_frame=drive.parent
+    )
+
+    poses = _base_poses_until_end(executor, robot)
+
+    poses_past_the_push = [pose for pose in poses if float(pose.x) > 1.5]
+    assert poses_past_the_push
+    np.testing.assert_allclose(
+        [float(pose.y) for pose in poses_past_the_push], 0, atol=0.01
+    )
