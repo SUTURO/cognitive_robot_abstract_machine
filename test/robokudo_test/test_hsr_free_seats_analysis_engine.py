@@ -1,3 +1,7 @@
+"""
+Tests for the pipeline of the analysis engine reporting the people on a seat.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -6,6 +10,8 @@ pytest.importorskip("ultralytics")
 
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
+from robokudo.annotators.human_sitting import HumanSittingAnnotator
+from robokudo.annotators.human_standing import HumanStandingAnnotator
 from robokudo.annotators.query import GenerateQueryResult
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
 from robokudo.descriptors.analysis_engines.hsr_free_seats import AnalysisEngine
@@ -31,12 +37,18 @@ def pipeline(monkeypatch) -> Pipeline:
         return AnalysisEngine().implementation()
 
 
-def test_humans_are_located_then_restricted_to_the_region_before_replying(
+def test_humans_are_located_and_judged_then_restricted_to_the_region_before_replying(
     pipeline: Pipeline,
 ):
+    """
+    Humans are located and their posture judged before only the occupants of the region
+    are kept and replied with.
+    """
     expected_order = [
         HumanAndPoseAnnotator,
         ClusterPositionAnnotator,
+        HumanStandingAnnotator,
+        HumanSittingAnnotator,
         RegionOccupantFilter,
         GenerateQueryResult,
     ]

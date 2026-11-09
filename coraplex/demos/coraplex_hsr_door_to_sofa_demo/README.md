@@ -101,8 +101,9 @@ DetectOccupantsAction(left seat, right seat)
 Each seat place is a region above its cushion of the kitchen's sofa
 (`SofaSeat` in `semantic_digital_twin.predefined_maps.sofa_seats`). Asking who sits on a
 seat replaces the people the world held there with the ones that were seen: in
-simulation they are read from the world model, on the real robot RoboKudo reports them. A
-seat is free when no `Human` stands in its region afterwards.
+simulation they are read from the world model, on the real robot RoboKudo reports them;
+RoboKudo reports only people it sees sitting, so someone standing in front of the sofa
+does not take a seat. A seat is free when no `Human` is in its region afterwards.
 
 ## Where the numbers come from
 

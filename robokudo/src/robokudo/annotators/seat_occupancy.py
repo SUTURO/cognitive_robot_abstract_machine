@@ -19,11 +19,13 @@ from robokudo_msgs.msg import ObjectDesignator
 from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator
-from robokudo.annotators.human_standing import HumanActivity
-from robokudo.annotators.seat_detection import SeatDetection, SeatRegion
+from robokudo.annotators.seat_detection import (
+    SeatDetection,
+    SeatOccupantRule,
+    SeatRegion,
+)
 from robokudo.cas import CAS, CASViews
 from robokudo.types.annotation import PositionAnnotation
-from robokudo.types.human import ActivityAnnotation
 from robokudo.types.scene import (
     AnalyzableAnnotation,
     HumanHypothesis,
@@ -89,7 +91,7 @@ class SeatOccupancyAnnotator(BaseAnnotator):
     the same place and left out. Seats and humans are located by their
     :class:`~robokudo.types.annotation.PositionAnnotation` in the camera frame; those
     without one are left out. A seat is occupied when an occupant is close to it; see
-    :meth:`is_occupant`. The visualization image marks every annotated seat as
+    :class:`~robokudo.annotators.seat_detection.SeatOccupantRule`. The visualization image marks every annotated seat as
     :class:`OccupancyMarking`.
     """
 
@@ -125,10 +127,9 @@ class SeatOccupancyAnnotator(BaseAnnotator):
                 Distance in meters between the positions of a seat region and a single
                 seat below which they are the same place.
                 """
-                self.unclear_posture_occupies: bool = False
+                self.occupant_rule: SeatOccupantRule = SeatOccupantRule()
                 """
-                Whether a human annotated neither as sitting nor as standing occupies
-                a seat.
+                The rule that decides which humans close to a seat occupy it.
                 """
 
     def __init__(
@@ -230,30 +231,16 @@ class SeatOccupancyAnnotator(BaseAnnotator):
         """
         :return: The positions of all located occupants.
         """
+        parameters: SeatOccupancyAnnotator.Descriptor.Parameters = (
+            self.descriptor.parameters
+        )
         positions = []
         for human in self.get_cas().filter_annotations_by_type(HumanHypothesis):
             position = self.camera_position(human)
-            if position is None or not self.is_occupant(human):
+            if position is None or not parameters.occupant_rule.is_occupant(human):
                 continue
             positions.append(position)
         return positions
-
-    def is_occupant(self, human: HumanHypothesis) -> bool:
-        """
-        :param human: The human to judge.
-        :return: Whether the human occupies the seat they are close to: never when
-            annotated as standing, always when annotated as sitting, and as
-            :attr:`Descriptor.Parameters.unclear_posture_occupies` says otherwise.
-        """
-        activities = {
-            activity.type
-            for activity in CAS.filter_by_type(ActivityAnnotation, human.annotations)
-        }
-        if HumanActivity.STANDING in activities:
-            return False
-        if HumanActivity.SITTING in activities:
-            return True
-        return self.descriptor.parameters.unclear_posture_occupies
 
     @staticmethod
     def camera_position(

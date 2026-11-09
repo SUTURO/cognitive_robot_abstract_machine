@@ -1,3 +1,7 @@
+"""
+Tests for keeping only the humans who occupy the region a query asks about.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -9,11 +13,13 @@ from py_trees.common import Status
 
 import robokudo.world as rk_world
 from robokudo.annotators.exceptions import LocationNotInWorld
+from robokudo.annotators.human_standing import HumanActivity
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
 from robokudo.cas import CASViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.camera import CameraObservation
+from robokudo.types.human import ActivityAnnotation
 from robokudo.types.scene import HumanHypothesis, ObjectHypothesis
 from robokudo_msgs.action import Query
 from robokudo_msgs.msg import ObjectDesignator
@@ -91,15 +97,22 @@ def occupant_filter(
     return annotator
 
 
-def human_at(x: float) -> HumanHypothesis:
+def human_at(x: float, *activities: HumanActivity) -> HumanHypothesis:
     """
-    :return: A human hypothesis whose cloud is centered at ``x`` on the camera's x axis.
+    :param x: Where on the camera's x axis the human's cloud is centered.
+    :param activities: The activities the human is annotated with; none for a human
+        whose posture is unclear.
+    :return: A human hypothesis at ``x`` annotated with the given activities.
     """
     cloud = open3d.geometry.PointCloud()
     cloud.points = open3d.utility.Vector3dVector(
         numpy.array([[x - 0.1, 0.0, 0.0], [x + 0.1, 0.0, 0.0]])
     )
-    return HumanHypothesis(points=cloud)
+    human = HumanHypothesis(points=cloud)
+    human.annotations.extend(
+        ActivityAnnotation(type=activity) for activity in activities
+    )
+    return human
 
 
 def query_for(location: str) -> Query.Goal:
@@ -115,7 +128,11 @@ def query_for(location: str) -> Query.Goal:
 def test_only_humans_inside_the_queried_region_remain(
     seat_region: Region, occupant_filter: RegionOccupantFilter
 ):
-    inside, outside = human_at(2.0), human_at(0.0)
+    """
+    Of two sitting humans, only the one inside the queried region remains.
+    """
+    inside = human_at(2.0, HumanActivity.SITTING)
+    outside = human_at(0.0, HumanActivity.SITTING)
     cas = occupant_filter.get_cas()
     cas.annotations.extend([inside, outside])
     cas.set(CASViews.QUERY, query_for(seat_region.name.name))
@@ -128,6 +145,9 @@ def test_only_humans_inside_the_queried_region_remain(
 def test_other_hypotheses_are_left_alone(
     seat_region: Region, occupant_filter: RegionOccupantFilter
 ):
+    """
+    Hypotheses that are not humans stay in the CAS.
+    """
     unrelated = ObjectHypothesis()
     cas = occupant_filter.get_cas()
     cas.annotations.append(unrelated)
@@ -136,6 +156,60 @@ def test_other_hypotheses_are_left_alone(
     occupant_filter.update()
 
     assert cas.annotations == [unrelated]
+
+
+# %% keeping only the humans who sit
+
+
+def test_a_standing_human_inside_the_region_is_removed(
+    seat_region: Region, occupant_filter: RegionOccupantFilter
+):
+    """
+    A human standing inside the region does not occupy it.
+    """
+    cas = occupant_filter.get_cas()
+    cas.annotations.append(human_at(2.0, HumanActivity.STANDING))
+    cas.set(CASViews.QUERY, query_for(seat_region.name.name))
+
+    occupant_filter.update()
+
+    assert cas.filter_annotations_by_type(HumanHypothesis) == []
+
+
+def test_a_human_of_unclear_posture_inside_the_region_is_removed(
+    seat_region: Region, occupant_filter: RegionOccupantFilter
+):
+    """
+    By default, a human of unclear posture inside the region does not occupy it.
+    """
+    cas = occupant_filter.get_cas()
+    cas.annotations.append(human_at(2.0))
+    cas.set(CASViews.QUERY, query_for(seat_region.name.name))
+
+    occupant_filter.update()
+
+    assert cas.filter_annotations_by_type(HumanHypothesis) == []
+
+
+def test_a_human_of_unclear_posture_remains_when_configured_to_occupy(
+    seat_region: Region, occupant_filter: RegionOccupantFilter
+):
+    """
+    With :attr:`SeatOccupantRule.unclear_posture_occupies` set, a human of unclear
+    posture inside the region occupies it.
+    """
+    occupant_filter.descriptor.parameters.occupant_rule.unclear_posture_occupies = True
+    unclear = human_at(2.0)
+    cas = occupant_filter.get_cas()
+    cas.annotations.append(unclear)
+    cas.set(CASViews.QUERY, query_for(seat_region.name.name))
+
+    occupant_filter.update()
+
+    assert cas.filter_annotations_by_type(HumanHypothesis) == [unclear]
+
+
+# %% queries without a region
 
 
 def test_a_query_naming_no_region_keeps_every_human(

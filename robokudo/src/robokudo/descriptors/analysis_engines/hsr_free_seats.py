@@ -1,16 +1,17 @@
 """
-Analysis engine answering which people the HSR sees within a region of the kitchen lab,
-such as one of the seat places of its sofa.
+Analysis engine answering which people the HSR sees sitting in a region of the kitchen
+lab, such as one of the seat places of its sofa.
 
 A query naming a region by its ``location`` is answered with one object designator per
-person whose depth cloud is centered within that region, typed ``human`` and positioned
-at the cloud's center.
+person sitting in that region, typed ``human`` and positioned at their cloud's center.
 """
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
+from robokudo.annotators.human_sitting import HumanSittingAnnotator
+from robokudo.annotators.human_standing import HumanStandingAnnotator
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
@@ -35,8 +36,8 @@ class AnalysisEngine(AnalysisEngineInterface):
     def implementation(self) -> Pipeline:
         """
         Build the pipeline that waits for a query, reads a frame of the HSR's head
-        camera, detects the people in it, keeps those within the queried region and
-        replies with their positions.
+        camera, detects the people in it and their posture, keeps those sitting within
+        the queried region and replies with their positions.
 
         :return: The configured pipeline.
         """
@@ -61,6 +62,8 @@ class AnalysisEngine(AnalysisEngineInterface):
                 WorldDescriptorBootstrapAnnotator(descriptor=world_descriptor),
                 HumanAndPoseAnnotator(descriptor=human_descriptor),
                 ClusterPositionAnnotator(),
+                HumanStandingAnnotator(),
+                HumanSittingAnnotator(),
                 RegionOccupantFilter(),
                 GenerateQueryResult(),
             ]

@@ -1,8 +1,9 @@
 """
 Recognition of seats among the detected objects.
 
-Provides the region type for the seats split from larger furniture and the rules that
-decide which object hypotheses are seats for a single person.
+Provides the region type for the seats split from larger furniture, the rules that
+decide which object hypotheses are seats for a single person and the rule that decides
+which humans occupy a seat.
 """
 
 # %% imports
@@ -14,8 +15,10 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
+from robokudo.annotators.human_standing import HumanActivity
 from robokudo.cas import CAS
 from robokudo.types.annotation import Classification
+from robokudo.types.human import ActivityAnnotation
 from robokudo.types.scene import HumanHypothesis, ObjectHypothesis, RegionHypothesis
 
 if TYPE_CHECKING:
@@ -166,3 +169,35 @@ class SeatDetection:
             return None
         left, right = bounds
         return float(right - left)
+
+
+# %% seat occupants
+
+
+@dataclass
+class SeatOccupantRule:
+    """
+    The rule that decides by their posture whether a human at a seat occupies it.
+    """
+
+    unclear_posture_occupies: bool = False
+    """
+    Whether a human annotated neither as sitting nor as standing occupies a seat.
+    """
+
+    def is_occupant(self, human: HumanHypothesis) -> bool:
+        """
+        :param human: The human to judge.
+        :return: Whether the human occupies the seat they are at: never when annotated
+            as standing, always when annotated as sitting, and as
+            :attr:`unclear_posture_occupies` says otherwise.
+        """
+        activities = {
+            activity.type
+            for activity in CAS.filter_by_type(ActivityAnnotation, human.annotations)
+        }
+        if HumanActivity.STANDING in activities:
+            return False
+        if HumanActivity.SITTING in activities:
+            return True
+        return self.unclear_posture_occupies
