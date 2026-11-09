@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!--
+  A rigid human standing in a T-pose, 1.74 m tall with an arm span of 1.81 m.
+  The origin lies between the feet on the floor, x points to the front of the human, z up.
+  The parts are drawn from their meshes; the human collides as a box for the body and a
+  box for the outstretched arms.
+-->
+<robot name="human">
+  <link name="human">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963"/>
+      <geometry><mesh filename="body.obj"/></geometry>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963"/>
+      <geometry><mesh filename="clothes.obj"/></geometry>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963"/>
+      <geometry><mesh filename="shoes.obj"/></geometry>
+    </visual>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963"/>
+      <geometry><mesh filename="hair.obj"/></geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.872" rpy="0 0 0"/>
+      <geometry><box size="0.3 0.5 1.743"/></geometry>
+    </collision>
+    <collision>
+      <origin xyz="0 0 1.416" rpy="0 0 0"/>
+      <geometry><box size="0.15 1.812 0.109"/></geometry>
+    </collision>
+  </link>
+</robot>
