@@ -6,7 +6,15 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
-from typing_extensions import Generic, Any, ClassVar, Iterator, TypeVar
+from typing_extensions import (
+    Generic,
+    Any,
+    ClassVar,
+    Iterator,
+    Self,
+    TypeVar,
+    TYPE_CHECKING,
+)
 
 import time
 from datetime import timedelta
@@ -39,6 +47,8 @@ from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
 )
+from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
+from semantic_digital_twin.robots.hsrb import HSRBHeadRGBDCamera
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.unique_entity_names import UniqueEntityNames
 from semantic_digital_twin.exceptions import (
@@ -98,6 +108,12 @@ from semantic_digital_twin.world_description.world_modification import (
     AddActuatorModification,
     AddConnectionModification,
 )
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.datastructures.camera_model import (
+        FieldOfViewCameraModel,
+    )
+    from semantic_digital_twin.robots.robot_parts import Camera
 
 logger = logging.getLogger(__name__)
 
@@ -1055,6 +1071,50 @@ class MujocoCamera(MultiSimCamera):
     """
     Orientation of the camera frame.
     """
+
+    @classproperty
+    def quaternion_in_optical_frame(cls) -> list[float]:
+        """
+        The :attr:`quaternion` of a camera on an optical frame that looks along it.
+
+        MuJoCo cameras look along their negative z axis with positive y up, optical
+        frames along positive z with positive y down.
+        """
+        return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
+
+    @classmethod
+    def mounted_on(cls, camera: Camera[FieldOfViewCameraModel]) -> Self:
+        """
+        The camera that renders what a semantic camera sees, at its optical frame and
+        named after it.
+
+        :param camera: The semantic camera whose image to render.
+        :return: The MuJoCo camera, to be added to the root of the semantic camera.
+        """
+        pinhole = PinholeCameraModel.from_field_of_view(
+            resolution=camera.resolution, field_of_view=camera.field_of_view
+        )
+        resolution = [float(camera.resolution.width), float(camera.resolution.height)]
+        return cls(
+            name=camera.root.name.name,
+            body=camera.root,
+            quaternion=cls.quaternion_in_optical_frame,
+            resolution=resolution,
+            focal_pixel=[pinhole.focal_length_x, pinhole.focal_length_y],
+            # MuJoCo ignores the focal length unless a sensor size is given; one length
+            # unit per pixel keeps the focal length in pixels.
+            sensor_size=resolution,
+        )
+
+    @classmethod
+    def mount_hsr_head(cls, world: World) -> HSRBHeadRGBDCamera:
+        """Attach a MuJoCo camera to the HSR head camera before building the simulation.
+
+        :return: The head camera whose optical frame carries the simulated camera.
+        """
+        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
+        camera.root.add_simulator_property(cls.mounted_on(camera))
+        return camera
 
     @staticmethod
     def _look_at_rotation(
@@ -3098,7 +3158,7 @@ class MujocoBuilder(MultiSimBuilder):
             MujocoActuatorProperty.TRANSMISSION_TYPE: mujoco.mjtTrn.mjTRN_JOINT,
         }
 
-    def _build_camera(self, camera: MultiSimCamera):
+    def _build_camera(self, camera: MultiSimCamera) -> None:
         camera_name = camera.name
         camera_props = MujocoCameraConverter.convert(camera)
         camera_props.pop("body")
@@ -3109,6 +3169,13 @@ class MujocoBuilder(MultiSimBuilder):
                 entity_type=mujoco.mjtObj.mjOBJ_CAMERA,
                 action="add",
             )
+        # MuJoCo renders offscreen images only up to the size of this framebuffer.
+        width, height = camera_props["resolution"]
+        offscreen_framebuffer = self.spec.visual.global_
+        offscreen_framebuffer.offwidth = max(offscreen_framebuffer.offwidth, int(width))
+        offscreen_framebuffer.offheight = max(
+            offscreen_framebuffer.offheight, int(height)
+        )
 
     def _build_light(self, light: MultiSimLight):
         """

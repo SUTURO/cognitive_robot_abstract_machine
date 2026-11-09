@@ -522,8 +522,7 @@ class WorldDescriptorLoadError(WorldDescriptorError, RuntimeError):
 
     def error_message(self) -> str:
         return (
-            f"Failed to load world descriptor "
-            f"'{self.ros_package}.{self.module_name}'."
+            f"Failed to load world descriptor '{self.ros_package}.{self.module_name}'."
         )
 
     def suggest_correction(self) -> str:
@@ -649,3 +648,32 @@ class ParentPipelineMissing(RoboKudoError, RuntimeError):
 
     def suggest_correction(self) -> str:
         return "add the behaviour as a descendant of a Pipeline."
+
+
+@dataclass
+class AnalysisEngineDidNotStart(RoboKudoError, RuntimeError):
+    """
+    Raised when an analysis engine does not announce that it is running in time.
+    """
+
+    analysis_engine: str
+    """
+    The module of the analysis engine.
+    """
+
+    timeout_seconds: float
+    """
+    How long it was waited for, in seconds.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The analysis engine {self.analysis_engine} did not announce that it is "
+            f"running within {self.timeout_seconds} seconds."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "check the output of its process for an error, or wait longer for an "
+            "analysis engine that loads large models."
+        )
