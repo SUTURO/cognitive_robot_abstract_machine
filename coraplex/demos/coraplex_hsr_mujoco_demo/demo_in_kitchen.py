@@ -187,7 +187,7 @@ class KitchenToLivingRoomDemonstration(RobotDemonstration):
         return world
 
     def robot_specification(self) -> RobotSpecification:
-        return RobotSpecification(self.used_robot, odom_T_robot_start=self.robot_start)
+        return RobotSpecification(self.used_robot, odometry_T_robot_start=self.robot_start)
 
     def is_scene_populated(self, world: World) -> bool:
         return world.is_kinematic_structure_entity_in_world_by_name("living_room_floor")

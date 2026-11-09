@@ -79,45 +79,45 @@ class DrivenBaseTask(ConvergingTask, ABC):
             self.drive_parent, self.base
         )
 
-    @dataclass(eq=False, repr=False, kw_only=True)
-    class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
-        """
-        A task that is described against the pose the base has when the task starts.
-        """
+@dataclass(eq=False, repr=False, kw_only=True)
+class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
+    """
+    A task that is described against the pose the base has when the task starts.
+    """
 
-        _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
-        """
-        Fixes the pose of the base relative to the drive's parent when the task starts.
-        """
+    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
+    """
+    Fixes the pose of the base relative to the drive's parent when the task starts.
+    """
 
-        def set_up(self) -> None:
-            """
-            Bind the pose of the base, which the task is described against.
-            """
-            super().set_up()
-            self._parent_T_start_binding = ForwardKinematicsBinding(
-                name=PrefixedName("parent_T_start", str(self.name)),
-                root=self.drive_parent,
-                tip=self.base,
-                float_variable_data=self.context.float_variable_data,
+    def set_up(self) -> None:
+        """
+        Bind the pose of the base, which the task is described against.
+        """
+        super().set_up()
+        self._parent_T_start_binding = ForwardKinematicsBinding(
+            name=PrefixedName("parent_T_start", str(self.name)),
+            root=self.drive_parent,
+            tip=self.base,
+            float_variable_data=self.context.float_variable_data,
+        )
+        self._parent_T_start_binding.bind(self.context.world)
+
+    def on_start(self) -> None:
+        self._parent_T_start_binding.bind(self.context.world)
+
+    @property
+    def parent_P_start(self) -> Point3:
+        """
+        Where the base stood when the task started, relative to the drive's parent,
+        expressed relative to the drive's new parent if the drive was moved under
+        another parent.
+        """
+        if self._parent_T_start_binding.root is not self.drive_parent:
+            self._parent_T_start_binding.change_root(
+                self.drive_parent, self.context.world
             )
-            self._parent_T_start_binding.bind(self.context.world)
-
-        def on_start(self) -> None:
-            self._parent_T_start_binding.bind(self.context.world)
-
-        @property
-        def parent_P_start(self) -> Point3:
-            """
-            Where the base stood when the task started, relative to the drive's parent,
-            expressed relative to the drive's new parent if the drive was moved under
-            another parent.
-            """
-            if self._parent_T_start_binding.root is not self.drive_parent:
-                self._parent_T_start_binding.change_root(
-                    self.drive_parent, self.context.world
-                )
-            return self._parent_T_start_binding.root_T_tip.position
+        return self._parent_T_start_binding.root_T_tip.position
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -255,13 +255,13 @@ class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
     ) -> Point3:
         return self.parent_P_start
 
-    @dataclass(eq=False, repr=False, kw_only=True)
-    class BaseStraightLinePosition(DrivenBaseTaskFromStart, BasePosition):
-        """
-        Drives the base to below the position of :attr:`goal_pose` along the straight line
-        from where it stood when the task started, and back onto that line whenever it
-        strays.
-        """
+@dataclass(eq=False, repr=False, kw_only=True)
+class BaseStraightLinePosition(DrivenBaseTaskFromStart, BasePosition):
+    """
+    Drives the base to below the position of :attr:`goal_pose` along the straight line
+    from where it stood when the task started, and back onto that line whenever it
+    strays.
+    """
 
     def build_artifacts(self) -> MotionNodeArtifacts:
         """
@@ -290,7 +290,8 @@ class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
             artifacts.geometry.add_position_constraint(
                 expression_current=line_coordinate,
                 expression_goal=goal_coordinate,
-                reference_velocity=self.reference_velocity,
+                cruise_velocity=self.cruise_velocity,
+                velocity_scale=VelocityScale.TRANSLATION,
                 quadratic_weight=self.weight,
                 name=name,
             )
