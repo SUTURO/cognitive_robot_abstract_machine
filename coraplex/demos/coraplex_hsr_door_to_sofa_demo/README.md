@@ -1,10 +1,10 @@
 # HSR door to sofa demo
 
 The HSR starts at the door of the kitchen lab, drives to the sofa, looks at each of its
-two seat places and reports how many of them are free:
+two seat places and reports which of them are free:
 
 ```
-1 of 2 seats are free
+Free seats: LEFT
 ```
 
 The scene and the plan are the same however it runs; only how the plan is carried out
@@ -40,9 +40,9 @@ The seat places named on the command line of a simulation have a person sitting 
 drawn as a red box. Name none, one or both; case does not matter:
 
 ```bash
-$PY rviz_demo.py              # empty sofa:       2 of 2 seats are free
-$PY rviz_demo.py right        # right seat taken: 1 of 2 seats are free
-$PY mujoco_demo.py LEFT RIGHT # both taken:       0 of 2 seats are free
+$PY rviz_demo.py              # empty sofa:       Free seats: LEFT, RIGHT
+$PY rviz_demo.py right        # right seat taken: Free seats: LEFT
+$PY mujoco_demo.py LEFT RIGHT # both taken:       Free seats: none
 ```
 
 `LEFT` and `RIGHT` are seen from someone sitting on the sofa.
@@ -95,7 +95,7 @@ assumed to share.
 
 | File | Role |
 |---|---|
-| `demo.py` | What every run shares: `DoorToSofaDemonstration`, which builds the scene and the plan, and `main`, which runs it and prints the number of free seats. |
+| `demo.py` | What every run shares: `DoorToSofaDemonstration`, which builds the scene and the plan, and `main`, which runs it and prints the free seats. |
 | `rviz_demo.py` | Kinematic run, published for RViz. |
 | `mujoco_demo.py` | Physics run in MuJoCo. |
 | `real_demo.py` | Real robot. |
@@ -126,7 +126,7 @@ free are removed, and someone is seated on a seat seen occupied that holds no on
 simulation the seats and people are read from the world model, on the real robot
 RoboKudo reports them; RoboKudo counts only people it sees sitting, so someone standing in
 front of the sofa does not take a seat. A seat place is free when no `Human` is in it
-afterwards, and the demo counts the seat places of the sofa and of every chair.
+afterwards, and the demo names the free seat places of the sofa.
 
 ## Where the numbers come from
 
@@ -145,6 +145,6 @@ lab's door is that one, change `robot_start` in `demo.py`.
 
 | | Result |
 |---|---|
-| Kinematically simulated | A person on the right seat: `1 of 2 seats are free`. |
-| Physically simulated (headless) | A person on the right seat: `1 of 2 seats are free`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
+| Kinematically simulated | A person on the right seat: `Free seats: LEFT`. |
+| Physically simulated (headless) | A person on the right seat: `Free seats: LEFT`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
 | Real | **Never run**. |

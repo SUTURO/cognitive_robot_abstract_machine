@@ -1,6 +1,6 @@
 """
 The HSR starts at the door of the kitchen lab, drives to the sofa, looks at each of its
-seat places and reports how many are free; see the README for how to run it.
+seat places and reports which are free; see the README for how to run it.
 
 .. warning:: The real robot needs a perception pipeline answering
     :data:`~coraplex.perception.ROBOKUDO_QUERY_ACTION_NAME`::
@@ -36,7 +36,6 @@ from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
-    HasSeatPlaces,
     Human,
     Sofa,
 )
@@ -207,25 +206,22 @@ def main(
     executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
     occupied_seats: list[SofaSeat] | None = None,
     headless: bool = False,
-) -> World:
+) -> list[SofaSeat]:
     """
-    Run the demonstration and print how many of the seat places of the world are free.
+    Run the demonstration and print which seat places of the sofa are free.
 
     :param executor_type: The executor running the plan, which decides whether it drives
         the real robot or simulates it.
     :param occupied_seats: The seat places a person sits on in a simulated run.
     :param headless: Whether the physics of a physically simulated run steps without a
         viewer.
-    :return: The world after the run, holding a person on every seat place one was seen
-        on.
+    :return: The seat places no one was seen sitting on, from left to right.
     """
     world = DoorToSofaDemonstration(
         executor_type=executor_type,
         occupied_seats=occupied_seats or [],
         headless=headless,
     ).run()
-    furniture = world.get_semantic_annotations_by_type(HasSeatPlaces)
-    number_of_seats = sum(len(seats.seat_places) for seats in furniture)
-    number_of_free_seats = sum(len(seats.free_seat_places) for seats in furniture)
-    print(f"{number_of_free_seats} of {number_of_seats} seats are free")
-    return world
+    free_seats = SofaSeat.free_in(world)
+    print("Free seats:", ", ".join(seat.name for seat in free_seats) or "none")
+    return free_seats

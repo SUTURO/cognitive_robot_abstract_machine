@@ -37,15 +37,13 @@ def main() -> None:
             KinematicallySimulatedPlanExecutor,
             PhysicallySimulatedPlanExecutor,
         ):
-            world = demo.main(
+            free_seats = demo.main(
                 executor_type=executor_type,
                 occupied_seats=[SofaSeat.RIGHT],
                 headless=True,
             )
-            if SofaSeat.free_in(world) != [SofaSeat.LEFT]:
-                raise AssertionError(
-                    f"Expected only LEFT to be free, got {SofaSeat.free_in(world)}"
-                )
+            if free_seats != [SofaSeat.LEFT]:
+                raise AssertionError(f"Expected only LEFT to be free, got {free_seats}")
     except Exception:
         traceback.print_exc()
         exit(1)
