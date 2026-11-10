@@ -36,9 +36,13 @@ from coraplex_hsr_free_seats_demo.demo import (
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
+from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
     HasSeatPlaces,
 )
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 
 __all__ = ["DoorToSofaDemonstration", "main", "occupied_seats_from_command_line"]
 
@@ -61,6 +65,16 @@ class DoorToSofaDemonstration(FreeSeatsDemonstration):
     Where the robot starts in a simulated run: just inside the door in the south wall of
     the kitchen lab, facing into the room.
     """
+
+    def build_simulation(self, world: World) -> MujocoSim:
+        """
+        As :meth:`FreeSeatsDemonstration.build_simulation`, with floors that do not
+        collide, since the wheels, which sit slightly inside the floors, would catch on
+        the edge between two of them.
+        """
+        for floor in world.get_semantic_annotations_by_type(Floor):
+            floor.root.collision = ShapeCollection()
+        return super().build_simulation(world)
 
 
 def main(
