@@ -2595,8 +2595,8 @@ class KitchenEnvironment(WorldSource):
 
             living_room_floor_polytope = [
                 Point3(0, 0, 0),
-                Point3(0, 2.971, 0),
-                Point3(5.214, 2.971, 0),
+                Point3(0, 2.801, 0),
+                Point3(5.214, 2.801, 0),
                 Point3(5.214, 0, 0),
             ]
 
@@ -2610,8 +2610,8 @@ class KitchenEnvironment(WorldSource):
             office_floor_polytope = [
                 Point3(0, 0, 0),
                 Point3(0, 2.67, 0),
-                Point3(2.71, 2.67, 0),
-                Point3(2.71, 0, 0),
+                Point3(2.705, 2.67, 0),
+                Point3(2.705, 0, 0),
             ]
 
             kitchen_floor = Floor.create_with_new_body_from_polytope_in_world(
@@ -2630,7 +2630,7 @@ class KitchenEnvironment(WorldSource):
                 world=world,
                 floor_polytope=living_room_floor_polytope,
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=2.317, y=2.3095
+                    x=2.317, y=2.2245
                 ),
             )
             living_room = Room(
@@ -2654,7 +2654,7 @@ class KitchenEnvironment(WorldSource):
                 world=world,
                 floor_polytope=office_floor_polytope,
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=3.56, y=4.96
+                    x=3.5625, y=4.96
                 ),
             )
             office = Room(floor=office_floor, name=PrefixedName("office"))

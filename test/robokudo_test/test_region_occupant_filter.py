@@ -13,7 +13,7 @@ from py_trees.common import Status
 
 import robokudo.world as rk_world
 from robokudo.annotators.exceptions import LocationNotInWorld
-from robokudo.annotators.human_standing import HumanActivity
+from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.annotators.outputs import AnnotatorOutputPerPipelineMap
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
 from robokudo.cas import CASViews
@@ -97,7 +97,7 @@ def occupant_filter(
     return annotator
 
 
-def human_at(x: float, *activities: HumanActivity) -> HumanHypothesis:
+def human_at(x: float, *activities: HumanPosture) -> HumanHypothesis:
     """
     :param x: Where on the camera's x axis the human's cloud is centered.
     :param activities: The activities the human is annotated with; none for a human
@@ -131,8 +131,8 @@ def test_only_humans_inside_the_queried_region_remain(
     """
     Of two sitting humans, only the one inside the queried region remains.
     """
-    inside = human_at(2.0, HumanActivity.SITTING)
-    outside = human_at(0.0, HumanActivity.SITTING)
+    inside = human_at(2.0, HumanPosture.SITTING)
+    outside = human_at(0.0, HumanPosture.SITTING)
     cas = occupant_filter.get_cas()
     cas.annotations.extend([inside, outside])
     cas.set(CASViews.QUERY, query_for(seat_region.name.name))
@@ -168,7 +168,7 @@ def test_a_standing_human_inside_the_region_is_removed(
     A human standing inside the region does not occupy it.
     """
     cas = occupant_filter.get_cas()
-    cas.annotations.append(human_at(2.0, HumanActivity.STANDING))
+    cas.annotations.append(human_at(2.0, HumanPosture.STANDING))
     cas.set(CASViews.QUERY, query_for(seat_region.name.name))
 
     occupant_filter.update()

@@ -222,7 +222,7 @@ class SeatOccupancyAnnotator(BaseAnnotator):
         """
         seats = []
         for hypothesis in hypotheses:
-            position = self.camera_position(hypothesis)
+            position = self.position_in_camera_frame(hypothesis)
             if position is not None:
                 seats.append(Seat(hypothesis=hypothesis, position=position))
         return seats
@@ -236,20 +236,20 @@ class SeatOccupancyAnnotator(BaseAnnotator):
         )
         positions = []
         for human in self.get_cas().filter_annotations_by_type(HumanHypothesis):
-            position = self.camera_position(human)
+            position = self.position_in_camera_frame(human)
             if position is None or not parameters.occupant_rule.is_occupant(human):
                 continue
             positions.append(position)
         return positions
 
     @staticmethod
-    def camera_position(
+    def position_in_camera_frame(
         hypothesis: AnalyzableAnnotation,
     ) -> npt.NDArray[np.float64] | None:
         """
         :param hypothesis: The hypothesis to locate.
-        :return: The translation of the first position annotation of the hypothesis,
-            or None if it has none.
+        :return: The position of the hypothesis in camera coordinates, from its first
+            position annotation, or None if it has none.
         """
         positions = CAS.filter_by_type(PositionAnnotation, hypothesis.annotations)
         if not positions:

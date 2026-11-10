@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
-from robokudo.annotators.human_standing import HumanActivity
+from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.cas import CAS
 from robokudo.types.annotation import Classification
 from robokudo.types.human import ActivityAnnotation
@@ -196,8 +196,8 @@ class SeatOccupantRule:
             activity.type
             for activity in CAS.filter_by_type(ActivityAnnotation, human.annotations)
         }
-        if HumanActivity.STANDING in activities:
+        if HumanPosture.STANDING in activities:
             return False
-        if HumanActivity.SITTING in activities:
+        if HumanPosture.SITTING in activities:
             return True
         return self.unclear_posture_occupies

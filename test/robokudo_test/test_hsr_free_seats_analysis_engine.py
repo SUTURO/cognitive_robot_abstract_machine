@@ -9,9 +9,9 @@ import pytest
 pytest.importorskip("ultralytics")
 
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
+from robokudo.annotators.gpsr.sitting import HumanSittingAnnotator
+from robokudo.annotators.gpsr.standing import HumanStandingAnnotator
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
-from robokudo.annotators.human_sitting import HumanSittingAnnotator
-from robokudo.annotators.human_standing import HumanStandingAnnotator
 from robokudo.annotators.query import GenerateQueryResult
 from robokudo.annotators.region_occupant_filter import RegionOccupantFilter
 from robokudo.descriptors.analysis_engines.hsr_free_seats import AnalysisEngine
@@ -80,3 +80,14 @@ def test_the_kitchen_lab_world_holds_a_region_per_seat():
         world.is_kinematic_structure_entity_in_world_by_name(seat.value)
         for seat in SofaSeat
     )
+
+
+def test_a_knee_at_hip_height_counts_as_sitting(pipeline: Pipeline):
+    """
+    People on a sofa whose lower legs are hidden are still judged as sitting.
+    """
+    [sitting_annotator] = [
+        node for node in pipeline.children if isinstance(node, HumanSittingAnnotator)
+    ]
+
+    assert sitting_annotator.descriptor.parameters.knee_at_hip_height_is_sitting is True

@@ -112,7 +112,7 @@ class FreeSeatsDemonstration(RobotDemonstration):
         """
         return RobotSpecification(
             semantic_annotation_type=self.used_robot,
-            odom_T_robot_start=self.robot_start,
+            odometry_T_robot_start=self.robot_start,
         )
 
     def is_scene_populated(self, world: World) -> bool:

@@ -37,7 +37,7 @@ def hsr_facing_the_sofa() -> tuple[World, HSRB]:
     ).pose
     return world, RobotSpecification(
         semantic_annotation_type=HSRB,
-        odom_T_robot_start=HomogeneousTransformationMatrix.from_xyz_rpy(
+        odometry_T_robot_start=HomogeneousTransformationMatrix.from_xyz_rpy(
             x=world_T_robot.x, y=world_T_robot.y, yaw=world_T_robot.yaw
         ),
     ).spawn(world)
