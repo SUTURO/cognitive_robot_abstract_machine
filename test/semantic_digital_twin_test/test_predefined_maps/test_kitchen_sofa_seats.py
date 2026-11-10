@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import json
+
 import pytest
+
+from semantic_digital_twin.adapters.ros.messages import WorldModelSnapshot
+from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
+    WorldEntityWithIDKwargsTracker,
+)
 
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
@@ -58,6 +65,35 @@ def test_the_seat_places_of_the_sofa_are_its_seat_regions(
     The sofa lists the region of every :class:`SofaSeat` as one of its seat places.
     """
     assert sofa.seat_places == [seat.region_in(kitchen_world) for seat in SofaSeat]
+
+
+def replayed(world: World) -> World:
+    """
+    :return: A new world built from the modifications of ``world``, as a process that
+        fetches ``world`` over ROS builds its copy.
+    """
+    snapshot = WorldModelSnapshot(
+        modifications=list(world.get_world_model_manager().model_modification_blocks),
+        ids=list(world.state.keys()),
+        states=list(world.state.positions),
+    )
+    copy = World()
+    WorldModelSnapshot.apply_to_json_snapshot_to_world(
+        copy,
+        json.loads(json.dumps(snapshot.to_json())),
+        **WorldEntityWithIDKwargsTracker.from_world(copy).create_kwargs(),
+    )
+    return copy
+
+
+def test_the_seat_places_of_the_sofa_reach_a_copy_of_the_world(kitchen_world: World):
+    """
+    A process that fetches the kitchen finds the sofa with its seat places.
+    """
+    copy = replayed(kitchen_world)
+
+    [sofa_in_copy] = copy.get_semantic_annotations_by_type(Sofa)
+    assert sofa_in_copy.seat_places == [seat.region_in(copy) for seat in SofaSeat]
 
 
 def test_the_free_seat_places_of_the_sofa_leave_out_a_taken_one(

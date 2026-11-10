@@ -681,7 +681,8 @@ class KitchenSofa:
                 Region, world.get_kinematic_structure_entity_by_name(seat_surface.name)
             )
         )
-        sofa.seat_places.extend(seat.region_in(world) for seat in SofaSeat)
+        for seat in SofaSeat:
+            sofa.add_seat_place(seat.region_in(world))
         return sofa
 
     def _seat_place(

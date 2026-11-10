@@ -80,7 +80,8 @@ def furniture_with_one_seat_place(
         ),
     ).spawn(world, parent_T_self=camera_T_seat_place)
     seat_place = world.get_kinematic_structure_entity_by_name(seat_place_name)
-    furniture.seat_places.append(seat_place)
+    with world.modify_world():
+        furniture.add_seat_place(seat_place)
     return seat_place
 
 

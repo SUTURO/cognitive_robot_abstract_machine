@@ -847,5 +847,6 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
             ),
         ).spawn(world, parent_T_self=world_T_seat)
         seat_place = world.get_kinematic_structure_entity_by_name(seat_place_name)
-        chair.seat_places.append(seat_place)
+        with world.modify_world():
+            chair.add_seat_place(seat_place)
         return seat_place

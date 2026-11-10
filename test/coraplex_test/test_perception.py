@@ -79,6 +79,9 @@ from semantic_digital_twin.world_description.world_entity import Region
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
 from ..plan_running import run_plan
+from ..semantic_digital_twin_test.test_predefined_maps.test_kitchen_sofa_seats import (
+    replayed,
+)
 
 PERCEIVED_MILK_POSITION = (2.6, 2.2, 1.05)
 """
@@ -1397,6 +1400,26 @@ def test_a_detected_chair_is_added_with_a_seat_place_where_it_was_seen(
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )
+
+
+def test_a_detected_chair_reaches_a_copy_of_the_world_with_its_seat_place(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    Other processes, such as the perception pipeline, find a chair added to the world
+    together with its seat place.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    copy = replayed(world)
+    assert [
+        seat_place.name
+        for seat_place in copy.get_semantic_annotation_by_id(chair.id).seat_places
+    ] == [seat_place.name for seat_place in chair.seat_places]
 
 
 def test_a_person_seen_on_a_detected_chair_is_seated_on_it(
