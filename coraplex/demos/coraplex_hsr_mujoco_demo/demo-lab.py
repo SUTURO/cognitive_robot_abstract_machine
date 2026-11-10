@@ -14,6 +14,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+from copy import deepcopy
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
@@ -21,6 +22,7 @@ from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
+from coraplex.querying.grasp_closeness import GraspsByCloseness
 from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
@@ -43,6 +45,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Floo
 from semantic_digital_twin.specifications.connections import (
     Connection6DoFSpecification,
 )
+from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
@@ -324,21 +327,22 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         [milk] = context.world.get_semantic_annotations_by_type(Milk)
         [arm] = robot.all_arms
         taking_pose = self._standing_pose_facing(
-            self.milk_start.compute_milk_pose(milk.root)
+            milk.root.global_pose, robot.root.global_pose
         )
         target = self.milk_target.compute_milk_pose(milk.root)
-        grasp_target = self.find_grasp_pose(milk.root)
         statechart = Statechart(context=context)
         statechart.add_node(
             Sequence(
                 nodes=[
-                    MoveTorsoAction(torso_state=TorsoState.HIGH),
                     ParkArmsAction(arms=robot.all_arms),
                     NavigateAction(target_location=taking_pose),
-                    PickUpAction(grasp=GraspCandidate(milk, grasp_target), arm=arm),
+                    MoveTorsoAction(torso_state=TorsoState.HIGH),
+                    PickUpAction(grasp=self.find_grasp(milk, taking_pose), arm=arm),
                     ParkArmsAction(arms=robot.all_arms),
                     MoveTorsoAction(torso_state=TorsoState.LOW),
-                    NavigateAction(target_location=self._standing_pose_facing(target)),
+                    NavigateAction(
+                        target_location=self._standing_pose_facing(target, taking_pose)
+                    ),
                     MoveTorsoAction(torso_state=TorsoState.HIGH),
                     PlaceAction(object_designator=milk, target_location=target),
                     ParkArmsAction(arms=robot.all_arms),
@@ -361,31 +365,45 @@ class LabMilkTransportDemonstration(RobotDemonstration):
             noslip_iterations=self.no_slip_iterations,
         )
 
-    def find_grasp_pose(self, body: Body, fraction_of_height: float = 4 / 6) -> Pose:
+    def find_grasp(
+        self,
+        graspable: HasGraspCandidates,
+        standing_pose: Pose,
+        fraction_of_height: float = 4 / 6,
+    ) -> GraspCandidate:
         """
-        :param body: The object to grasp, standing upright in its own frame.
-        :param fraction_of_height: How far up the bounding box of ``body`` the grasp is,
+        :param graspable: The object to take, standing upright.
+        :param standing_pose: Where the robot stands while it takes the object.
+        :param fraction_of_height: How far up the object's bounding box the grasp is,
             from 0 at its bottom to 1 at its top; by default where its upper third begins.
-        :return: The grasp frame at that height on the z axis of ``body``, in its frame.
+        :return: The object's grasp closest to `standing_pose`, moved up to that height.
         """
-        box = body.collision.as_bounding_box_collection_in_frame(body).bounding_box()
-        return Pose.from_xyz_rpy(
-            z=box.min_z + fraction_of_height * (box.max_z - box.min_z),
-            reference_frame=body,
-        )
+        box = graspable.root.collision.as_bounding_box_collection_in_frame(
+            graspable.root
+        ).bounding_box()
+        [closest] = GraspsByCloseness(graspable, standing_pose, number_of_grasps=1)()
+        grasp_pose = deepcopy(closest.grasp_pose)
+        grasp_pose.z = box.min_z + fraction_of_height * (box.max_z - box.min_z)
+        return GraspCandidate(graspable=graspable, grasp_pose=grasp_pose)
 
-    def _standing_pose_facing(self, milk_pose: Pose) -> Pose:
+    def _standing_pose_facing(self, target: Pose, approach_from: Pose) -> Pose:
         """
-        :param milk_pose: Where the milk stands or is set down.
-        :return: Where the robot's base stands on the floor to reach the milk there,
-            :attr:`standing_distance` before it and facing it.
+        :param target: What the robot goes to reach, in the world frame.
+        :param approach_from: Where the robot stands before it goes to `target`, in the
+            world frame.
+        :return: Where the robot's base stands on the floor, :attr:`standing_distance`
+            off `target` towards `approach_from` and facing `target`.
         """
-        return (
-            milk_pose.homogeneous_matrix
-            @ HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=-self.standing_distance, z=-float(milk_pose.z)
-            )
-        ).pose
+        offset = target.position.to_np()[:2] - approach_from.position.to_np()[:2]
+        standing_position = target.position.to_np()[
+            :2
+        ] - self.standing_distance * offset / np.linalg.norm(offset)
+        return Pose.from_xyz_rpy(
+            x=float(standing_position[0]),
+            y=float(standing_position[1]),
+            yaw=float(np.arctan2(offset[1], offset[0])),
+            reference_frame=target.reference_frame,
+        )
 
 
 def main(
