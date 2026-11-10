@@ -11,10 +11,6 @@ The scene and the plan are the same however it runs; only how the plan is carrie
 differs, by the coraplex plan executor it runs in: kinematically simulated in RViz,
 physically simulated in MuJoCo, or on the real robot.
 
-This demo builds on the free seats demo in `../coraplex_hsr_free_seats_demo`:
-`DoorToSofaDemonstration` inherits `FreeSeatsDemonstration` and only changes where the
-robot starts and what is printed at the end.
-
 ## Before running
 
 Every command below runs **from inside this folder** with the workspace's virtual
@@ -36,7 +32,7 @@ lacks the workspace packages.
 | `$PY rviz_demo.py [LEFT] [RIGHT]` | kinematically simulated | ROS 2, RViz2 | The robot moving in RViz, see below. |
 | `$PY mujoco_demo.py [LEFT] [RIGHT]` | physically simulated | `mujoco` | A MuJoCo viewer. |
 | `$PY real_demo.py` | real | The HSR, its ROS stack and RoboKudo | The real robot driving to the sofa. |
-| `$PY test_demo.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if exactly one seat is reported free with a person on the right seat. |
+| `$PY test_demo.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if only the left seat is reported free with a person on the right seat. |
 
 ### People on the sofa in simulation
 
@@ -99,7 +95,7 @@ assumed to share.
 
 | File | Role |
 |---|---|
-| `demo.py` | What every run shares: `DoorToSofaDemonstration` with the start pose at the door, and `main`, which runs it and prints the number of free seats. |
+| `demo.py` | What every run shares: `DoorToSofaDemonstration`, which builds the scene and the plan, and `main`, which runs it and prints the number of free seats. |
 | `rviz_demo.py` | Kinematic run, published for RViz. |
 | `mujoco_demo.py` | Physics run in MuJoCo. |
 | `real_demo.py` | Real robot. |
@@ -108,12 +104,17 @@ assumed to share.
 ## What the plan does
 
 ```
-MoveTorsoAction(HIGH)
 ParkArmsAction(all arms)
 NavigateAction(1.5 m in front of the sofa, facing it)
+MoveTorsoAction(HIGH)
 DetectSeatsAction(left seat, right seat)
     for each seat: LookAtAction(seat), then ask for the seats in view
+MoveTorsoAction(LOW)
 ```
+
+The plan is the same in every run; only the executor carrying it out differs. In the
+MuJoCo run the floors do not collide: the wheels sit slightly inside them and would catch
+on the edge between the kitchen floor and the living room floor.
 
 The sofa is built beforehand: each of its seat places is a region above its cushion,
 listed among the sofa's `seat_places` (`SofaSeat` in
@@ -132,8 +133,8 @@ afterwards, and the demo counts the seat places of the sofa and of every chair.
 | Value | Where | Meaning |
 |---|---|---|
 | `robot_start = (0.4, 0, 0)` | `demo.py` | Just inside the opening in the south wall between `south_wall4` and `south_wall5`, facing into the room. |
-| `scanning_distance = 1.5` | free seats demo | How far in front of the sofa's front edge the robot stands to scan it. |
-| `person_size = 0.4 × 0.4 × 0.8` | free seats demo | The box a simulated person is shaped as. |
+| `scanning_distance = 1.5` | `demo.py` | How far in front of the sofa's front edge the robot stands to scan it. |
+| `person_size = 0.4 × 0.4 × 0.8` | `demo.py` | The box a simulated person is shaped as. |
 | `chair_seat_place_size = 0.5 × 0.5 × 0.5` | `SeatPerceptionTask` | The seat place of a chair added to the world. Estimated, not measured. |
 | `chair_matching_distance = 0.5` | `SeatPerceptionTask` | How close a detected chair must be to a chair of the world to be that chair. Estimated. |
 

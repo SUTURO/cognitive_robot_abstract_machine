@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+"""
+The check CI runs on the door to sofa demo.
+"""
+
 import traceback
 
 
@@ -6,7 +10,7 @@ def main() -> None:
     """
     Run the door to sofa demo with a person on the right seat place, in kinematic
     simulation and in MuJoCo without a viewer, and exit non-zero with a traceback on
-    failure, if any other number than one free seat place is reported or if the floors
+    failure, if any other seat place than the left one is reported free or if the floors
     collide in MuJoCo, where the wheels would catch on the edge between two floors.
     """
     try:
@@ -33,14 +37,14 @@ def main() -> None:
             KinematicallySimulatedPlanExecutor,
             PhysicallySimulatedPlanExecutor,
         ):
-            number_of_free_seats = demo.main(
+            world = demo.main(
                 executor_type=executor_type,
                 occupied_seats=[SofaSeat.RIGHT],
                 headless=True,
             )
-            if number_of_free_seats != len(SofaSeat) - 1:
+            if SofaSeat.free_in(world) != [SofaSeat.LEFT]:
                 raise AssertionError(
-                    f"Expected one free seat, got {number_of_free_seats}"
+                    f"Expected only LEFT to be free, got {SofaSeat.free_in(world)}"
                 )
     except Exception:
         traceback.print_exc()
