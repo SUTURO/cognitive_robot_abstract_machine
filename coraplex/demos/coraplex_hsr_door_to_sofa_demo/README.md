@@ -66,18 +66,31 @@ rviz2
 
 ### On the real robot
 
-1. Bring up the HSR's ROS stack, including the world server the demo fetches its world
-   from.
-2. Start the perception pipeline that finds the seats and the people on them. Its chair
-   detection needs the YOLO weights `chairs.pt`, which are not part of the repository:
+Never run so far. Each step runs in its own terminal with ROS sourced and the robot's
+`ROS_DOMAIN_ID`; the HSR localizes in the `map` frame, which the kitchen of the demo is
+assumed to share.
+
+1. Bring up the HSR's ROS stack: drivers, localization in the kitchen lab's map and the
+   head camera.
+2. Start Giskard for the HSR. It commands the robot and serves the world everyone else
+   fetches:
 
    ```bash
-   python3 -m robokudo.scripts.main _ae free_seat_detection
+   $PY -m giskardpy.middleware.ros2.scripts.iai_robots.hsr.hsr_velocity
    ```
 
-3. Put the robot at the door of the kitchen lab. The real robot starts wherever it
+3. Put the YOLO weights `chairs.pt` into `robokudo/src/robokudo/models/` (not part of the
+   repository), then start the perception pipeline that finds the seats and the people
+   on them:
+
+   ```bash
+   $PY -m robokudo.scripts.main _ae free_seat_detection
+   ```
+
+4. Put the robot at the door of the kitchen lab. The real robot starts wherever it
    stands; the start pose of the simulations is not used.
-4. Run `$PY real_demo.py`.
+5. Run `$PY real_demo.py`. The demo adds the kitchen, sofa seat places included, to the
+   world Giskard serves; RoboKudo fetches that world on the first query.
 
 ## File layout
 
