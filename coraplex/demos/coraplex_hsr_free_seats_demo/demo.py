@@ -14,11 +14,12 @@ people on the sofa from the world model, so nothing on the network is needed.
 
 .. warning:: A real run needs a perception pipeline answering
     :data:`~coraplex.perception.ROBOKUDO_QUERY_ACTION_NAME` as well as the world server:
-    every seat place is looked at and the pipeline is asked for the people sitting in it.
-    Start the controller and the pipeline separately, as on the robot. RoboKudo's entry
-    point takes its arguments with an underscore prefix::
+    every seat place is looked at and the pipeline is asked for the seats in view and
+    whether someone sits on them. Start the controller and the pipeline separately, as
+    on the robot. RoboKudo's entry point takes its arguments with an underscore prefix,
+    and its chair detection needs the YOLO weights ``chairs.pt``::
 
-        python3 -m robokudo.scripts.main _ae hsr_free_seats
+        python3 -m robokudo.scripts.main _ae free_seat_detection
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from coraplex.plans.executors import (
     PlanExecutor,
     RealRobotPlanExecutor,
 )
-from coraplex.robot_plans.actions.core.misc import DetectOccupantsAction
+from coraplex.robot_plans.actions.core.misc import DetectSeatsAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from cramph.composites import Sequence
@@ -152,8 +153,11 @@ class FreeSeatsDemonstration(RobotDemonstration):
                     MoveTorsoAction(torso_state=TorsoState.HIGH),
                     ParkArmsAction(arms=hsrb.all_arms),
                     NavigateAction(target_location=self.scanning_pose(world)),
-                    DetectOccupantsAction(
-                        regions=[seat.region_in(world) for seat in SofaSeat]
+                    DetectSeatsAction(
+                        look_targets=[
+                            Pose.from_xyz_rpy(reference_frame=seat.region_in(world))
+                            for seat in SofaSeat
+                        ]
                     ),
                 ]
             )

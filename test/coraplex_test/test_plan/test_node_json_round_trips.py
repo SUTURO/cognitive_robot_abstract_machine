@@ -17,7 +17,7 @@ from coraplex import perception
 from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.datastructures.trajectory import PoseTrajectory
 from coraplex.perception import (
-    OccupantPerceptionTask,
+    SeatPerceptionTask,
     PerceptionQuery,
     PerceptionSource,
     PerceptionTask,
@@ -47,7 +47,7 @@ from coraplex.robot_plans.actions.composite.transporting import (
 from coraplex.robot_plans.actions.core.container import CloseAction, OpenAction
 from coraplex.robot_plans.actions.core.misc import (
     DetectAction,
-    DetectOccupantsAction,
+    DetectSeatsAction,
     MoveToReach,
 )
 from coraplex.robot_plans.actions.core.navigation import (
@@ -381,17 +381,20 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
             ],
         ),
         ActionRoundTripCase(
-            DetectOccupantsAction,
-            lambda world: [DetectOccupantsAction(regions=[_seat_region(world)])],
+            DetectSeatsAction,
+            lambda world: [
+                DetectSeatsAction(
+                    look_targets=[
+                        Pose.from_xyz_rpy(reference_frame=_seat_region(world))
+                    ]
+                )
+            ],
         ),
         ActionRoundTripCase(
-            OccupantPerceptionTask,
+            SeatPerceptionTask,
             lambda world: [
-                OccupantPerceptionTask(
-                    query=PerceptionQuery.in_region(
-                        Human, _seat_region(world), _robot(world)
-                    ),
-                    answered_by=PerceptionSource.WORLD_MODEL,
+                SeatPerceptionTask(
+                    robot=_robot(world), answered_by=PerceptionSource.WORLD_MODEL
                 )
             ],
         ),

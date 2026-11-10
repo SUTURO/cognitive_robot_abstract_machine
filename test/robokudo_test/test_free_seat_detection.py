@@ -15,6 +15,8 @@ from robokudo.annotators.seat_occupancy import (
     SeatOccupancyAnnotator,
     SeatQueryAnswerAnnotator,
 )
+from robokudo.annotators.sofa_split import SofaSplitAnnotator
+from robokudo.annotators.world_seat_regions import WorldSeatRegionAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
 from robokudo.descriptors.analysis_engines.free_seat_detection import AnalysisEngine
@@ -78,3 +80,20 @@ def test_seats_are_annotated_between_query_and_answer(node: Node) -> None:
         SeatQueryAnswerAnnotator,
         ActionServerCheck,
     ]
+
+
+# %% seats from the world and from detection
+
+
+def test_seats_come_from_the_world_seat_places_and_detected_chairs(node: Node) -> None:
+    """
+    The seat places of the world are added as seats before the occupancy is annotated,
+    and detected sofas are not split, since the world already holds their seat places.
+    """
+    pipeline = AnalysisEngine().implementation()
+
+    behaviour_types = [type(behaviour) for behaviour in pipeline.children]
+    assert SofaSplitAnnotator not in behaviour_types
+    assert behaviour_types.index(WorldSeatRegionAnnotator) < behaviour_types.index(
+        SeatOccupancyAnnotator
+    )

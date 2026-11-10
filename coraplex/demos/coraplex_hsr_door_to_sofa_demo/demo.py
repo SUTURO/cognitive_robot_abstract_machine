@@ -1,6 +1,7 @@
 """
 The HSR starts at the door of the kitchen lab, drives to the sofa, looks at each of its
-seat places and reports how many of them are free.
+seat places and reports how many seat places are free, those of the chairs it saw
+included.
 
 What every run of this demonstration shares. Each way of carrying it out has a runner of
 its own; run it from this folder::
@@ -36,6 +37,9 @@ from coraplex_hsr_free_seats_demo.demo import (
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    HasSeatPlaces,
+)
 
 __all__ = ["DoorToSofaDemonstration", "main", "occupied_seats_from_command_line"]
 
@@ -66,20 +70,22 @@ def main(
     headless: bool = False,
 ) -> int:
     """
-    Run the demonstration and print how many seat places are free.
+    Run the demonstration and print how many of the seat places of the world are free.
 
     :param executor_type: The executor running the plan, which decides whether it drives
         the real robot or simulates it.
     :param occupied_seats: The seat places a person sits on in a simulated run.
     :param headless: Whether the physics of a physically simulated run steps without a
         viewer.
-    :return: How many seat places no one was seen sitting on.
+    :return: How many seat places of the world no one was seen sitting on.
     """
     world = DoorToSofaDemonstration(
         executor_type=executor_type,
         occupied_seats=occupied_seats or [],
         headless=headless,
     ).run()
-    number_of_free_seats = len(SofaSeat.free_in(world))
-    print(f"{number_of_free_seats} of {len(SofaSeat)} seats are free")
+    furniture = world.get_semantic_annotations_by_type(HasSeatPlaces)
+    number_of_seats = sum(len(seats.seat_places) for seats in furniture)
+    number_of_free_seats = sum(len(seats.free_seat_places) for seats in furniture)
+    print(f"{number_of_free_seats} of {number_of_seats} seats are free")
     return number_of_free_seats

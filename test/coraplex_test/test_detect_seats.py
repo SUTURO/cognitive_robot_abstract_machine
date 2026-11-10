@@ -1,9 +1,13 @@
+"""
+Tests for detecting the seats in view and the people on them, read from the world.
+"""
+
 from __future__ import annotations
 
 import pytest
 
-from coraplex.robot_plans.actions.core.misc import DetectOccupantsAction
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from coraplex.robot_plans.actions.core.misc import DetectSeatsAction
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
@@ -43,7 +47,7 @@ def hsr_facing_the_sofa() -> tuple[World, HSRB]:
     ).spawn(world)
 
 
-# %% detecting the occupants of the seats
+# %% detecting the people on the seats
 
 
 def test_only_the_seat_a_person_is_seen_on_is_taken(hsr_facing_the_sofa):
@@ -58,7 +62,12 @@ def test_only_the_seat_a_person_is_seen_on_is_taken(hsr_facing_the_sofa):
     Human.get_annotation_specification(
         "earlier_sitter", BodySpecification("earlier_sitter")
     ).spawn(world, parent=SofaSeat.LEFT.region_in(world))
-    plan = DetectOccupantsAction(regions=[seat.region_in(world) for seat in SofaSeat])
+    plan = DetectSeatsAction(
+        look_targets=[
+            Pose.from_xyz_rpy(reference_frame=seat.region_in(world))
+            for seat in SofaSeat
+        ]
+    )
 
     run_plan(plan, robot_extensions(robot))
 

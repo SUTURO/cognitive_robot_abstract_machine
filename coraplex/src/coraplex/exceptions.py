@@ -8,7 +8,6 @@ from krrood.exceptions import DataclassException
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
-    from coraplex.perception import PerceptionQuery
     from coraplex.robot_plans.actions.base import Action
     from cramph.node import StatechartNode
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
@@ -354,28 +353,6 @@ class PerceptionSourceUnavailable(PerceptionException):
 
     def suggest_correction(self) -> str:
         return "start the perception pipeline before running the plan."
-
-
-@dataclass
-class QueryWithoutLocation(PerceptionException):
-    """
-    Raised when a perception that keeps a region's contents up to date is given a query
-    that names no region.
-    """
-
-    query: PerceptionQuery
-    """
-    The query that names no region.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"The query for '{self.query.semantic_annotation.__name__}' names no "
-            f"region whose contents could be updated."
-        )
-
-    def suggest_correction(self) -> str:
-        return "build the query with PerceptionQuery.in_region."
 
 
 @dataclass

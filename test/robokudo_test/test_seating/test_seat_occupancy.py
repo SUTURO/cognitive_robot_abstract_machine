@@ -165,11 +165,11 @@ def test_human_with_unclear_posture_occupies_seat_when_configured(
     seat_distance: float,
 ) -> None:
     """
-    With :attr:`SeatOccupantRule.unclear_posture_occupies` set, a human annotated
-    neither as sitting nor as standing occupies a close seat.
+    With :attr:`unclear_posture_occupies` set, a human annotated neither as sitting nor
+    as standing occupies a close seat.
     """
     occupancy = SeatOccupancyAnnotator()
-    occupancy.descriptor.parameters.occupant_rule.unclear_posture_occupies = True
+    occupancy.descriptor.parameters.unclear_posture_occupies = True
     chair = located(seat(), x=0.0, z=seat_distance)
     person = located(human(), x=0.0, z=seat_distance)
 

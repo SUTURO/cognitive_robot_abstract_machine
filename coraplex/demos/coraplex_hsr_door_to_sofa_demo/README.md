@@ -68,10 +68,11 @@ rviz2
 
 1. Bring up the HSR's ROS stack, including the world server the demo fetches its world
    from.
-2. Start the perception pipeline that finds the people on the seats:
+2. Start the perception pipeline that finds the seats and the people on them. Its chair
+   detection needs the YOLO weights `chairs.pt`, which are not part of the repository:
 
    ```bash
-   python3 -m robokudo.scripts.main _ae hsr_free_seats
+   python3 -m robokudo.scripts.main _ae free_seat_detection
    ```
 
 3. Put the robot at the door of the kitchen lab. The real robot starts wherever it
@@ -94,16 +95,20 @@ rviz2
 MoveTorsoAction(HIGH)
 ParkArmsAction(all arms)
 NavigateAction(1.5 m in front of the sofa, facing it)
-DetectOccupantsAction(left seat, right seat)
-    for each seat: LookAtAction(seat), then ask who sits there
+DetectSeatsAction(left seat, right seat)
+    for each seat: LookAtAction(seat), then ask for the seats in view
 ```
 
-Each seat place is a region above its cushion of the kitchen's sofa
-(`SofaSeat` in `semantic_digital_twin.predefined_maps.sofa_seats`). Asking who sits on a
-seat replaces the people the world held there with the ones that were seen: in
-simulation they are read from the world model, on the real robot RoboKudo reports them;
-RoboKudo reports only people it sees sitting, so someone standing in front of the sofa
-does not take a seat. A seat is free when no `Human` is in its region afterwards.
+The sofa is built beforehand: each of its seat places is a region above its cushion,
+listed among the sofa's `seat_places` (`SofaSeat` in
+`semantic_digital_twin.predefined_maps.sofa_seats`). Chairs are detected: a chair
+RoboKudo sees that the world does not hold yet is added as a `Chair` with one seat place.
+Asking for the seats in view updates every seat that was seen: the people on a seat seen
+free are removed, and someone is seated on a seat seen occupied that holds no one. In
+simulation the seats and people are read from the world model, on the real robot
+RoboKudo reports them; RoboKudo counts only people it sees sitting, so someone standing in
+front of the sofa does not take a seat. A seat place is free when no `Human` is in it
+afterwards, and the demo counts the seat places of the sofa and of every chair.
 
 ## Where the numbers come from
 
@@ -112,6 +117,8 @@ does not take a seat. A seat is free when no `Human` is in its region afterwards
 | `robot_start = (0.4, 0, 0)` | `demo.py` | Just inside the opening in the south wall between `south_wall4` and `south_wall5`, facing into the room. |
 | `scanning_distance = 1.5` | free seats demo | How far in front of the sofa's front edge the robot stands to scan it. |
 | `person_size = 0.4 × 0.4 × 0.8` | free seats demo | The box a simulated person is shaped as. |
+| `chair_seat_place_size = 0.5 × 0.5 × 0.5` | `SeatPerceptionTask` | The seat place of a chair added to the world. Estimated, not measured. |
+| `chair_matching_distance = 0.5` | `SeatPerceptionTask` | How close a detected chair must be to a chair of the world to be that chair. Estimated. |
 
 The door is an assumption: the south wall has a second opening at about `y = 3.6`. If the
 lab's door is that one, change `robot_start` in `demo.py`.
@@ -122,4 +129,4 @@ lab's door is that one, change `robot_start` in `demo.py`.
 |---|---|
 | Kinematically simulated | A person on the right seat: `1 of 2 seats are free`. |
 | Physically simulated (headless) | A person on the right seat: `1 of 2 seats are free`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
-| Real | **Never run.** |
+| Real | **Never run**, chair detection included. |

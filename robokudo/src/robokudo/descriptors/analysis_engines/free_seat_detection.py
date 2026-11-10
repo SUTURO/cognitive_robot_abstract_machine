@@ -1,9 +1,10 @@
 """
 Analysis engine answering queries for the free seats in view of the HSR head camera.
 
-On every query, the pipeline reads one camera image, detects chairs, sofas and humans,
-judges the posture of the humans and answers with every seat within reach and whether a
-sitting human occupies it.
+On every query, the pipeline reads one camera image, takes the seat places of the shared
+world in view, such as those of a sofa, detects chairs and humans, judges the posture of
+the humans and answers with every seat within reach and whether a sitting human occupies
+it.
 """
 
 # %% imports
@@ -22,7 +23,7 @@ from robokudo.annotators.seat_occupancy import (
     SeatOccupancyAnnotator,
     SeatQueryAnswerAnnotator,
 )
-from robokudo.annotators.sofa_split import SofaSplitAnnotator
+from robokudo.annotators.world_seat_regions import WorldSeatRegionAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
@@ -49,9 +50,10 @@ class AnalysisEngine(AnalysisEngineInterface):
 
     def implementation(self) -> Pipeline:
         """
-        Create a pipeline that waits for a query, reads one camera image, detects seats
-        and humans, locates them in 3D, annotates every seat within reach, of chairs and
-        sofas, with whether it is occupied and answers with the seats.
+        Create a pipeline that waits for a query, reads one camera image, takes the seat
+        places of the world in view, detects chairs and humans, locates them in 3D,
+        annotates every seat within reach with whether it is occupied and answers with
+        the seats.
 
         Every query starts the seat detection, whatever it asks for.
 
@@ -87,7 +89,7 @@ class AnalysisEngine(AnalysisEngineInterface):
                 ClusterPositionAnnotator(),
                 HumanStandingAnnotator(),
                 HumanSittingAnnotator(descriptor=sitting_descriptor),
-                SofaSplitAnnotator(),
+                WorldSeatRegionAnnotator(),
                 SeatOccupancyAnnotator(),
                 SeatQueryAnswerAnnotator(),
                 ActionServerCheck(),

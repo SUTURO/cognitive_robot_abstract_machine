@@ -447,7 +447,8 @@ class KitchenSofa:
     A sofa with two seat cushions, two back cushions and solid armrests, facing along
     its -x axis.
 
-    Above each seat cushion hangs the region of one :class:`SofaSeat` place.
+    Above each seat cushion hangs the region of one :class:`SofaSeat` place, listed
+    among the seat places of the :class:`Sofa`.
     """
 
     origin_height: float = 0.34
@@ -680,6 +681,7 @@ class KitchenSofa:
                 Region, world.get_kinematic_structure_entity_by_name(seat_surface.name)
             )
         )
+        sofa.seat_places.extend(seat.region_in(world) for seat in SofaSeat)
         return sofa
 
     def _seat_place(

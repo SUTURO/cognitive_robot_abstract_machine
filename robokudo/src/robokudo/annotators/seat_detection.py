@@ -1,9 +1,9 @@
 """
 Recognition of seats among the detected objects.
 
-Provides the region type for the seats split from larger furniture, the rules that
-decide which object hypotheses are seats for a single person and the rule that decides
-which humans occupy a seat.
+Provides the region types for the seats split from larger furniture and for the seat
+places of the world and the rules that decide which object hypotheses are seats for a
+single person.
 """
 
 # %% imports
@@ -11,14 +11,13 @@ which humans occupy a seat.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import numpy as np
 from typing_extensions import TYPE_CHECKING
 
-from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.cas import CAS
 from robokudo.types.annotation import Classification
-from robokudo.types.human import ActivityAnnotation
 from robokudo.types.scene import HumanHypothesis, ObjectHypothesis, RegionHypothesis
 
 if TYPE_CHECKING:
@@ -27,11 +26,45 @@ if TYPE_CHECKING:
 # %% seat regions
 
 
+class SeatFurniture(StrEnum):
+    """
+    The furniture a seat belongs to, as reported in :attr:`ObjectDesignator.type`.
+    """
+
+    CHAIR = "chair"
+    """
+    A seat for a single person.
+    """
+
+    SOFA = "sofa"
+    """
+    One seat region of a piece of furniture for several persons.
+    """
+
+
 @dataclass
 class SeatRegion(RegionHypothesis):
     """
     A region of a piece of furniture on which one person can sit, such as one seat of a
     sofa.
+    """
+
+    furniture: SeatFurniture = SeatFurniture.SOFA
+    """
+    The furniture the seat region belongs to.
+    """
+
+
+@dataclass
+class WorldSeatRegion(SeatRegion):
+    """
+    The seat region of a seat place the world already knows, such as one of a sofa
+    of the semantic map.
+    """
+
+    seat_place_name: str = ""
+    """
+    The name of the region of the seat place in the world.
     """
 
 
@@ -169,35 +202,3 @@ class SeatDetection:
             return None
         left, right = bounds
         return float(right - left)
-
-
-# %% seat occupants
-
-
-@dataclass
-class SeatOccupantRule:
-    """
-    The rule that decides by their posture whether a human at a seat occupies it.
-    """
-
-    unclear_posture_occupies: bool = False
-    """
-    Whether a human annotated neither as sitting nor as standing occupies a seat.
-    """
-
-    def is_occupant(self, human: HumanHypothesis) -> bool:
-        """
-        :param human: The human to judge.
-        :return: Whether the human occupies the seat they are at: never when annotated
-            as standing, always when annotated as sitting, and as
-            :attr:`unclear_posture_occupies` says otherwise.
-        """
-        activities = {
-            activity.type
-            for activity in CAS.filter_by_type(ActivityAnnotation, human.annotations)
-        }
-        if HumanPosture.STANDING in activities:
-            return False
-        if HumanPosture.SITTING in activities:
-            return True
-        return self.unclear_posture_occupies

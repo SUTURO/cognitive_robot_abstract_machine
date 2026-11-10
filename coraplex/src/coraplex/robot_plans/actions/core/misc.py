@@ -9,11 +9,7 @@ from coraplex.datastructures.enums import (
     DetectionTechnique,
     PerceptionSource,
 )
-from coraplex.perception import (
-    OccupantPerceptionTask,
-    PerceptionQuery,
-    PerceptionTask,
-)
+from coraplex.perception import PerceptionQuery, PerceptionTask, SeatPerceptionTask
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import Action, SequentialAction
 from coraplex.robot_plans.actions.core.exceptions import DetectionTargetMissing
@@ -28,12 +24,8 @@ from krrood_spatial_math.spatial_types import (
 from krrood_spatial_math.spatial_types import Pose, Point3, Pose2D
 from semantic_digital_twin.robots.robot_parts import EndEffector
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
-from semantic_digital_twin.world_description.world_entity import (
-    Region,
-    SemanticAnnotation,
-)
+from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Human,
     SemanticEnvironmentAnnotation,
 )
 
@@ -161,26 +153,25 @@ class DetectAction(Perceives, SequentialAction):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DetectOccupantsAction(Perceives, SequentialAction):
+class DetectSeatsAction(Perceives, SequentialAction):
     """
-    Looks at each region in turn and updates the people in the world within it to the
-    ones perceived there.
+    Looks at each target in turn and updates the seats in view and the people on them
+    to the ones perceived there, see :class:`~coraplex.perception.SeatPerceptionTask`.
     """
 
-    regions: list[Region]
+    look_targets: list[Pose]
     """
-    The regions to look at, in the order they are looked at.
+    The poses to look at, in the order they are looked at.
     """
 
     def create_steps(self) -> list[StatechartNode]:
         return [
             step
-            for region in self.regions
+            for target in self.look_targets
             for step in (
-                LookAtAction(target=Pose.from_xyz_rpy(reference_frame=region)),
-                OccupantPerceptionTask(
-                    query=PerceptionQuery.in_region(Human, region, self.robot),
-                    answered_by=self.perception_source,
+                LookAtAction(target=target),
+                SeatPerceptionTask(
+                    robot=self.robot, answered_by=self.perception_source
                 ),
             )
         ]
