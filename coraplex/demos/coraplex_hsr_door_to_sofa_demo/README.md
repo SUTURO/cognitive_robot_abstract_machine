@@ -79,13 +79,16 @@ assumed to share.
    $PY -m giskardpy.middleware.ros2.scripts.iai_robots.hsr.hsr_velocity
    ```
 
-3. Put the YOLO weights `chairs.pt` into `robokudo/src/robokudo/models/` (not part of the
-   repository), then start the perception pipeline that finds the seats and the people
-   on them:
+3. Start the perception pipeline that checks the sofa's seat places for people sitting
+   on them; it detects no chairs:
 
    ```bash
-   $PY -m robokudo.scripts.main _ae free_seat_detection
+   $PY -m robokudo.scripts.main _ae seat_place_occupancy
    ```
+
+   To add detected chairs, start `_ae free_seat_detection` instead, after putting the
+   YOLO weights `chairs.pt` into `robokudo/src/robokudo/models/` (not part of the
+   repository).
 
 4. Put the robot at the door of the kitchen lab. The real robot starts wherever it
    stands; the start pose of the simulations is not used.
@@ -114,8 +117,9 @@ DetectSeatsAction(left seat, right seat)
 
 The sofa is built beforehand: each of its seat places is a region above its cushion,
 listed among the sofa's `seat_places` (`SofaSeat` in
-`semantic_digital_twin.predefined_maps.sofa_seats`). Chairs are detected: a chair
-RoboKudo sees that the world does not hold yet is added as a `Chair` with one seat place.
+`semantic_digital_twin.predefined_maps.sofa_seats`). Only with RoboKudo's
+`free_seat_detection` are chairs detected too: a chair it sees that the world does not
+hold yet is added as a `Chair` with one seat place.
 Asking for the seats in view updates every seat that was seen: the people on a seat seen
 free are removed, and someone is seated on a seat seen occupied that holds no one. In
 simulation the seats and people are read from the world model, on the real robot
@@ -142,4 +146,4 @@ lab's door is that one, change `robot_start` in `demo.py`.
 |---|---|
 | Kinematically simulated | A person on the right seat: `1 of 2 seats are free`. |
 | Physically simulated (headless) | A person on the right seat: `1 of 2 seats are free`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
-| Real | **Never run**, chair detection included. |
+| Real | **Never run**. |

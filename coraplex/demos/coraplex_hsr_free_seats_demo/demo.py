@@ -16,10 +16,10 @@ people on the sofa from the world model, so nothing on the network is needed.
     :data:`~coraplex.perception.ROBOKUDO_QUERY_ACTION_NAME` as well as the world server:
     every seat place is looked at and the pipeline is asked for the seats in view and
     whether someone sits on them. Start the controller and the pipeline separately, as
-    on the robot. RoboKudo's entry point takes its arguments with an underscore prefix,
-    and its chair detection needs the YOLO weights ``chairs.pt``::
+    on the robot. RoboKudo's entry point takes its arguments with an underscore prefix;
+    this pipeline checks only the seat places of the world, such as the sofa's::
 
-        python3 -m robokudo.scripts.main _ae free_seat_detection
+        python3 -m robokudo.scripts.main _ae seat_place_occupancy
 """
 
 from __future__ import annotations

@@ -11,6 +11,8 @@ it.
 
 from __future__ import annotations
 
+from typing_extensions import TYPE_CHECKING
+
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
@@ -32,6 +34,9 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 )
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
+
+if TYPE_CHECKING:
+    from py_trees.behaviour import Behaviour
 
 # %% analysis engine
 
@@ -63,14 +68,6 @@ class AnalysisEngine(AnalysisEngineInterface):
             HsrRos2CameraConfig.registry_name
         )
 
-        yolo_descriptor = YoloAnnotator.Descriptor()
-        yolo_descriptor.parameters.pretrained_model = "chairs.pt"
-        yolo_descriptor.parameters.threshold = 0.4
-        yolo_descriptor.parameters.precision_mode = True
-        yolo_descriptor.parameters.ignored_class_names = [
-            yolo_descriptor.parameters.person_class_name
-        ]
-
         human_descriptor = HumanAndPoseAnnotator.Descriptor()
         human_descriptor.parameters.global_with_depth = True
 
@@ -84,7 +81,7 @@ class AnalysisEngine(AnalysisEngineInterface):
                 QueryAnnotator(),
                 CollectionReaderAnnotator(descriptor=hsr_config),
                 ImagePreprocessorAnnotator("ImagePreprocessor"),
-                YoloAnnotator(descriptor=yolo_descriptor),
+                *self.chair_detection(),
                 HumanAndPoseAnnotator(descriptor=human_descriptor),
                 ClusterPositionAnnotator(),
                 HumanStandingAnnotator(),
@@ -96,3 +93,17 @@ class AnalysisEngine(AnalysisEngineInterface):
             ]
         )
         return seq
+
+    def chair_detection(self) -> list[Behaviour]:
+        """
+        :return: The behaviours detecting the chairs in the camera image, which become
+            seats next to the seat places of the world.
+        """
+        yolo_descriptor = YoloAnnotator.Descriptor()
+        yolo_descriptor.parameters.pretrained_model = "chairs.pt"
+        yolo_descriptor.parameters.threshold = 0.4
+        yolo_descriptor.parameters.precision_mode = True
+        yolo_descriptor.parameters.ignored_class_names = [
+            yolo_descriptor.parameters.person_class_name
+        ]
+        return [YoloAnnotator(descriptor=yolo_descriptor)]

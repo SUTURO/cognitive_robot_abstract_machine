@@ -19,6 +19,9 @@ from robokudo.annotators.world_seat_regions import WorldSeatRegionAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
 from robokudo.descriptors.analysis_engines.free_seat_detection import AnalysisEngine
+from robokudo.descriptors.analysis_engines.seat_place_occupancy import (
+    AnalysisEngine as SeatPlaceOccupancyAnalysisEngine,
+)
 
 if TYPE_CHECKING:
     from rclpy.node import Node
@@ -89,6 +92,33 @@ def test_seats_come_from_the_world_seat_places_and_detected_chairs(node: Node) -
     The seat places of the world are added as seats before the occupancy is annotated.
     """
     pipeline = AnalysisEngine().implementation()
+
+    behaviour_types = [type(behaviour) for behaviour in pipeline.children]
+    assert behaviour_types.index(WorldSeatRegionAnnotator) < behaviour_types.index(
+        SeatOccupancyAnnotator
+    )
+
+
+# %% seat places of the world only
+
+
+def test_the_seat_place_occupancy_detects_no_chairs(node: Node) -> None:
+    """
+    The pipeline for the seat places of the world alone runs no object detection.
+    """
+    pipeline = SeatPlaceOccupancyAnalysisEngine().implementation()
+
+    assert not any(
+        isinstance(behaviour, YoloAnnotator) for behaviour in pipeline.iterate()
+    )
+
+
+def test_the_seat_place_occupancy_annotates_the_world_seat_places(node: Node) -> None:
+    """
+    Without chair detection, the pipeline still takes the seat places of the world in
+    view and annotates their occupancy.
+    """
+    pipeline = SeatPlaceOccupancyAnalysisEngine().implementation()
 
     behaviour_types = [type(behaviour) for behaviour in pipeline.children]
     assert behaviour_types.index(WorldSeatRegionAnnotator) < behaviour_types.index(
