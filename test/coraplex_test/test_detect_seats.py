@@ -71,4 +71,4 @@ def test_only_the_seat_a_person_is_seen_on_is_taken(hsr_facing_the_sofa):
 
     run_plan(plan, robot_extensions(robot))
 
-    assert [seat for seat in SofaSeat if seat.is_free_in(world)] == [SofaSeat.LEFT]
+    assert SofaSeat.free_in(world) == [SofaSeat.LEFT]

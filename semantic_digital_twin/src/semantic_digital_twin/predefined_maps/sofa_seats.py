@@ -34,7 +34,11 @@ class SofaSeat(StrEnum):
         :return: The seat places no :class:`Human` in ``world`` sits on, from left to
             right.
         """
-        return [seat for seat in cls if seat.is_free_in(world)]
+        return [
+            seat
+            for seat in cls
+            if not seat.region_in(world).semantic_annotations_within(Human)
+        ]
 
     def region_in(self, world: World) -> Region:
         """
@@ -42,13 +46,6 @@ class SofaSeat(StrEnum):
         :return: The region above this seat place.
         """
         return world.get_kinematic_structure_entity_by_name(self.value)
-
-    def is_free_in(self, world: World) -> bool:
-        """
-        :param world: A world whose sofa has a region for every seat place.
-        :return: Whether no :class:`Human` in ``world`` sits on this seat place.
-        """
-        return not self.region_in(world).semantic_annotations_within(Human)
 
     def place_person_in(
         self, world: World, person: SemanticAnnotationWithRootSpecification[Human]

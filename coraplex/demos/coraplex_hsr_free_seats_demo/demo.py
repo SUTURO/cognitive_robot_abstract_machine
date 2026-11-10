@@ -141,35 +141,11 @@ class FreeSeatsDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Raise the torso, park the arm, drive in front of the sofa and look for people on
-        each of its seat places.
+        Raise the torso, park the arm, drive :attr:`scanning_distance` in front of the
+        sofa's front edge, facing it, and look for people on each of its seat places.
         """
         world = context.world
         hsrb = context.require_extension(RobotAccess).robot
-        statechart = Statechart(context=context)
-        statechart.add_node(
-            Sequence(
-                nodes=[
-                    MoveTorsoAction(torso_state=TorsoState.HIGH),
-                    ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(target_location=self.scanning_pose(world)),
-                    DetectSeatsAction(
-                        look_targets=[
-                            Pose.from_xyz_rpy(reference_frame=seat.region_in(world))
-                            for seat in SofaSeat
-                        ]
-                    ),
-                ]
-            )
-        )
-        return statechart
-
-    def scanning_pose(self, world: World) -> Pose:
-        """
-        :param world: A world holding the scene.
-        :return: Where the robot's base stands on the floor to scan the sofa,
-            :attr:`scanning_distance` in front of its front edge and facing it.
-        """
         [sofa] = world.get_semantic_annotations_by_type(Sofa)
         sofa_front = (
             sofa.root.collision.as_bounding_box_collection_in_frame(sofa.root)
@@ -182,12 +158,30 @@ class FreeSeatsDemonstration(RobotDemonstration):
                 x=sofa_front - self.scanning_distance
             )
         ).pose
-        return Pose.from_xyz_rpy(
-            x=world_T_scanning_pose.x,
-            y=world_T_scanning_pose.y,
-            yaw=world_T_scanning_pose.yaw,
-            reference_frame=world.root,
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            Sequence(
+                nodes=[
+                    MoveTorsoAction(torso_state=TorsoState.HIGH),
+                    ParkArmsAction(arms=hsrb.all_arms),
+                    NavigateAction(
+                        target_location=Pose.from_xyz_rpy(
+                            x=world_T_scanning_pose.x,
+                            y=world_T_scanning_pose.y,
+                            yaw=world_T_scanning_pose.yaw,
+                            reference_frame=world.root,
+                        )
+                    ),
+                    DetectSeatsAction(
+                        look_targets=[
+                            Pose.from_xyz_rpy(reference_frame=seat.region_in(world))
+                            for seat in SofaSeat
+                        ]
+                    ),
+                ]
+            )
         )
+        return statechart
 
 
 def occupied_seats_from_command_line() -> list[SofaSeat]:

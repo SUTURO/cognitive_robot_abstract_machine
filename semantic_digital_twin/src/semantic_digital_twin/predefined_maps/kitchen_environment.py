@@ -641,6 +641,24 @@ class KitchenSofa:
         for minimum, maximum, back in cushion_widths.values():
             meshes.append(self.seat.create_mesh(minimum, maximum, self.origin_height))
             meshes.append(back.create_mesh(minimum, maximum, self.origin_height))
+        cushion_depths = [point.depth for point in self.seat.points]
+        cushion_top = max(point.height for point in self.seat.points)
+        seat_places = [
+            RegionSpecification.box(
+                name=seat.value,
+                scale=Scale(
+                    max(cushion_depths) - min(cushion_depths),
+                    maximum - minimum,
+                    self.seat_place_height,
+                ),
+                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=(max(cushion_depths) + min(cushion_depths)) / 2,
+                    y=(maximum + minimum) / 2,
+                    z=cushion_top - self.origin_height + self.seat_place_height / 2,
+                ),
+            )
+            for seat, (minimum, maximum, _) in cushion_widths.items()
+        ]
         envelope = trimesh.boolean.union(meshes, engine="manifold")
         shape = Mesh.from_trimesh(
             envelope,
@@ -666,13 +684,7 @@ class KitchenSofa:
             root_specification=BodySpecification(
                 name=None,
                 shapes=ShapeCollection([shape]),
-                child_specifications=[
-                    seat_surface,
-                    *(
-                        self._seat_place(seat, minimum, maximum)
-                        for seat, (minimum, maximum, _) in cushion_widths.items()
-                    ),
-                ],
+                child_specifications=[seat_surface, *seat_places],
             ),
         )
         sofa = specification.spawn(world, parent_T_self=root_T_sofa)
@@ -684,32 +696,6 @@ class KitchenSofa:
         for seat in SofaSeat:
             sofa.add_seat_place(seat.region_in(world))
         return sofa
-
-    def _seat_place(
-        self, seat: SofaSeat, minimum_width: float, maximum_width: float
-    ) -> RegionSpecification:
-        """
-        :param seat: The seat place.
-        :param minimum_width: Where the seat place's cushion begins across the sofa.
-        :param maximum_width: Where the seat place's cushion ends across the sofa.
-        :return: The region reaching :attr:`seat_place_height` above the top of the
-            cushion, over the cushion's whole depth.
-        """
-        cushion_depths = [point.depth for point in self.seat.points]
-        cushion_top = max(point.height for point in self.seat.points)
-        return RegionSpecification.box(
-            name=seat.value,
-            scale=Scale(
-                max(cushion_depths) - min(cushion_depths),
-                maximum_width - minimum_width,
-                self.seat_place_height,
-            ),
-            parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=(max(cushion_depths) + min(cushion_depths)) / 2,
-                y=(maximum_width + minimum_width) / 2,
-                z=cushion_top - self.origin_height + self.seat_place_height / 2,
-            ),
-        )
 
 
 # %% Measured kitchen geometry

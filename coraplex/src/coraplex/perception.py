@@ -108,35 +108,6 @@ class PerceptionQuery(SubclassJSONSerializer):
     existing orientation is kept. See :meth:`Detection.apply_to`.
     """
 
-    location: Region | None = None
-    """
-    The named region of the world :attr:`region` bounds, which a perception source that
-    knows the world's regions by name looks in; ``None`` when the query names none.
-    """
-
-    @classmethod
-    def in_region(
-        cls,
-        semantic_annotation: type[SemanticAnnotation],
-        location: Region,
-        robot: AbstractRobot,
-    ) -> Self:
-        """
-        :param semantic_annotation: The semantic annotation for which to perceive.
-        :param location: The region to look in.
-        :param robot: The robot that should perceive.
-        :return: A query looking for ``semantic_annotation`` within ``location``,
-            bounded by the region's extents in its own frame, so the bounds stay with the
-            region however the robot moves.
-        """
-        return cls(
-            semantic_annotation,
-            location.area.as_bounding_box_collection_in_frame(location).bounding_box(),
-            robot,
-            location._world,
-            location=location,
-        )
-
     def from_world(self) -> list[Body]:
         """
         Answer this query from the world model alone.
@@ -171,24 +142,17 @@ class PerceptionQuery(SubclassJSONSerializer):
         result["region"] = to_json(self.region, **kwargs)
         result["robot_id"] = to_json(self.robot.id, **kwargs)
         result["trust_detected_orientation"] = self.trust_detected_orientation
-        result["location_id"] = (
-            None if self.location is None else to_json(self.location.id, **kwargs)
-        )
         return result
 
     @classmethod
     def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
         tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
-        location_id = data.get("location_id")
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
             robot=tracker.get(from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
-            location=(
-                None if location_id is None else tracker.get(from_json(location_id))
-            ),
         )
 
 
@@ -410,9 +374,6 @@ class RoboKudoQuerying:
         :return: The object designators the pipeline answered with.
         :raises PerceptionSourceUnavailable: If no pipeline serves the query action.
         """
-        # RoboKudo's messages only exist where its pipeline is installed, so they are
-        # imported here rather than at module level: reading the world in simulation must
-        # not depend on them.
         from robokudo_msgs.action import Query
 
         client = ActionClient(self.ros_node, Query, self.action_name)
@@ -451,10 +412,7 @@ class RoboKudoPerception(RoboKudoQuerying, PerceptionInterface):
         from robokudo_msgs.msg import ObjectDesignator
 
         designators = self.ask(
-            ObjectDesignator(
-                type=query.semantic_annotation.__name__.lower(),
-                location="" if query.location is None else query.location.name.name,
-            )
+            ObjectDesignator(type=query.semantic_annotation.__name__.lower())
         )
         return [
             Detection(
@@ -546,21 +504,6 @@ class SeatPerception(ABC):
         :param robot: The robot whose camera looks.
         :return: One report per seat in view of the robot's camera.
         """
-
-    @staticmethod
-    def for_source(
-        source: PerceptionSource, ros_node: Node | None = None
-    ) -> SeatPerception:
-        """
-        :param source: The kind of source that reports the seats.
-        :param ros_node: Node a RoboKudo pipeline is reached through.
-        :return: The source to report the seats with.
-        """
-        match source:
-            case PerceptionSource.WORLD_MODEL:
-                return WorldSeatPerception()
-            case PerceptionSource.ROBOKUDO:
-                return RoboKudoSeatPerception(ros_node=ros_node)
 
 
 @dataclass
@@ -769,19 +712,59 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
 
     def set_up(self) -> None:
         super().set_up()
-        self.seat_perception = SeatPerception.for_source(
-            self.answered_by, self.ros_node
-        )
+        match self.answered_by:
+            case PerceptionSource.WORLD_MODEL:
+                self.seat_perception = WorldSeatPerception()
+            case PerceptionSource.ROBOKUDO:
+                self.seat_perception = RoboKudoSeatPerception(ros_node=self.ros_node)
 
     def answer_query(self) -> ObservationStateValues:
         """
         :return: True, since seeing no seat is an answer too.
         """
+        world = self.robot._world
         reports = self.seat_perception.report_seats(self.robot)
-        seat_places = [
-            report.seat_place or self.chair_seat_place_at(report.pose)
-            for report in reports
-        ]
+        seat_places = []
+        for report in reports:
+            if report.seat_place is not None:
+                seat_places.append(report.seat_place)
+                continue
+            world_T_seat = world.transform(report.pose, world.root).homogeneous_matrix
+            distances = {
+                seat_place: np.linalg.norm(
+                    seat_place.global_transform.position.to_np()[:3]
+                    - world_T_seat.position.to_np()[:3]
+                )
+                for chair in world.get_semantic_annotations_by_type(Chair)
+                for seat_place in chair.seat_places
+            }
+            closest = min(distances, key=distances.get, default=None)
+            if (
+                closest is not None
+                and distances[closest] < self.chair_matching_distance
+            ):
+                seat_places.append(closest)
+                continue
+            name = (
+                f"detected_chair_{len(world.get_semantic_annotations_by_type(Chair))}"
+            )
+            seat_place_name = f"{name}_seat_place"
+            chair = SemanticAnnotationWithRootSpecification(
+                name=name,
+                semantic_annotation_type=Chair,
+                root_specification=BodySpecification(
+                    name=name,
+                    child_specifications=[
+                        RegionSpecification.box(
+                            seat_place_name, self.chair_seat_place_size
+                        )
+                    ],
+                ),
+            ).spawn(world, parent_T_self=world_T_seat)
+            seat_place = world.get_kinematic_structure_entity_by_name(seat_place_name)
+            with world.modify_world():
+                chair.add_seat_place(seat_place)
+            seat_places.append(seat_place)
         occupants = {
             seat_place: seat_place.semantic_annotations_within(Human)
             for seat_place in seat_places
@@ -797,7 +780,6 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
             for report, seat_place in zip(reports, seat_places)
             if report.occupied and not occupants[seat_place]
         }
-        world = self.robot._world
         with world.modify_world():
             for occupant in people_who_left:
                 world.remove_semantic_annotation(occupant)
@@ -809,44 +791,3 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
                     world, parent_T_self=world_T_seat_place
                 )
         return ObservationStateValues.TRUE
-
-    def chair_seat_place_at(self, pose: Pose) -> Region:
-        """
-        :param pose: Where a seat the world does not know was seen.
-        :return: The closest seat place of a chair of the world within
-            :attr:`chair_matching_distance`, otherwise that of a chair added at ``pose``.
-        """
-        world = self.robot._world
-        world_T_seat = world.transform(pose, world.root).homogeneous_matrix
-        seen_position = world_T_seat.position.to_np()[:3]
-        distances = {
-            seat_place: np.linalg.norm(
-                seat_place.global_transform.position.to_np()[:3] - seen_position
-            )
-            for chair in world.get_semantic_annotations_by_type(Chair)
-            for seat_place in chair.seat_places
-        }
-        close = [
-            seat_place
-            for seat_place, distance in distances.items()
-            if distance < self.chair_matching_distance
-        ]
-        if close:
-            return min(close, key=distances.get)
-
-        name = f"detected_chair_{len(world.get_semantic_annotations_by_type(Chair))}"
-        seat_place_name = f"{name}_seat_place"
-        chair = SemanticAnnotationWithRootSpecification(
-            name=name,
-            semantic_annotation_type=Chair,
-            root_specification=BodySpecification(
-                name=name,
-                child_specifications=[
-                    RegionSpecification.box(seat_place_name, self.chair_seat_place_size)
-                ],
-            ),
-        ).spawn(world, parent_T_self=world_T_seat)
-        seat_place = world.get_kinematic_structure_entity_by_name(seat_place_name)
-        with world.modify_world():
-            chair.add_seat_place(seat_place)
-        return seat_place

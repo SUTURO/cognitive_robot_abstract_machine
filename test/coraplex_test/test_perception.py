@@ -544,7 +544,6 @@ class RecordedQueryServer:
 
         self.reports = reports
         self.received_types = []
-        self.received_locations = []
         self.node = rclpy.create_node(node_name)
         self.server = ActionServer(self.node, Query, action_name, self.execute_callback)
         self.executor = SingleThreadedExecutor()
@@ -561,7 +560,6 @@ class RecordedQueryServer:
         from std_msgs.msg import Header
 
         self.received_types.append(goal_handle.request.obj.type)
-        self.received_locations.append(goal_handle.request.obj.location)
         goal_handle.succeed()
 
         designators = []
@@ -664,101 +662,6 @@ def test_robokudo_detection_moves_the_body_in_the_world(
         world.get_body_by_name("milk.stl").global_pose.position.to_np().flatten()[:3],
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
-    )
-
-
-# %% restricting a query to a named region
-
-
-@pytest.fixture
-def counter_region(pr2_apartment_context) -> Region:
-    """
-    A named region of the apartment a query can be restricted to.
-    """
-    world, _, _ = pr2_apartment_context
-    return RegionSpecification.box("counter_region", Scale(1.0, 1.0, 1.0)).spawn(world)
-
-
-def test_robokudo_is_asked_to_look_in_the_named_region(
-    pr2_apartment_context, counter_region, rclpy_node, robokudo_query_server
-):
-    """
-    The pipeline knows regions by name, so a query restricted to a region asks it to
-    look there.
-    """
-    world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery.in_region(Milk, counter_region, view)
-
-    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
-
-    assert robokudo_query_server.received_locations == [counter_region.name.name]
-
-
-def test_robokudo_is_asked_to_look_anywhere_without_a_named_region(
-    pr2_apartment_context, whole_scene_region, rclpy_node, robokudo_query_server
-):
-    world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery(Milk, whole_scene_region, view, world)
-
-    RoboKudoPerception(ros_node=rclpy_node).look_for(query)
-
-    assert robokudo_query_server.received_locations == [""]
-
-
-def test_a_query_in_a_region_looks_within_that_regions_bounds(
-    pr2_apartment_context, counter_region
-):
-    world, view, extensions = pr2_apartment_context
-
-    query = PerceptionQuery.in_region(Milk, counter_region, view)
-
-    expected_region = counter_region.area.as_bounding_box_collection_in_frame(
-        counter_region
-    ).bounding_box()
-    assert query.location is counter_region
-    assert query.world is world
-    assert query.region.origin.reference_frame is counter_region
-    np.testing.assert_allclose(
-        query.region.to_array_bounds().lower, expected_region.to_array_bounds().lower
-    )
-    np.testing.assert_allclose(
-        query.region.to_array_bounds().upper, expected_region.to_array_bounds().upper
-    )
-
-
-def test_a_query_in_a_region_keeps_its_bounds_when_the_robot_moves(
-    pr2_apartment_context, counter_region
-):
-    """
-    A plan builds its queries before the robot drives to where it perceives, so the
-    bounds must stay on the region rather than travel with the robot.
-    """
-    world, view, extensions = pr2_apartment_context
-    query = PerceptionQuery.in_region(Milk, counter_region, view)
-
-    world.get_body_by_name(
-        "base_footprint"
-    ).parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
-        3.0, 3.0, 0.0
-    )
-
-    assert query.region.contains(counter_region.global_pose.position)
-
-
-def test_query_location_survives_a_json_round_trip(
-    pr2_apartment_context, counter_region
-):
-    """
-    The named region arrives pointing at the receiving world's copy of it.
-    """
-    world, view, extensions = pr2_apartment_context
-    receiving_world = deepcopy(world)
-    query = PerceptionQuery.in_region(Milk, counter_region, view)
-
-    restored = from_json(to_json(query), **receiving_world_kwargs(receiving_world))
-
-    assert restored.location is receiving_world.get_world_entity_with_id_by_id(
-        counter_region.id
     )
 
 

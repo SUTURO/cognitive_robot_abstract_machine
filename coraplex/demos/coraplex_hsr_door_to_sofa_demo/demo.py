@@ -24,7 +24,6 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# The demonstration this one builds on lives in a sibling demo folder.
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from coraplex.plans.executors import (

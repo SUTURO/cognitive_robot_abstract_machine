@@ -158,7 +158,7 @@ def test_the_sofa_faces_the_coffee_table(kitchen_world: World, sofa: Sofa):
 
 
 def test_every_seat_of_an_empty_sofa_is_free(kitchen_world: World):
-    assert all(seat.is_free_in(kitchen_world) for seat in SofaSeat)
+    assert SofaSeat.free_in(kitchen_world) == list(SofaSeat)
 
 
 def test_a_seat_with_a_person_on_it_is_taken(kitchen_world: World):
@@ -166,9 +166,7 @@ def test_a_seat_with_a_person_on_it_is_taken(kitchen_world: World):
         kitchen_world, parent=SofaSeat.RIGHT.region_in(kitchen_world)
     )
 
-    assert [seat for seat in SofaSeat if seat.is_free_in(kitchen_world)] == [
-        SofaSeat.LEFT
-    ]
+    assert SofaSeat.free_in(kitchen_world) == [SofaSeat.LEFT]
 
 
 # %% seating people
@@ -189,9 +187,7 @@ def test_a_person_placed_on_a_seat_takes_only_that_seat(
 ):
     SofaSeat.LEFT.place_person_in(kitchen_world, person)
 
-    assert [seat for seat in SofaSeat if seat.is_free_in(kitchen_world)] == [
-        SofaSeat.RIGHT
-    ]
+    assert SofaSeat.free_in(kitchen_world) == [SofaSeat.RIGHT]
 
 
 def test_a_person_placed_on_a_seat_is_fixed_to_the_sofa(
