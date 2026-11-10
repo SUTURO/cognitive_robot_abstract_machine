@@ -206,7 +206,7 @@ def main(
     executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
     occupied_seats: list[SofaSeat] | None = None,
     headless: bool = False,
-) -> list[SofaSeat]:
+) -> World:
     """
     Run the demonstration and print which seat places of the sofa are free.
 
@@ -215,7 +215,8 @@ def main(
     :param occupied_seats: The seat places a person sits on in a simulated run.
     :param headless: Whether the physics of a physically simulated run steps without a
         viewer.
-    :return: The seat places no one was seen sitting on, from left to right.
+    :return: The world after the run, holding a person on every seat place one was seen
+        on.
     """
     world = DoorToSofaDemonstration(
         executor_type=executor_type,
@@ -224,4 +225,4 @@ def main(
     ).run()
     free_seats = SofaSeat.free_in(world)
     print("Free seats:", ", ".join(seat.name for seat in free_seats) or "none")
-    return free_seats
+    return world

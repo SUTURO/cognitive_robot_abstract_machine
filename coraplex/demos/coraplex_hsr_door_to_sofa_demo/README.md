@@ -60,6 +60,11 @@ rviz2
 - set that display's **Durability** to `Transient Local`, otherwise the markers do not
   arrive.
 
+The run itself takes only a moment: the kinematic simulation puts the base straight at
+each pose it drives to, so the robot jumps rather than drives. Afterwards the world stays
+shown, with the robot in front of the sofa, until you press Ctrl+C; RViz may be started
+before or after. To watch the robot drive, use `mujoco_demo.py`.
+
 ### On the real robot
 
 Never run so far. Each step runs in its own terminal with ROS sourced and the robot's
