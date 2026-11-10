@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 """
-Run the HSR human detection demo without a viewer and without RoboKudo; a failure exits
-non-zero with its traceback.
+Run the HSR human detection demo without a viewer or RoboKudo.
 """
 
 import demo

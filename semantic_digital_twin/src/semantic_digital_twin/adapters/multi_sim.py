@@ -1081,7 +1081,7 @@ class MujocoCamera(MultiSimCamera):
         MuJoCo cameras look along their negative z axis with positive y up, optical
         frames along positive z with positive y down.
 
-        :return: The orientation in scalar-first quaternion order.
+        :return: The quaternion orientation with the scalar component first.
         """
         return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
 

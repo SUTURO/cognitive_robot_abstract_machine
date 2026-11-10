@@ -1,5 +1,5 @@
 """
-Publication modes of a simulated camera.
+Publication of a simulated camera frame.
 """
 
 from __future__ import annotations
@@ -17,12 +17,12 @@ if TYPE_CHECKING:
     from rclpy.node import Node
 
 
-# %% publication modes
+# %% publication
 def test_single_frame_is_published_only_when_requested(
     node: Node, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """
-    Single-frame mode captures once when publication is requested.
+    Capture one frame when publication is requested.
     """
     camera_node = Mock()
     monkeypatch.setattr(simulated_camera, "TransformBroadcaster", Mock())

@@ -183,7 +183,7 @@ class RoboKudoQuery:
 
     location: str = ""
     """
-    Where to look, such as the name of a room; empty for anywhere.
+    Where to look, such as the name of a room. Empty means anywhere.
     """
 
 
@@ -582,7 +582,7 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
 
 @dataclass
 class CameraFrameCapture(ContextExtension):
-    """Provide a camera frame for an on-demand perception query."""
+    """Provide a camera frame for a perception query."""
 
     capture_frame: Callable[[], None]
     """Publish the camera frame for the next query."""

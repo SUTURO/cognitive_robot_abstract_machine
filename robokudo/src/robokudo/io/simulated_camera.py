@@ -48,14 +48,14 @@ class CompressedImageFormat(StrEnum):
 
     DEPTH = "16UC1; compressedDepth"
     """
-    A 16-bit PNG of depths in millimeters, after a configuration header.
+    A PNG of depths in millimeters with 16 bits per pixel, after a configuration header.
     """
 
 
 @dataclass
 class CameraMessages:
     """
-    One frame of a camera, as the messages of an RGB-D camera driver, all stamped alike.
+    Messages for one camera frame, all with the same timestamp.
     """
 
     color_image: CompressedImage
@@ -117,7 +117,7 @@ class SimulatedCameraPublisher:
 
     maximum_range: float = 10.0
     """
-    The farthest depth in meters the camera measures; farther depths read as missing.
+    The farthest depth in meters the camera measures. Farther depths read as missing.
     """
 
     _color_publisher: Publisher[CompressedImage] = field(init=False)
