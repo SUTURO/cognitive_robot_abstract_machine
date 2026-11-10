@@ -31,6 +31,7 @@ from semantic_digital_twin.semantic_annotations.mixins import HasSupportingSurfa
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
+from semantic_digital_twin.utils import camel_case_split
 
 if TYPE_CHECKING:
     from rclpy.publisher import Publisher
@@ -54,6 +55,13 @@ class SceneQuery:
     """Optional observation area; known out-of-area positions are excluded."""
     furniture: HasSupportingSurface | None = None
     """Optional target supplied by the task rather than selected by a fixed name."""
+    contact_tolerance: float = 0.03
+    """
+    Metres a detected box may float above a surface and still count as resting on it.
+
+    Detected boxes are less exact than simulated placements, so this is wider than
+    the default of `SupportedBy`.
+    """
 
 
 @dataclass
@@ -68,6 +76,19 @@ class ObservedObject:
     """Measured pose with its reference frame, when localization succeeded."""
     dimensions: Scale | None = None
     """Measured box extents; absent dimensions cannot establish contact."""
+
+
+class SceneSentence(StrEnum):
+    """Sentence forms of a spoken scene report."""
+
+    SINGLE = "There is {objects}{location}."
+    """Report exactly one object at a location."""
+    SEVERAL = "There are {objects}{location}."
+    """Report more than one object at a location."""
+    NOTHING = "I did not detect any objects."
+    """Report an empty batch without claiming that the room is empty."""
+    NOTHING_ON_FURNITURE = "I did not detect any objects on {furniture}."
+    """Report an empty batch for a furniture target supplied by the task."""
 
 
 class SceneRelation(StrEnum):
@@ -124,17 +145,21 @@ class SceneObservation:
             ):
                 continue
             category = (
-                observation.category.strip().replace("_", " ").lower()
+                " ".join(
+                    part
+                    for word in observation.category.replace("_", " ").split()
+                    for part in camel_case_split(word)
+                ).lower()
                 or "unidentified object"
             )
             groups.setdefault(location, Counter())[category] += 1
         if not groups:
             if query.furniture is None:
-                return "I did not detect any objects."
+                return SceneSentence.NOTHING
             furniture = SceneDescription.render_noun(
                 [query.furniture], Definiteness.DEFINITE
             )
-            return f"I did not detect any objects on {furniture}."
+            return SceneSentence.NOTHING_ON_FURNITURE.format(furniture=furniture)
         sentences = []
         for location, counts in groups.items():
             nouns = []
@@ -156,7 +181,12 @@ class SceneObservation:
                 if location.identity is not None
                 else ""
             )
-            sentences.append(f"I detected {phrase}{suffix}.")
+            sentence = (
+                SceneSentence.SINGLE
+                if sum(counts.values()) == 1
+                else SceneSentence.SEVERAL
+            )
+            sentences.append(sentence.format(objects=phrase, location=suffix))
         return " ".join(sentences)
 
     def locate(
@@ -192,7 +222,9 @@ class SceneObservation:
             surface
             for surface in snapshot.semantic_annotations
             if isinstance(surface, HasSupportingSurface)
-            and SupportedBy(body, surface.root)()
+            and SupportedBy(
+                body, surface.root, contact_tolerance=query.contact_tolerance
+            )()
         ]
         if len({surface.root.id for surface in surfaces}) != 1:
             return SceneLocation()

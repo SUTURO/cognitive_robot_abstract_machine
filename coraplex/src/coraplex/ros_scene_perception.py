@@ -52,6 +52,10 @@ class RoboKudoScenePerception(ScenePerception):
     """Seconds allowed for action-server discovery."""
     response_timeout: float = 30.0
     """Seconds allowed separately for goal acceptance and the completed result."""
+    query_type: str = "object"
+    """
+    Query type sent to RoboKudo; the GPSR pipeline answers no query without a type.
+    """
 
     def observe(self, query: SceneQuery) -> SceneObservation:
         client = ActionClient(self.ros_node, Query, self.action_name)
@@ -59,7 +63,9 @@ class RoboKudoScenePerception(ScenePerception):
             if not client.wait_for_server(timeout_sec=self.server_timeout):
                 raise PerceptionSourceUnavailable(self.action_name)
             handle = self.wait_result(
-                client.send_goal_async(Query.Goal(obj=ObjectDesignator()))
+                client.send_goal_async(
+                    Query.Goal(obj=ObjectDesignator(type=self.query_type))
+                )
             )
             if not handle.accepted:
                 raise ScenePerceptionFailed(SceneFailure.REJECTED)

@@ -17,6 +17,7 @@ from coraplex.exceptions import SpeechInputUnavailable, SpeechMessagesUnavailabl
 from coraplex.perception import ROBOKUDO_QUERY_ACTION_NAME
 from coraplex.ros_scene_perception import RoboKudoScenePerception
 from coraplex.scene_perception import SceneQuery
+from semantic_digital_twin.world import World
 
 if TYPE_CHECKING:
     from rclpy.node import Node
@@ -38,6 +39,8 @@ class SceneCommandOption(StrEnum):
     """Select the robot voice-message language value."""
     TIMEOUT = "--timeout"
     """Set the discovery, world-fetch and response timeout in seconds."""
+    NO_WORLD = "--no-world"
+    """Name the detected objects without fetching a world, so without locations."""
 
 
 class RobotVoiceInput(StrEnum):
@@ -116,6 +119,17 @@ class SceneReportCommand:
     """Seconds allowed for each external discovery or response step."""
     node_name: str = "scene_reporter"
     """Name of the temporary ROS node, stopped when this command finishes."""
+    without_world: bool = False
+    """
+    Whether to skip fetching the world, for example when replaying a recording.
+
+    The report then names the objects but never where they are.
+    """
+    detection_frame_name: str = "map"
+    """
+    Frame of the detected poses; without a fetched world it becomes the root of an
+    otherwise empty world, so the poses can still be read.
+    """
 
     @classmethod
     def from_arguments(cls, arguments: list[str] | None = None) -> SceneReportCommand:
@@ -139,6 +153,11 @@ class SceneReportCommand:
         parser.add_argument(
             SceneCommandOption.TIMEOUT, type=float, default=defaults.timeout
         )
+        parser.add_argument(
+            SceneCommandOption.NO_WORLD,
+            action="store_true",
+            help="name the detected objects without fetching a world (no locations)",
+        )
         options = parser.parse_args(arguments)
         if options.timeout <= 0:
             parser.error("--timeout must be greater than zero")
@@ -148,6 +167,7 @@ class SceneReportCommand:
             speech_topic=options.speech_topic,
             language=options.language,
             timeout=options.timeout,
+            without_world=options.no_world,
         )
 
     def execute(self) -> None:
@@ -163,10 +183,13 @@ class SceneReportCommand:
                 if self.speak
                 else None
             )
-            session.node.get_logger().info(
-                "Fetching the live world from a running fetch_world service."
-            )
-            world = session.fetch_world(timeout_seconds=self.timeout)
+            if self.without_world:
+                world = World.create_with_root_body(self.detection_frame_name)
+            else:
+                session.node.get_logger().info(
+                    "Fetching the live world from a running fetch_world service."
+                )
+                world = session.fetch_world(timeout_seconds=self.timeout)
             source = RoboKudoScenePerception(
                 ros_node=session.node,
                 action_name=self.action_name,
