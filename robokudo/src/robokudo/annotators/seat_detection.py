@@ -1,9 +1,9 @@
 """
 Recognition of seats among the detected objects.
 
-Provides the region types for the seats split from larger furniture and for the seat
-places of the world and the rules that decide which object hypotheses are seats for a
-single person.
+Provides the region types for the seats of larger furniture and for the seat places of
+the world and the rules that decide which object hypotheses are seats for a single
+person.
 """
 
 # %% imports

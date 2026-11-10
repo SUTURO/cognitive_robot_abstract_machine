@@ -275,18 +275,18 @@ def test_a_chair_detected_apart_from_a_world_seat_region_is_annotated_too(
     assert (occupancies(place), occupancies(chair)) == ([False], [False])
 
 
-def test_a_split_sofa_seat_on_a_world_seat_region_is_left_out(
+def test_another_seat_region_on_a_world_seat_region_is_left_out(
     parameters: SeatOccupancyAnnotator.Descriptor.Parameters, seat_distance: float
 ) -> None:
     """
-    A seat region split from a detected sofa on a world seat region is the same place.
+    A seat region that is no world seat region, lying on one, is the same place.
     """
     place = world_seat_region(x=0.0, z=seat_distance)
-    split_seat = seat_region(x=parameters.minimum_seat_spacing / 2, z=seat_distance)
+    other_seat = seat_region(x=parameters.minimum_seat_spacing / 2, z=seat_distance)
 
-    annotate(SeatOccupancyAnnotator(), place, split_seat)
+    annotate(SeatOccupancyAnnotator(), place, other_seat)
 
-    assert (occupancies(place), occupancies(split_seat)) == ([False], [])
+    assert (occupancies(place), occupancies(other_seat)) == ([False], [])
 
 
 def test_a_sitting_human_occupies_a_world_seat_region(seat_distance: float) -> None:
