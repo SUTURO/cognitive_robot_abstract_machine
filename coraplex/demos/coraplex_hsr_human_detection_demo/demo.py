@@ -1,7 +1,6 @@
 """
-The HSR stands on a floor in MuJoCo with a human in front of it, facing it, parks its
-arm and asks RoboKudo's GPSR pipeline for humans, which sees them through the simulated
-head camera. The viewer stays open until it is closed by hand.
+The HSR parks its arm and turns towards a human standing to its left, then asks RoboKudo to
+detect the human through its simulated head camera. The viewer stays open until closed.
 
 Run it from this folder::
 
@@ -20,16 +19,17 @@ from pathlib import Path
 import numpy
 
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.perception import RoboKudoQuery, RoboKudoQueryTask
+from coraplex.perception import CameraFrameCapture, RoboKudoQuery, RoboKudoQueryTask
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
+from coraplex.robot_plans.actions.core.navigation import FaceAtAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from robokudo.analysis_engine_process import AnalysisEngineProcess
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
 from robokudo.io.simulated_camera import SimulatedCameraPublisher
@@ -74,7 +74,10 @@ class SceneBody(StrEnum):
     """
 
     FLOOR = "floor"
+    """The floor supporting the robot and human."""
+
     HUMAN = "human"
+    """The human model in the scene."""
 
 
 # %% the demonstration
@@ -83,8 +86,8 @@ class SceneBody(StrEnum):
 @dataclass
 class HumanDetectionDemonstration(RobotDemonstration):
     """
-    The HSR stands on a floor with a human in front of it, facing it, parks its arm and,
-    with an :attr:`analysis_engine`, asks it :attr:`query`.
+    The HSR parks its arm and turns towards a person to its left before asking its analysis
+    engine a query.
     """
 
     used_robot: type[AbstractRobot] = HSRB
@@ -115,13 +118,18 @@ class HumanDetectionDemonstration(RobotDemonstration):
 
     human_distance: float = 3.5
     """
-    How far in front of the robot the human stands, in meters.
+    How far to the robot's left the human stands, in meters.
     """
 
     analysis_engine: AnalysisEngineProcess | None = None
     """
     The RoboKudo pipeline that sees through the robot's head camera, None for a run that
     only parks the arm.
+    """
+
+    continuous_camera: bool = False
+    """
+    Whether the camera publishes continuously between queries.
     """
 
     query: RoboKudoQuery = field(
@@ -154,7 +162,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
 
     def populate_scene(self, world: World) -> None:
         """
-        Stand the human :attr:`human_distance` in front of where the robot starts,
+        Stand the human :attr:`human_distance` to the left of where the robot starts,
         turned to face it.
         """
         human = URDFParser.from_file(
@@ -169,7 +177,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
                 parent=world.root,
                 child=human.root,
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=self.human_distance, yaw=numpy.pi
+                    y=self.human_distance, yaw=-numpy.pi / 2
                 ),
             ),
         )
@@ -203,18 +211,28 @@ class HumanDetectionDemonstration(RobotDemonstration):
             node=self.ros_node,
             topics=self.camera_configuration,
             frames=self.camera_configuration,
+            continuous=self.continuous_camera,
         )
         self.analysis_engine.start()
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        extensions: list[ContextExtension] = [
+            RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
+        ]
+        if self.camera_publisher is not None and not self.continuous_camera:
+            extensions.append(CameraFrameCapture(self.camera_publisher.publish))
+        return extensions
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Park the arm, then ask :attr:`analysis_engine` :attr:`query`, if there is one.
+        Park the arm and face the human before asking the analysis engine.
         """
         robot = context.require_extension(RobotAccess).robot
-        steps: list[StatechartNode] = [ParkArmsAction(arms=robot.all_arms)]
+        human = context.world.get_body_by_name(SceneBody.HUMAN)
+        steps: list[StatechartNode] = [
+            ParkArmsAction(arms=robot.all_arms),
+            FaceAtAction(target=Pose.from_xyz_rpy(reference_frame=human)),
+        ]
         if self.analysis_engine is not None:
             steps.append(RoboKudoQueryTask(query=self.query))
         statechart = Statechart(context=context)
@@ -246,18 +264,22 @@ class HumanDetectionDemonstration(RobotDemonstration):
         super().tear_down()
 
 
-def main(headless: bool = False, perceives: bool = True) -> World:
+def main(
+    headless: bool = False, perceives: bool = True, continuous_camera: bool = False
+) -> World:
     """
     Run the demonstration.
 
     :param headless: Whether the physics runs without a viewer.
-    :param perceives: Whether RoboKudo's GPSR pipeline is started and asked for humans.
+    :param perceives: Whether RoboKudo is started and asked for humans.
+    :param continuous_camera: Whether to publish frames between queries.
     :return: The world the human was placed in.
     """
     return HumanDetectionDemonstration(
         headless=headless,
+        continuous_camera=continuous_camera,
         analysis_engine=(
-            AnalysisEngineProcess(analysis_engine="gpsr.gpsr_implementation")
+            AnalysisEngineProcess(analysis_engine="human_detection")
             if perceives
             else None
         ),

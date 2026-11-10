@@ -5,31 +5,33 @@ publishes has to read back through RoboKudo's own camera interface.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 import cv2
 import numpy
 import pytest
-from rclpy.node import Node
+from typing_extensions import TYPE_CHECKING, Iterator
+from scipy.spatial.transform import Rotation
 
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
 from robokudo.io.camera_interface import depth_convert_workaround
 from robokudo.io.camera_model_adapters import RosCameraModelAdapter
-from robokudo.io.simulated_camera import (
-    CameraMessages,
-    SimulatedCameraPublisher,
-)
-from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from robokudo.io.simulated_camera import SimulatedCameraPublisher
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
 from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 
 from ..pytest_environment import runs_in_continuous_integration
 from ..semantic_digital_twin_test.test_adapters.test_mujoco_camera_mount import (
-    CameraFacingABox,
     camera_facing_a_box,
     camera_simulation,
 )
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from robokudo.io.simulated_camera import CameraMessages
+    from semantic_digital_twin.adapters.multi_sim import MujocoSim
+    from ..semantic_digital_twin_test.test_adapters.test_mujoco_camera_mount import (
+        CameraFacingABox,
+    )
 
 pytestmark = pytest.mark.skipif(
     not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
@@ -193,3 +195,17 @@ def test_all_messages_of_a_frame_share_one_stamp_and_frame(
         (header.stamp.sec, header.stamp.nanosec)
         for header in [*headers, published_frame.camera_transform.header]
     } == {(headers[0].stamp.sec, headers[0].stamp.nanosec)}
+
+
+def test_camera_rotation_matches_the_optical_frame(
+    published_frame: CameraMessages, camera_facing_a_box: CameraFacingABox
+) -> None:
+    """
+    The published transform uses the optical frame's orientation.
+    """
+    rotation = published_frame.camera_transform.transform.rotation
+    actual = Rotation.from_quat(
+        [rotation.x, rotation.y, rotation.z, rotation.w]
+    ).as_matrix()
+    expected = camera_facing_a_box.camera.root.global_transform.to_np()[:3, :3]
+    numpy.testing.assert_allclose(actual, expected, atol=1e-6)

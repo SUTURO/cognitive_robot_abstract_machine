@@ -37,7 +37,7 @@ from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
 )
-from typing_extensions import Any, Self, TYPE_CHECKING
+from typing_extensions import Any, Callable, Self, TYPE_CHECKING
 
 from coraplex.datastructures.enums import PerceptionSource
 from coraplex.exceptions import (
@@ -580,6 +580,14 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
         return ObservationStateValues.TRUE
 
 
+@dataclass
+class CameraFrameCapture(ContextExtension):
+    """Provide a camera frame for an on-demand perception query."""
+
+    capture_frame: Callable[[], None]
+    """Publish the camera frame for the next query."""
+
+
 @dataclass(eq=False, repr=False, kw_only=True)
 class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, StatechartNode):
     """
@@ -612,6 +620,9 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
     def on_tick(self) -> ObservationStateValues:
         """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`."""
         if self.answer is None:
+            camera = self.context.extensions.get(CameraFrameCapture)
+            if camera is not None:
+                camera.capture_frame()
             ros_node = self.context.require_extension(RosContextExtension).ros_node
             self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
         if self.answer.res:

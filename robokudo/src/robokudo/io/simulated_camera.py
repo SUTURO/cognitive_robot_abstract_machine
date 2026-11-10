@@ -10,28 +10,29 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing_extensions import TYPE_CHECKING
 
 import cv2
 from geometry_msgs.msg import TransformStamped
-from rclpy.node import Node
-from rclpy.publisher import Publisher
-from rclpy.timer import Timer
 from sensor_msgs.msg import CameraInfo, CompressedImage
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
 
-from robokudo.descriptors.camera_configs.components import RGBDComponent, TfComponent
 from robokudo.io.camera_model_adapters import RosCameraModelAdapter
-from semantic_digital_twin.adapters.multi_sim import MujocoSim
-from semantic_digital_twin.adapters.ros.semdt_to_ros2_converters import (
-    HomogeneousTransformationMatrixToRos2Converter,
-)
-from semantic_digital_twin.datastructures.camera_model import (
-    FieldOfViewCameraModel,
-    PinholeCameraModel,
-)
-from semantic_digital_twin.robots.robot_parts import Camera
+from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from rclpy.publisher import Publisher
+    from rclpy.timer import Timer
+    from robokudo.descriptors.camera_configs.components import (
+        RGBDComponent,
+        TfComponent,
+    )
+    from semantic_digital_twin.adapters.multi_sim import MujocoSim
+    from semantic_digital_twin.datastructures.camera_model import FieldOfViewCameraModel
+    from semantic_digital_twin.robots.robot_parts import Camera
 
 # %% Messages of one frame
 
@@ -121,6 +122,9 @@ class SimulatedCameraPublisher:
     How often a frame is published.
     """
 
+    continuous: bool = True
+    """Whether to publish frames periodically without an explicit request."""
+
     maximum_range: float = 10.0
     """
     The farthest depth in meters the camera measures; farther depths read as missing.
@@ -146,13 +150,13 @@ class SimulatedCameraPublisher:
     Publishes the pose of the camera.
     """
 
-    _timer: Timer = field(init=False)
+    _timer: Timer | None = field(init=False, default=None)
     """
     Schedules publication at :attr:`frames_per_second` frames per second.
     """
 
     def __post_init__(self) -> None:
-        """Create the ROS publishers and start the camera timer."""
+        """Create the ROS publishers and schedule continuous capture when enabled."""
         self._color_publisher = self.node.create_publisher(
             CompressedImage, self.topics.topic_color, 1
         )
@@ -163,7 +167,10 @@ class SimulatedCameraPublisher:
             CameraInfo, self.topics.topic_camera_info, 1
         )
         self._transform_broadcaster = TransformBroadcaster(self.node)
-        self._timer = self.node.create_timer(1 / self.frames_per_second, self.publish)
+        if self.continuous:
+            self._timer = self.node.create_timer(
+                1 / self.frames_per_second, self.publish
+            )
 
     def capture(self) -> CameraMessages:
         """
@@ -172,12 +179,11 @@ class SimulatedCameraPublisher:
         simulator = self.simulation.simulator
         resolution = self.camera.resolution
         camera_name = self.camera.root.name.name
-        color = simulator.capture_rgb(
+        frame = simulator.capture_rgbd(
             camera_name, resolution.height, resolution.width
         ).result
-        depth = simulator.capture_depth(
-            camera_name, resolution.height, resolution.width
-        ).result
+        color = frame.color
+        depth = frame.depth
         # MuJoCo draws the empty background at its far clipping plane.
         depth[depth > self.maximum_range] = -1.0
 
@@ -208,11 +214,16 @@ class SimulatedCameraPublisher:
             frame_id=self.frames.tf_from,
         )
         camera_info.header = header
-        camera_transform = HomogeneousTransformationMatrixToRos2Converter.convert(
-            self.camera.root.global_transform
-        )
+        camera_transform = TransformStamped()
         camera_transform.header = Header(stamp=header.stamp, frame_id=self.frames.tf_to)
         camera_transform.child_frame_id = self.frames.tf_from
+        camera_transform.transform.translation.x = float(frame.camera_position[0])
+        camera_transform.transform.translation.y = float(frame.camera_position[1])
+        camera_transform.transform.translation.z = float(frame.camera_position[2])
+        camera_transform.transform.rotation.w = float(frame.camera_quaternion[0])
+        camera_transform.transform.rotation.x = float(frame.camera_quaternion[1])
+        camera_transform.transform.rotation.y = float(frame.camera_quaternion[2])
+        camera_transform.transform.rotation.z = float(frame.camera_quaternion[3])
         return CameraMessages(
             color_image=color_image,
             depth_image=depth_image,
@@ -234,4 +245,5 @@ class SimulatedCameraPublisher:
         """
         Stop publishing.
         """
-        self.node.destroy_timer(self._timer)
+        if self._timer is not None:
+            self.node.destroy_timer(self._timer)

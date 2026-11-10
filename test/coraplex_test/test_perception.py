@@ -41,6 +41,7 @@ from coraplex.perception import (
     Detection,
     PerceptionInterface,
     PerceptionQuery,
+    CameraFrameCapture,
     RoboKudoPerception,
     RoboKudoQuery,
     RoboKudoQueryTask,
@@ -1144,6 +1145,28 @@ def test_robokudo_query_task_keeps_the_answer(
     assert [designator.type for designator in task.answer.res] == [
         report.class_label for report in robokudo_query_server.reports
     ]
+
+
+def test_query_requests_one_frame_before_sending(
+    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_a_waving_human
+) -> None:
+    """
+    An optional camera supplies one frame before the query is sent.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+    chart = build_perception_task(task, world, rclpy_node)
+    observed_queries = []
+
+    def capture_frame() -> None:
+        observed_queries.append(len(robokudo_query_server.received_designators))
+
+    chart.context.add_extension(CameraFrameCapture(capture_frame))
+    run_perception_task(task)
+    task.on_tick()
+
+    assert observed_queries == [0]
+    assert len(robokudo_query_server.received_designators) == 1
 
 
 def test_robokudo_query_task_fails_when_the_pipeline_reports_nothing(
