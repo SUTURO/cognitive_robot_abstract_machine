@@ -126,11 +126,6 @@ class HumanDetectionDemonstration(RobotDemonstration):
     The RoboKudo pipeline, or None to run the motion without perception.
     """
 
-    continuous_camera: bool = False
-    """
-    Whether the camera publishes continuously between queries.
-    """
-
     query: RoboKudoQuery = field(
         default_factory=lambda: RoboKudoQuery(object_type="human")
     )
@@ -217,7 +212,6 @@ class HumanDetectionDemonstration(RobotDemonstration):
             node=self.ros_node,
             topics=self.camera_configuration,
             frames=self.camera_configuration,
-            continuous=self.continuous_camera,
         )
         self.analysis_engine.start()
 
@@ -225,7 +219,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
         extensions: list[ContextExtension] = [
             RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
         ]
-        if self.camera_publisher is not None and not self.continuous_camera:
+        if self.camera_publisher is not None:
             extensions.append(CameraFrameCapture(self.camera_publisher.publish))
         return extensions
 
@@ -251,7 +245,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
     def tear_down(self) -> None:
         """
         Extend :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down` by waiting
-        for the viewer to close and stopping the analysis engine and camera publisher.
+        for the viewer to close and stopping the analysis engine.
         """
         viewer_window = (
             None
@@ -259,32 +253,25 @@ class HumanDetectionDemonstration(RobotDemonstration):
             else self.simulation.simulator.renderer._sim()
         )
         if viewer_window is not None:
-            # MuJoCo's viewer offers no way to wait for its window; its handle only holds
-            # a weak reference to it, which dies once the window is destroyed.
             viewer_window_destroyed = threading.Event()
             weakref.finalize(viewer_window, viewer_window_destroyed.set)
             del viewer_window
             viewer_window_destroyed.wait()
         if self.camera_publisher is not None:
             self.analysis_engine.stop()
-            self.camera_publisher.stop()
         super().tear_down()
 
 
-def main(
-    headless: bool = False, perceives: bool = True, continuous_camera: bool = False
-) -> World:
+def main(headless: bool = False, perceives: bool = True) -> World:
     """
     Run the demonstration.
 
     :param headless: Whether the physics runs without a viewer.
     :param perceives: Whether RoboKudo is started and asked for humans.
-    :param continuous_camera: Whether to publish frames between queries.
     :return: The world the human was placed in.
     """
     return HumanDetectionDemonstration(
         headless=headless,
-        continuous_camera=continuous_camera,
         analysis_engine=(
             AnalysisEngineProcess(analysis_engine="human_detection")
             if perceives

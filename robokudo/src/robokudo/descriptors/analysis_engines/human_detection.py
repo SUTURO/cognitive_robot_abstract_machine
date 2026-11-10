@@ -54,7 +54,7 @@ class AnalysisEngine(AnalysisEngineInterface):
         human_descriptor = HumanAndPoseAnnotator.Descriptor()
         human_descriptor.parameters.global_with_depth = True
 
-        def select_route(query: Query.Goal) -> str | None:
+        def select_route(query: Query.Goal) -> HumanRoute | None:
             """Select a route for a supported human query.
 
             :param query: The requested object and its properties.

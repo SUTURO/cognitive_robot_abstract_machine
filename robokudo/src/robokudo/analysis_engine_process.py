@@ -20,8 +20,6 @@ from robokudo.exceptions import AnalysisEngineDidNotStart
 
 # %% The process
 
-# MuJoCo demos can select an analysis engine while sharing its process lifecycle.
-
 
 class InterpreterOption(StrEnum):
     """
@@ -99,7 +97,6 @@ class AnalysisEngineProcess:
 
         :return: The module name passed to the Python interpreter.
         """
-        # Named rather than imported, since importing it loads all of RoboKudo.
         return "robokudo.scripts.main"
 
     @classproperty

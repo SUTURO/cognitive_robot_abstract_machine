@@ -8,7 +8,7 @@ from __future__ import annotations
 import cv2
 import numpy
 import pytest
-from typing_extensions import TYPE_CHECKING, Iterator
+from typing_extensions import TYPE_CHECKING
 from scipy.spatial.transform import Rotation
 
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
@@ -62,7 +62,7 @@ def published_frame(
     camera_configuration: HsrRos2CameraConfig,
     camera_simulation: MujocoSim,
     node: Node,
-) -> Iterator[CameraMessages]:
+) -> CameraMessages:
     """
     The messages the publisher captures of a camera looking at a cube.
     """
@@ -74,8 +74,7 @@ def published_frame(
         topics=camera_configuration,
         frames=camera_configuration,
     )
-    yield publisher.capture()
-    publisher.stop()
+    return publisher.capture()
 
 
 def pinhole_of(camera_facing_a_box: CameraFacingABox) -> PinholeCameraModel:

@@ -25,7 +25,6 @@ from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 if TYPE_CHECKING:
     from rclpy.node import Node
     from rclpy.publisher import Publisher
-    from rclpy.timer import Timer
     from robokudo.descriptors.camera_configs.components import (
         RGBDComponent,
         TfComponent,
@@ -116,30 +115,22 @@ class SimulatedCameraPublisher:
     The configuration naming the camera's optical frame and the world frame.
     """
 
-    frames_per_second: float = 5.0
-    """
-    How often a frame is published.
-    """
-
-    continuous: bool = True
-    """Whether to publish frames periodically without an explicit request."""
-
     maximum_range: float = 10.0
     """
     The farthest depth in meters the camera measures; farther depths read as missing.
     """
 
-    _color_publisher: Publisher = field(init=False)
+    _color_publisher: Publisher[CompressedImage] = field(init=False)
     """
     Publishes the color images.
     """
 
-    _depth_publisher: Publisher = field(init=False)
+    _depth_publisher: Publisher[CompressedImage] = field(init=False)
     """
     Publishes the depth images.
     """
 
-    _camera_info_publisher: Publisher = field(init=False)
+    _camera_info_publisher: Publisher[CameraInfo] = field(init=False)
     """
     Publishes the calibration.
     """
@@ -149,13 +140,8 @@ class SimulatedCameraPublisher:
     Publishes the pose of the camera.
     """
 
-    _timer: Timer | None = field(init=False, default=None)
-    """
-    Schedules publication at :attr:`frames_per_second` frames per second.
-    """
-
     def __post_init__(self) -> None:
-        """Create the ROS publishers and schedule continuous capture when enabled."""
+        """Create the ROS publishers for camera frames."""
         self._color_publisher = self.node.create_publisher(
             CompressedImage, self.topics.topic_color, 1
         )
@@ -166,10 +152,6 @@ class SimulatedCameraPublisher:
             CameraInfo, self.topics.topic_camera_info, 1
         )
         self._transform_broadcaster = TransformBroadcaster(self.node)
-        if self.continuous:
-            self._timer = self.node.create_timer(
-                1 / self.frames_per_second, self.publish
-            )
 
     def capture(self) -> CameraMessages:
         """
@@ -183,7 +165,6 @@ class SimulatedCameraPublisher:
         ).result
         color = frame.color
         depth = frame.depth
-        # MuJoCo draws the empty background at its far clipping plane.
         depth[depth > self.maximum_range] = -1.0
 
         header = Header(
@@ -196,8 +177,6 @@ class SimulatedCameraPublisher:
                 1
             ].tobytes(),
         )
-        # A 16-bit depth image leaves the configuration header of the compressed depth
-        # format unused.
         depth_image = CompressedImage(
             header=header,
             format=CompressedImageFormat.DEPTH,
@@ -239,10 +218,3 @@ class SimulatedCameraPublisher:
         self._color_publisher.publish(messages.color_image)
         self._depth_publisher.publish(messages.depth_image)
         self._camera_info_publisher.publish(messages.camera_info)
-
-    def stop(self) -> None:
-        """
-        Stop publishing.
-        """
-        if self._timer is not None:
-            self.node.destroy_timer(self._timer)

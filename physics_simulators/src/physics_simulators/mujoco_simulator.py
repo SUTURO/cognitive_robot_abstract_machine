@@ -1645,8 +1645,6 @@ class MujocoSimulator(BaseSimulator):
                 mujoco_quaternion = numpy.empty(4)
                 mujoco.mju_mat2Quat(mujoco_quaternion, camera.xmat)
                 camera_quaternion = numpy.empty(4)
-                # MuJoCo looks along negative Z; the optical frame looks along positive Z.
-                # A half-turn about X converts both the Z and Y directions.
                 mujoco.mju_mulQuat(
                     camera_quaternion,
                     mujoco_quaternion,

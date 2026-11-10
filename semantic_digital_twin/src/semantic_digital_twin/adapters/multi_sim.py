@@ -1104,8 +1104,6 @@ class MujocoCamera(MultiSimCamera):
             quaternion=cls.quaternion_in_optical_frame,
             resolution=resolution,
             focal_pixel=[pinhole.focal_length_x, pinhole.focal_length_y],
-            # MuJoCo ignores the focal length unless a sensor size is given; one length
-            # unit per pixel keeps the focal length in pixels.
             sensor_size=resolution,
         )
 
@@ -3173,7 +3171,6 @@ class MujocoBuilder(MultiSimBuilder):
                 entity_type=mujoco.mjtObj.mjOBJ_CAMERA,
                 action="add",
             )
-        # MuJoCo renders offscreen images only up to the size of this framebuffer.
         width, height = camera_props["resolution"]
         offscreen_framebuffer = self.spec.visual.global_
         offscreen_framebuffer.offwidth = max(offscreen_framebuffer.offwidth, int(width))
