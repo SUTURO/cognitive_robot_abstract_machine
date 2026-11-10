@@ -63,8 +63,7 @@ class MainScriptOption(StrEnum):
 @dataclass
 class AnalysisEngineProcess:
     """
-    An analysis engine run by :mod:`robokudo.scripts.main` in a process of its own, the
-    way it runs beside the real robot. Its output goes on to this process's output.
+    An analysis engine in a separate process whose output is forwarded to this process.
     """
 
     analysis_engine: str
@@ -97,6 +96,8 @@ class AnalysisEngineProcess:
     def main_script(cls) -> str:
         """
         The module of :mod:`robokudo.scripts.main`, which runs an analysis engine.
+
+        :return: The module name passed to the Python interpreter.
         """
         # Named rather than imported, since importing it loads all of RoboKudo.
         return "robokudo.scripts.main"
@@ -106,6 +107,8 @@ class AnalysisEngineProcess:
         """
         The start of the line :mod:`robokudo.scripts.main` logs right before it ticks the
         analysis engine for the first time.
+
+        :return: The text identifying the startup announcement.
         """
         return "Running AE named"
 

@@ -55,7 +55,11 @@ class AnalysisEngine(AnalysisEngineInterface):
         human_descriptor.parameters.global_with_depth = True
 
         def select_route(query: Query.Goal) -> str | None:
-            """Select a route for a supported human query."""
+            """Select a route for a supported human query.
+
+            :param query: The requested object and its properties.
+            :return: The matching route, or None if the query is unsupported.
+            """
             if query.obj.type != QueryType.HUMAN:
                 return None
             if query.obj.color or query.obj.description or query.obj.location:

@@ -123,8 +123,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
 
     analysis_engine: AnalysisEngineProcess | None = None
     """
-    The RoboKudo pipeline that sees through the robot's head camera, None for a run that
-    only parks the arm.
+    The RoboKudo pipeline, or None to run the motion without perception.
     """
 
     continuous_camera: bool = False
@@ -136,7 +135,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
         default_factory=lambda: RoboKudoQuery(object_type="human")
     )
     """
-    What the plan asks :attr:`analysis_engine` once the arm is parked.
+    What the plan asks :attr:`analysis_engine` after facing the human.
     """
 
     camera_configuration: HsrRos2CameraConfig = field(
@@ -164,6 +163,8 @@ class HumanDetectionDemonstration(RobotDemonstration):
         """
         Stand the human :attr:`human_distance` to the left of where the robot starts,
         turned to face it.
+
+        :param world: The world to add the human to.
         """
         human = URDFParser.from_file(
             str(SceneFile.HUMAN),
@@ -191,6 +192,9 @@ class HumanDetectionDemonstration(RobotDemonstration):
         Differs from
         :meth:`~coraplex.demonstrations.RobotDemonstration.build_simulation` in mounting
         a MuJoCo camera at the head's RGB-D camera first.
+
+        :param world: The world containing the robot and its head camera.
+        :return: The simulation of the world with its mounted camera.
         """
         MujocoCamera.mount_hsr_head(world)
         return super().build_simulation(world)
@@ -200,6 +204,8 @@ class HumanDetectionDemonstration(RobotDemonstration):
         Differs from
         :meth:`~coraplex.demonstrations.RobotDemonstration.start_simulation` in then
         publishing the head camera and starting :attr:`analysis_engine`, if any.
+
+        :param world: The world containing the robot and its head camera.
         """
         super().start_simulation(world)
         if self.analysis_engine is None:
@@ -226,6 +232,9 @@ class HumanDetectionDemonstration(RobotDemonstration):
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Park the arm and face the human before asking the analysis engine.
+
+        :param context: The plan's world and available resources.
+        :return: The statechart for the demonstration.
         """
         robot = context.require_extension(RobotAccess).robot
         human = context.world.get_body_by_name(SceneBody.HUMAN)
@@ -241,10 +250,8 @@ class HumanDetectionDemonstration(RobotDemonstration):
 
     def tear_down(self) -> None:
         """
-        Differs from :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down` in
-        first waiting until the viewer's window is closed by hand and destroyed, so the
-        process cannot destroy it a second time while the viewer still draws into it,
-        and then stopping :attr:`analysis_engine` and the head camera.
+        Extend :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down` by waiting
+        for the viewer to close and stopping the analysis engine and camera publisher.
         """
         viewer_window = (
             None

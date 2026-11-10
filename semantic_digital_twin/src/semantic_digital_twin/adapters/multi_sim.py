@@ -1080,6 +1080,8 @@ class MujocoCamera(MultiSimCamera):
 
         MuJoCo cameras look along their negative z axis with positive y up, optical
         frames along positive z with positive y down.
+
+        :return: The orientation in scalar-first quaternion order.
         """
         return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
 
@@ -1111,6 +1113,7 @@ class MujocoCamera(MultiSimCamera):
     def mount_hsr_head(cls, world: World) -> HSRBHeadRGBDCamera:
         """Attach a MuJoCo camera to the HSR head camera before building the simulation.
 
+        :param world: The world containing the HSR head camera.
         :return: The head camera whose optical frame carries the simulated camera.
         """
         [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)

@@ -1627,7 +1627,13 @@ class MujocoSimulator(BaseSimulator):
     def capture_rgbd(
         self, camera_name: str, height: int, width: int
     ) -> SimulatorCallbackResult:
-        """Capture color and depth for one camera at the same simulation state."""
+        """Capture color and depth for one camera at the same simulation state.
+
+        :param camera_name: The name of the camera in the simulation.
+        :param height: The image height in pixels.
+        :param width: The image width in pixels.
+        :return: The callback result containing the captured frame and camera pose.
+        """
         with self._model_lock:
             with mujoco.Renderer(self._mj_model, height, width) as renderer:
                 renderer.update_scene(self._mj_data, camera_name)

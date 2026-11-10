@@ -610,7 +610,10 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
 
     @classproperty
     def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
-        """Extend :meth:`~cramph.node.StatechartNode.required_context_extensions` with ROS."""
+        """Extend :meth:`~cramph.node.StatechartNode.required_context_extensions` with ROS.
+
+        :return: The required context extensions, including ROS access.
+        """
         return super().required_context_extensions + (RosContextExtension,)
 
     def on_start(self) -> None:
@@ -618,7 +621,10 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
         self.answer = None
 
     def on_tick(self) -> ObservationStateValues:
-        """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`."""
+        """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`.
+
+        :return: The observation indicating whether the answer contains results.
+        """
         if self.answer is None:
             camera = self.context.extensions.get(CameraFrameCapture)
             if camera is not None:

@@ -86,10 +86,9 @@ class CameraMessages:
 @dataclass
 class SimulatedCameraPublisher:
     """
-    Publishes what a camera mounted with
-    :meth:`~semantic_digital_twin.adapters.multi_sim.MujocoCamera.mounted_on` sees, on
-    the topics and TF frames of a RoboKudo camera configuration, so RoboKudo reads it like
-    the camera of the real robot. The root of the simulated world is the world frame.
+    Publish simulated camera frames on the configured RoboKudo topics and TF frames.
+
+    The simulated world root is the world frame.
     """
 
     camera: Camera[FieldOfViewCameraModel]
