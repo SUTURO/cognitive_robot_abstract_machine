@@ -12,7 +12,7 @@ from rclpy.duration import Duration
 from rosidl_runtime_py.utilities import get_message
 from typing_extensions import TYPE_CHECKING, Any
 
-from coraplex.demonstrations import RobotDemonstrationRosSession
+from coraplex.ros_session import RobotDemonstrationRosSession
 from coraplex.exceptions import SpeechInputUnavailable, SpeechMessagesUnavailable
 from coraplex.perception import ROBOKUDO_QUERY_ACTION_NAME
 from coraplex.ros_scene_perception import RoboKudoScenePerception
