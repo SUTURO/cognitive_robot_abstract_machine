@@ -136,9 +136,9 @@ class QueryAnnotator(BaseAnnotator):
         """
         self.rk_logger.debug(f"{self.__class__.__name__}.update()")
 
-        assert (
-            self.action_server is not None
-        ), "Action server should be initialized by now."
+        assert self.action_server is not None, (
+            "Action server should be initialized by now."
+        )
         query = self.action_server.new_query
         self.rk_logger.debug(f"self.action_server.new_query: {query}")
 
@@ -378,7 +378,7 @@ class GenerateQueryResult(BaseAnnotator):
                 skipped_object_hypotheses_count += 1
                 continue
 
-            object_designator = ObjectDesignator()
+            object_designator = ObjectDesignator(uid=annotation.id)
 
             for oh_annotation in annotation.annotations:
                 converter = self.type_converter.get(type(oh_annotation), None)
