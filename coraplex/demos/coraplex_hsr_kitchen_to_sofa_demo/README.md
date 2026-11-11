@@ -101,8 +101,8 @@ Pumas drives only between the two Giskard runs, because Giskard sends a base vel
 sentence is printed and sent to the HSR's voice through `RobotSpeech`
 (`coraplex.scene_report_command`).
 
-The scanning pose comes from the sofa in `KitchenEnvironment`. Nobody has checked yet
-whether `apartment_master1`'s `map` frame lines up with it.
+The scanning pose comes from the sofa in `KitchenEnvironment`, whose frame lines up with
+the `map` frame of `apartment_master1`.
 
 ## What the plan does
 
