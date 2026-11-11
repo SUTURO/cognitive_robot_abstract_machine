@@ -213,7 +213,6 @@ class MilkSpawnDemonstration(RobotDemonstration):
         statechart.add_node(
             Sequence(
                 nodes=[
-                    MoveTorsoAction(torso_state=TorsoState.HIGH),
                     ParkArmsAction(arms=robot.all_arms),
                     PickUpAction(
                         grasp=GraspCandidate(milk, self.compute_grasp_pose(milk.root)),
