@@ -14,7 +14,6 @@ from typing_extensions import Any
 import mujoco
 import mujoco.viewer
 import numpy
-import numpy.typing
 
 from physics_simulators.base_simulator import (
     BaseSimulator,
@@ -61,16 +60,16 @@ class MujocoEnvironmentVariable(StrEnum):
 class RGBDFrame:
     """Camera images and optical pose captured from the same simulation state."""
 
-    color: numpy.typing.NDArray[numpy.uint8]
+    color: numpy.ndarray
     """The RGB image."""
 
-    depth: numpy.typing.NDArray[numpy.float32]
+    depth: numpy.ndarray
     """Depth in meters."""
 
-    camera_position: numpy.typing.NDArray[numpy.float64]
+    camera_position: numpy.ndarray
     """The optical frame position in the simulation world."""
 
-    camera_quaternion: numpy.typing.NDArray[numpy.float64]
+    camera_quaternion: numpy.ndarray
     """The optical frame orientation in the simulation world, scalar first."""
 
 
