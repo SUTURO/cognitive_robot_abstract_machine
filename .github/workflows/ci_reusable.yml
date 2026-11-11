@@ -91,7 +91,7 @@ jobs:
           cd cognitive_robot_abstract_machine
           source /opt/ros/cram-env/bin/activate
           sudo apt-get install -y libportaudio2
-          uv sync --extra speech --active --inexact
+          uv sync --extra cramspeech --active --inexact
 
       - name: Restore cache
         uses: actions/cache/restore@v4
