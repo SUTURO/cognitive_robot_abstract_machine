@@ -78,7 +78,7 @@ class ComputeDevice(IntEnum):
 
     GPU = -1
     """
-    Every layer on the graphics card; on the CPU where llama.cpp was built without
+    Every layer on the graphics card, or on the CPU where llama.cpp was built without
     graphics card support.
     """
 
@@ -157,10 +157,12 @@ class PlanModel:
         """
         return LlamaGrammar.from_file(InferenceResourcePath.PLAN_GRAMMAR, verbose=False)
 
-    def write_answer(self, instruction: str) -> ModelAnswer:
+    def write_plans(self, instruction: str) -> InstructionPlans:
         """
         :param instruction: The spoken instruction.
-        :return: What the model wrote for it under the grammar.
+        :return: One plan per task of the instruction.
+        :raises json.JSONDecodeError: If the output reached
+            :attr:`maximum_output_token_count`, so the plan JSON is cut off.
         """
         completion = self.language_model.create_completion(
             self.prompt_template.format(instruction=instruction),
@@ -169,12 +171,5 @@ class PlanModel:
             repeat_penalty=self.no_repetition_penalty,
             grammar=self.grammar,
         )
-        return ModelAnswer.from_json(completion)
-
-    def write_plans(self, instruction: str) -> InstructionPlans:
-        """
-        :param instruction: The spoken instruction.
-        :return: One plan per task of the instruction.
-        """
-        answer = self.write_answer(instruction)
+        answer = ModelAnswer.from_json(completion)
         return InstructionPlans.from_json(json.loads(answer.text))

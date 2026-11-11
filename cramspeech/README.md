@@ -70,6 +70,7 @@ for plan in instruction_plans.plans:            # one plan per task of the instr
 
 - `cramspeech` is not part of a plain `uv sync`. Install it from the repository root with
   `uv sync --extra speech --active --inexact`, where `--inexact` keeps what is already installed.
+- `PlanModel` runs on llama-cpp-python, which the CRAM workspace already installs for robokudo.
 - The microphone is read through [sounddevice](https://python-sounddevice.readthedocs.io), which
   needs the PortAudio library on Linux: `sudo apt install libportaudio2`.
 - `nlp-listen --list-devices` (or `InputDevice.list_available()`) lists the input devices. Pass an
@@ -78,15 +79,12 @@ for plan in instruction_plans.plans:            # one plan per task of the instr
   time, and cached in `~/.cache/huggingface/hub` (`small` is about 480 MB). To fetch it
   beforehand: `python -c "import faster_whisper; faster_whisper.download_model('small')"`.
 - `nlp-listen` needs a sourced ROS 2 installation. The Python API works without ROS.
-- `PlanModel` needs llama-cpp-python, which the extra `cramspeech` installs together with cramspeech:
-  `uv sync --extra cramspeech --active --inexact`. The first install compiles llama.cpp, which
-  takes a few minutes and needs a C++ compiler.
-- That install runs the model on the CPU. On a laptop with an NVIDIA graphics card and the CUDA
-  toolkit, rebuild llama-cpp-python once with CUDA switched on, and the model runs on the graphics
-  card from then on:
+- As installed, llama-cpp-python runs `PlanModel` on the CPU. On a laptop with an NVIDIA graphics
+  card and the CUDA toolkit, rebuild llama-cpp-python once with CUDA switched on, and the model
+  runs on the graphics card from then on:
 
   ```bash
-  CMAKE_ARGS="-DGGML_CUDA=on" uv sync --extra cramspeech --active --inexact \
+  CMAKE_ARGS="-DGGML_CUDA=on" uv sync --extra speech --active --inexact \
       --reinstall-package llama-cpp-python --no-cache
   ```
 

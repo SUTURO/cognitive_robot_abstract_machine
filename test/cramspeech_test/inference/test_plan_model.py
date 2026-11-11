@@ -16,19 +16,22 @@ from ..dataset.language_model_stand_ins import LanguageModelWritingText
 # %% Plans
 def test_instruction_becomes_its_plans() -> None:
     """
-    The model writes one plan per task of the instruction, each opening with a spoken
-    summary, which the plan keeps apart from its steps.
+    The model writes under the plan grammar one plan per task of the instruction, each
+    opening with a spoken summary, which the plan keeps apart from its steps.
     """
     plan_model = PlanModel(model_path=Path("trained_plan_model.gguf"))
-    plan_model.language_model = LanguageModelWritingText(
+    language_model = LanguageModelWritingText(
         text=ModelOutputFile.TWO_PLANS.read_text()
     )
+    plan_model.language_model = language_model
 
     instruction_plans = plan_model.write_plans(
         "From the bed, get me a red bell pepper and then how many fasteners do you see "
         "on the kitchen cabinet."
     )
 
+    [settings] = language_model.completion_settings
+    assert settings["grammar"] is plan_model.grammar
     assert instruction_plans == InstructionPlans(
         plans=[
             Plan(

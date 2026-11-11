@@ -1,5 +1,5 @@
 """
-The plans the plan model writes for a spoken instruction, in the JSON format the model
+The plans the llm model writes for a spoken instruction, in the JSON format the model
 was trained on.
 """
 
@@ -86,7 +86,7 @@ class PlanAction(StrEnum):
 
     COUNT = "count"
     """
-    Count the :attr:`PlanStep.object_name` in sight; a later step says the count.
+    Count the :attr:`PlanStep.object_name` in sight. A later step says the count.
     """
 
     FIND = "find"
@@ -129,7 +129,7 @@ class PlanStep:
 
     person: str | None = None
     """
-    The person the step goes to, looks for or hands something to, as spoken; ``me`` is
+    The person the step goes to, looks for or hands something to, as spoken. ``me`` is
     the person who gave the instruction.
     """
 
