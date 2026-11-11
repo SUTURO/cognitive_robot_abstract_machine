@@ -1,32 +1,24 @@
 from datetime import timedelta
 
 from giskardpy.middleware.ros2.giskard import Giskard
-from giskardpy.middleware.ros2.ros2_interface import get_robot_description
 from giskardpy.middleware.ros2.scripts.iai_robots.hsr.configs import (
     HSRVelocityInterface,
 )
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
 from giskardpy.qp.qp_controller_config import QPControllerConfig
-from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.specifications.robots import RobotSpecification
+from semantic_digital_twin.specifications.worlds import WorldSpecification
 
 
 def create_giskard() -> Giskard:
     """
-    Build a Giskard that commands the HSR, described by what the robot publishes on
-    ``/robot_description``.
-
-    .. note:: The ros node has to be initialized first, because the robot description is
-        read from its topic.
+    Build a Giskard that commands the HSR, described by the description file
+    :class:`~semantic_digital_twin.robots.hsrb.HSRB` declares.
     """
     return Giskard(
         world_source=WorldSpecification(
-            robots=[
-                RobotSpecification.specify_real_robot(
-                    HSRB, urdf=get_robot_description()
-                )
-            ]
+            robots=[RobotSpecification.specify_real_robot(HSRB)]
         ),
         robot_interface_config=HSRVelocityInterface(),
         server_config=GiskardServerConfig(debug_mode=False),
