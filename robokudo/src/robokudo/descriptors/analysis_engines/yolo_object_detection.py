@@ -1,27 +1,14 @@
-"""
-Analysis engine answering object queries with RoboKudo's pretrained YOLO model.
-
-Unlike the GPSR object detection, it needs no team specific weights: the model is one
-ultralytics provides, downloaded into RoboKudo's ``models`` directory on first use, so
-it detects the classes of the COCO dataset (e.g. ``bottle``, ``cup``, ``banana``).
-
-The pipeline implements the following functionality:
-
-* Waiting for a query on the ``robokudo/query`` action
-* Reading the HSR head camera
-* Detecting objects with YOLO
-* Answering the query with the class of every detected object
-
-The answer names the objects but does not localize them: estimating poses from the
-depth image can fail for a single detection and would then fail the whole query.
-"""
-
-from __future__ import annotations
+"""YOLO object detection on request, answering with the detected objects and
+saying them."""
 
 # %% imports
+import os
+import sys
+from dataclasses import dataclass
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
+from robokudo.annotators.detected_objects_announcer import DetectedObjectsAnnouncer
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
@@ -32,49 +19,55 @@ from robokudo.descriptors.factories.cr_descriptor_factory import (
 from robokudo.idioms import pipeline_init
 from robokudo.pipeline import Pipeline
 
+
 # %% analysis engine
-
-
+@dataclass
 class AnalysisEngine(AnalysisEngineInterface):
-    """
-    Answers every query with the objects the pretrained YOLO model detects.
-    """
+    """Detect objects in the current frame of the HSR head camera for each
+    query, reply with them and publish a sentence naming them for the
+    text-to-speech."""
 
     def name(self) -> str:
-        """
-        :return: The name identifier of this analysis engine.
-        """
-        return "yolo_object_detection"
+        return "live_yolo"
 
     def implementation(self) -> Pipeline:
-        """
-        :return: The pipeline that waits for a query, detects the objects in the
-            current camera image and answers with them.
-        """
-        camera_config = CollectionReaderDescriptorFactory.create_descriptor("hsr_ros2")
+        camera = CollectionReaderDescriptorFactory.create_descriptor("hsr_ros2")
+        yolo = YoloAnnotator.Descriptor()
+        yolo.parameters.pretrained_model = "yolov8m.pt"
+        yolo.parameters.threshold = 0.6
+        yolo.parameters.ignored_class_names = ["person", "dining table"]
 
-        pipeline = Pipeline("YoloObjectDetectionPipeline")
+        pipeline = Pipeline("LiveYOLO")
         pipeline.add_children(
             [
                 pipeline_init(),
                 QueryAnnotator(),
-                CollectionReaderAnnotator(descriptor=camera_config),
-                ImagePreprocessorAnnotator("ImagePreprocessor"),
-                YoloAnnotator(descriptor=self.detection_descriptor()),
+                CollectionReaderAnnotator(descriptor=camera),
+                ImagePreprocessorAnnotator(),
+                YoloAnnotator(descriptor=yolo),
+                DetectedObjectsAnnouncer(),
                 GenerateQueryResult(),
                 ActionServerCheck(),
             ]
         )
         return pipeline
 
-    @staticmethod
-    def detection_descriptor() -> YoloAnnotator.Descriptor:
-        """
-        :return: The configuration of the pretrained YOLO model.
-        """
-        descriptor = YoloAnnotator.Descriptor()
-        descriptor.parameters.pretrained_model = "yolov8m.pt"
-        descriptor.parameters.threshold = 0.6
-        # People and furniture are not the objects a scene report should list.
-        descriptor.parameters.ignored_class_names = ["person", "dining table"]
-        return descriptor
+
+# %% direct start
+def main() -> None:
+    """Start RoboKudo with the YOLO object detection analysis engine."""
+    os.execv(
+        sys.executable,
+        [
+            sys.executable,
+            "-m",
+            "robokudo.scripts.main",
+            "_ae",
+            "yolo_object_detection",
+            *sys.argv[1:],
+        ],
+    )
+
+
+if __name__ == "__main__":
+    main()
