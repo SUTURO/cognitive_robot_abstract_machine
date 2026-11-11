@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cramspeech"
-dynamic = ["version"]
+version = "0.0.0"
 dependencies = [
     "faster-whisper>=1.2.1",
     "krrood>=26.10.0",
@@ -31,9 +31,6 @@ nlp-listen = "cramspeech.speech_node:ListenCommandLine.run"
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["cramspeech*"]
-
-[tool.setuptools.dynamic]
-version = {attr = "cramspeech._version.__version__"}
 
 [dependency-groups]
 workspace = [
