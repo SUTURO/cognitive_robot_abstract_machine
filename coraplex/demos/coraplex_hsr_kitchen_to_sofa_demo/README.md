@@ -10,7 +10,7 @@ The right seat of the sofa is free.
 | Run | Robot | What sees the sofa | Output |
 |---|---|---|---|
 | `rosbag_demo.py <recording>` | kinematically simulated | RoboKudo, on a recording of the real HSR's head camera | printed |
-| `real_demo.py` | real HSR | RoboKudo, on the live head camera | printed and spoken by the HSR |
+| `real_demo.py` | real HSR, driven by Pumas | RoboKudo, on the live head camera | printed and spoken by the HSR |
 | `test_demo.py` | kinematically simulated | the world model (CI has no RoboKudo or recordings) | exit code |
 
 ## Before running
@@ -76,17 +76,37 @@ map.
 
 ## On the real robot
 
-Never run so far. Each step runs in its own terminal with the robot's `ROS_DOMAIN_ID`.
+Never run so far. The base is driven by the lab's Pumas navigation, which plans its path
+on the laser map, so the robot goes around the kitchen island by itself. Follow the
+*Pumas HSR Übergabe* handover, with the map `apartment_master1` (the kitchen lab) instead
+of `apartment3`, in the start scripts' `map_name:=` and as the robot's `MAP_PATH`.
 
-1. Bring up the HSR's ROS stack: drivers, localization in the kitchen lab's map, the
-   head camera and the voice node that listens on `/talk_request`.
-2. Start Giskard for the HSR:
+1. Sync the robot clock, stop the TMC localization, start AMCL, set the start pose in
+   RViz and start Pumas (`~/start_pumas_live.sh`), as the handover describes.
+2. In every further terminal, `source ~/ros_clean_env.sh` first, so all processes use the
+   robot's RMW, then start Giskard:
    `$PY -m giskardpy.middleware.ros2.scripts.iai_robots.hsr.hsr_velocity`
 3. Start RoboKudo: `$PY -m robokudo.scripts.main _ae seat_place_occupancy`
-4. Put the robot in the kitchen and run `$PY real_demo.py`. The sentence is printed and
-   sent to the HSR's voice through `RobotSpeech` (`coraplex.scene_report_command`).
+4. Put the robot in the kitchen and run `$PY real_demo.py`.
+
+The run has three parts:
+
+1. Giskard parks the arm.
+2. The demo sends the scanning pose to Pumas on `/move_base_simple/goal` and waits until
+   tf puts `base_footprint` within 0.1 m and 0.1 rad of it, for at most 3 minutes.
+3. Giskard raises the torso, the head looks at the sofa and RoboKudo checks the seats.
+
+Pumas drives only between the two Giskard runs, because Giskard sends a base velocity
+(zero if the base is not meant to move) on every control cycle of a run. At the end, the
+sentence is printed and sent to the HSR's voice through `RobotSpeech`
+(`coraplex.scene_report_command`).
+
+The scanning pose comes from the sofa in `KitchenEnvironment`. Nobody has checked yet
+whether `apartment_master1`'s `map` frame lines up with it.
 
 ## What the plan does
+
+In simulation:
 
 ```
 ParkArmsAction(all arms)
@@ -106,4 +126,5 @@ view.
 | `robot_start = (2.3, -1.0)`, facing +y | `demo.py` | In the kitchen, between the counter and the kitchen island. |
 | `scanning_distance = 1.8` | `demo.py` | Puts the camera about 2.15 m from the seat cushions, the distance measured in the depth images of recordings 05 and 07. |
 | `scanning_torso_state = LOW` | `demo.py` | Not measured; the camera height of the recordings is unknown. |
+| `position_threshold = 0.1`, `orientation_threshold = 0.1`, `timeout = 3 min` | `pumas_navigation.py` | Not measured; Pumas reports no outcome, so arriving is judged by these alone. |
 | `images_before_start = 30` | `camera_recording.py` | About one second of images at 30 Hz before the plan starts. |

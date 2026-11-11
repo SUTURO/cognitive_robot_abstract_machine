@@ -23,6 +23,7 @@ from coraplex.ros_session import RobotDemonstrationRosSession
 from coraplex.scene_report_command import RobotSpeech
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
+from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.datastructures.definitions import TorsoState
@@ -146,12 +147,46 @@ class KitchenToSofaDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Park the arm, drive :attr:`scanning_distance` in front of the sofa's front edge,
-        facing it, put the torso at :attr:`scanning_torso_state`, look at the middle of
-        its seat places for people sitting on them and lower the torso again.
+        Do :meth:`departure_nodes`, drive to :meth:`scanning_pose` and do
+        :meth:`scanning_nodes`.
         """
-        world = context.world
-        hsrb = context.require_extension(RobotAccess).robot
+        return self.statechart_of(
+            context,
+            [
+                *self.departure_nodes(context),
+                NavigateAction(target_location=self.scanning_pose(context.world)),
+                *self.scanning_nodes(context),
+            ],
+        )
+
+    @staticmethod
+    def statechart_of(
+        context: StatechartContext, nodes: list[StatechartNode]
+    ) -> Statechart:
+        """
+        :param context: The context the statechart is built in.
+        :param nodes: The nodes to perform one after the other.
+        :return: A statechart performing ``nodes`` in sequence.
+        """
+        statechart = Statechart(context=context)
+        statechart.add_node(Sequence(nodes=nodes))
+        return statechart
+
+    def departure_nodes(self, context: StatechartContext) -> list[StatechartNode]:
+        """
+        :param context: The context the nodes run in.
+        :return: What the robot does before it drives: park the arm.
+        """
+        return [
+            ParkArmsAction(arms=context.require_extension(RobotAccess).robot.all_arms)
+        ]
+
+    def scanning_pose(self, world: World) -> Pose:
+        """
+        :param world: The world holding the sofa.
+        :return: Where the robot's base stands to look at the sofa:
+            :attr:`scanning_distance` in front of its front edge, facing it.
+        """
         [sofa] = world.get_semantic_annotations_by_type(Sofa)
         sofa_front = (
             sofa.root.collision.as_bounding_box_collection_in_frame(sofa.root)
@@ -164,6 +199,21 @@ class KitchenToSofaDemonstration(RobotDemonstration):
                 x=sofa_front - self.scanning_distance
             )
         ).pose
+        return Pose.from_xyz_rpy(
+            x=world_T_scanning_pose.x,
+            y=world_T_scanning_pose.y,
+            yaw=world_T_scanning_pose.yaw,
+            reference_frame=world.root,
+        )
+
+    def scanning_nodes(self, context: StatechartContext) -> list[StatechartNode]:
+        """
+        :param context: The context the nodes run in.
+        :return: What the robot does in front of the sofa: put the torso at
+            :attr:`scanning_torso_state`, look at the middle of the seat places for
+            people sitting on them and lower the torso again.
+        """
+        world = context.world
         seat_middle_x, seat_middle_y, seat_middle_z = np.mean(
             [
                 seat.region_in(world).global_transform.position.to_np()[:3]
@@ -171,35 +221,20 @@ class KitchenToSofaDemonstration(RobotDemonstration):
             ],
             axis=0,
         )
-        statechart = Statechart(context=context)
-        statechart.add_node(
-            Sequence(
-                nodes=[
-                    ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(
-                        target_location=Pose.from_xyz_rpy(
-                            x=world_T_scanning_pose.x,
-                            y=world_T_scanning_pose.y,
-                            yaw=world_T_scanning_pose.yaw,
-                            reference_frame=world.root,
-                        )
-                    ),
-                    MoveTorsoAction(torso_state=self.scanning_torso_state),
-                    DetectSeatsAction(
-                        look_targets=[
-                            Pose.from_xyz_rpy(
-                                x=seat_middle_x,
-                                y=seat_middle_y,
-                                z=seat_middle_z,
-                                reference_frame=world.root,
-                            )
-                        ]
-                    ),
-                    MoveTorsoAction(torso_state=TorsoState.LOW),
+        return [
+            MoveTorsoAction(torso_state=self.scanning_torso_state),
+            DetectSeatsAction(
+                look_targets=[
+                    Pose.from_xyz_rpy(
+                        x=seat_middle_x,
+                        y=seat_middle_y,
+                        z=seat_middle_z,
+                        reference_frame=world.root,
+                    )
                 ]
-            )
-        )
-        return statechart
+            ),
+            MoveTorsoAction(torso_state=TorsoState.LOW),
+        ]
 
 
 # %% running it
