@@ -400,6 +400,25 @@ class HasRootBody(HasRootKinematicStructureEntity[Body], Mixin):
             connection_specification=connection_specification,
         )
 
+    @classmethod
+    def get_instances_in_region(cls, region: Region) -> list[Self]:
+        """
+        Retrieves the annotations of this type standing in a region of their world.
+
+        Where an annotation stands is its root body's origin rather than the volume it
+        fills, so an annotation whose body carries no geometry is found as well.
+
+        :param region: The region to look in.
+        :return: The annotations of this type whose root body's origin lies within the
+            bounding boxes of the region's area.
+        """
+        bounding_boxes = region.area.as_bounding_box_collection_in_frame(region)
+        return [
+            annotation
+            for annotation in region._world.get_semantic_annotations_by_type(cls)
+            if bounding_boxes.contains(annotation.root.global_pose.position)
+        ]
+
 
 @dataclass(eq=False)
 class HasGraspCandidates(HasRootBody, Mixin):
@@ -1506,6 +1525,33 @@ class HasCaseAsRootBody(HasSupportingSurface, Mixin):
             cls._create_container_event(scale, wall_thickness),
             connection_specification=connection_specification,
         )
+
+
+# %% seat places
+
+
+@dataclass(eq=False)
+class HasSeatPlaces(HasRootBody, Mixin):
+    """
+    A semantic annotation people can sit on, with one region per place a single person
+    sits on.
+    """
+
+    seat_places: list[Region] = field(default_factory=list, kw_only=True)
+    """
+    The regions above the places a single person sits on, each holding the people
+    sitting there.
+    """
+
+    @synchronized_attribute_modification
+    def add_seat_place(self, region: Region) -> None:
+        """
+        List ``region`` among the :attr:`seat_places`, recorded as a modification of the
+        world so that the copies of the world other processes hold gain it too.
+
+        :param region: The region above a place a single person sits on.
+        """
+        self.seat_places.append(region)
 
 
 # %% furniture built from other furniture

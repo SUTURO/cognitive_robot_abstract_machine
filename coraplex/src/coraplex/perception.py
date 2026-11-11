@@ -21,7 +21,10 @@ from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
 )
 from semantic_digital_twin.reasoning.robot_predicates import VisibleTo
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
+from semantic_digital_twin.semantic_annotations.mixins import (
+    HasSeatPlaces,
+    IsPerceivable,
+)
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     RotationMatrix,
@@ -34,7 +37,6 @@ from semantic_digital_twin.world_description.geometry import (
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Chair,
-    HasSeatPlaces,
     Human,
 )
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
@@ -529,7 +531,7 @@ class WorldSeatPerception(SeatPerception):
                     pose=seat_place.global_pose,
                     occupied=any(
                         VisibleTo(entity=person.root, camera=camera)()
-                        for person in seat_place.semantic_annotations_within(Human)
+                        for person in Human.get_instances_in_region(seat_place)
                     ),
                     seat_place=seat_place,
                 )
@@ -766,7 +768,7 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
                 chair.add_seat_place(seat_place)
             seat_places.append(seat_place)
         occupants = {
-            seat_place: seat_place.semantic_annotations_within(Human)
+            seat_place: Human.get_instances_in_region(seat_place)
             for seat_place in seat_places
         }
         people_who_left = [

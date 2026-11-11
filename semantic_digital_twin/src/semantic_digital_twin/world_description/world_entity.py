@@ -67,7 +67,6 @@ if TYPE_CHECKING:
         DegreeOfFreedom,
     )
     from semantic_digital_twin.world import World, GenericSemanticAnnotation
-    from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 
 
 @dataclass(eq=False)
@@ -685,23 +684,6 @@ class Region(KinematicStructureEntity):
             return None
         return self.area.combined_mesh
 
-    def semantic_annotations_within(
-        self, semantic_annotation_type: type[GenericHasRootBody]
-    ) -> list[GenericHasRootBody]:
-        """
-        :param semantic_annotation_type: The type of annotation to look for.
-        :return: The annotations of that type in this region's world whose root body's
-            origin lies within the bounding boxes of this region's area.
-        """
-        bounding_boxes = self.area.as_bounding_box_collection_in_frame(self)
-        return [
-            semantic_annotation
-            for semantic_annotation in self._world.get_semantic_annotations_by_type(
-                semantic_annotation_type
-            )
-            if bounding_boxes.contains(semantic_annotation.root.global_pose.position)
-        ]
-
     def to_json(self, **kwargs) -> dict[str, Any]:
         result = super().to_json(**kwargs)
         result["name"] = to_json(self.name, **kwargs)
@@ -731,8 +713,6 @@ GenericKinematicStructureEntity = TypeVar(
 )
 
 GenericWorldEntity = TypeVar("GenericWorldEntity", bound=WorldEntity)
-
-GenericHasRootBody = TypeVar("GenericHasRootBody", bound="HasRootBody")
 
 TBody = TypeVar("TBody", bound=Body)
 """

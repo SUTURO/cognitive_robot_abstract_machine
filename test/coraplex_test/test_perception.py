@@ -1231,7 +1231,7 @@ def test_a_person_seen_on_a_seat_place_is_seated_there(
 
     run_seat_task(world, view, rclpy_node)
 
-    [occupant] = reported_region.semantic_annotations_within(Human)
+    [occupant] = Human.get_instances_in_region(reported_region)
     np.testing.assert_allclose(
         occupant.root.global_pose.position.to_np().flatten()[:3],
         PERCEIVED_MILK_POSITION,
@@ -1253,7 +1253,7 @@ def test_a_seat_place_seen_free_loses_the_person_it_held(
 
     run_seat_task(world, view, rclpy_node)
 
-    assert reported_region.semantic_annotations_within(Human) == []
+    assert Human.get_instances_in_region(reported_region) == []
 
 
 def test_a_person_on_a_seat_place_seen_occupied_stays(
@@ -1271,7 +1271,7 @@ def test_a_person_on_a_seat_place_seen_occupied_stays(
 
     run_seat_task(world, view, rclpy_node)
 
-    assert reported_region.semantic_annotations_within(Human) == [sitter]
+    assert Human.get_instances_in_region(reported_region) == [sitter]
 
 
 def test_people_off_the_reported_seats_are_left_alone(
@@ -1334,7 +1334,8 @@ def test_a_person_seen_on_a_detected_chair_is_seated_on_it(
     run_seat_task(world, view, rclpy_node)
 
     [chair] = world.get_semantic_annotations_by_type(Chair)
-    assert chair.free_seat_places == []
+    [seat_place] = chair.seat_places
+    assert len(Human.get_instances_in_region(seat_place)) == 1
 
 
 def test_a_chair_seen_again_is_not_added_twice(

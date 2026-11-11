@@ -96,19 +96,6 @@ def test_the_seat_places_of_the_sofa_reach_a_copy_of_the_world(kitchen_world: Wo
     assert sofa_in_copy.seat_places == [seat.region_in(copy) for seat in SofaSeat]
 
 
-def test_the_free_seat_places_of_the_sofa_leave_out_a_taken_one(
-    kitchen_world: World,
-    sofa: Sofa,
-    person: SemanticAnnotationWithRootSpecification[Human],
-):
-    """
-    A seat place a person sits on is not among the free seat places of the sofa.
-    """
-    SofaSeat.RIGHT.place_person_in(kitchen_world, person)
-
-    assert sofa.free_seat_places == [SofaSeat.LEFT.region_in(kitchen_world)]
-
-
 def test_each_seat_rises_from_the_top_of_its_cushion(kitchen_world: World, sofa: Sofa):
     sofa_shape = KitchenSofa()
     cushion_top = max(point.height for point in sofa_shape.seat.points)

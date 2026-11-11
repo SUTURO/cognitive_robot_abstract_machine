@@ -37,7 +37,7 @@ class SofaSeat(StrEnum):
         return [
             seat
             for seat in cls
-            if not seat.region_in(world).semantic_annotations_within(Human)
+            if not Human.get_instances_in_region(seat.region_in(world))
         ]
 
     def region_in(self, world: World) -> Region:

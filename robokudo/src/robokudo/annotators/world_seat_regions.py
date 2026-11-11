@@ -11,10 +11,8 @@ from py_trees.common import Status
 from semantic_digital_twin.adapters.ros.node_registry import ROSNodeRegistry
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
-from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Chair,
-    HasSeatPlaces,
-)
+from semantic_digital_twin.semantic_annotations.mixins import HasSeatPlaces
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Chair
 from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator

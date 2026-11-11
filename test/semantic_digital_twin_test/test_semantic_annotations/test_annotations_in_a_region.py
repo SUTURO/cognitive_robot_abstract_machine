@@ -12,7 +12,7 @@ from semantic_digital_twin.specifications.kinematic_structure_entities import (
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Scale
 
-# %% annotations within a region
+# %% annotations in a region
 
 
 def spawn_human(world: World, name: str, x: float) -> Human:
@@ -29,24 +29,41 @@ def spawn_human(world: World, name: str, x: float) -> Human:
     ).spawn(world)
 
 
-def test_region_holds_the_annotations_whose_root_lies_inside(mini_world: World):
+def test_the_annotations_in_a_region_are_those_whose_root_lies_inside(
+    mini_world: World,
+):
     region = RegionSpecification.box("region", Scale(1.0, 1.0, 1.0)).spawn(mini_world)
     inside = spawn_human(mini_world, "inside", x=0.2)
     spawn_human(mini_world, "outside", x=2.0)
 
-    assert region.semantic_annotations_within(Human) == [inside]
+    assert Human.get_instances_in_region(region) == [inside]
 
 
-def test_region_ignores_annotations_of_other_types(mini_world: World):
+def test_annotations_of_other_types_are_left_out(mini_world: World):
     region = RegionSpecification.box("region", Scale(1.0, 1.0, 1.0)).spawn(mini_world)
     Milk.get_annotation_specification(
         "milk", BodySpecification.box("milk", Scale(0.1, 0.1, 0.2))
     ).spawn(mini_world)
 
-    assert region.semantic_annotations_within(Human) == []
+    assert Human.get_instances_in_region(region) == []
 
 
-def test_region_follows_its_parent_frame(mini_world: World):
+def test_an_annotation_whose_body_carries_no_geometry_is_found_by_its_origin(
+    mini_world: World,
+):
+    """
+    A perception source reports where it saw a person, not how much space they fill, so
+    the person it writes into the world has no geometry to measure an overlap with.
+    """
+    region = RegionSpecification.box("region", Scale(1.0, 1.0, 1.0)).spawn(mini_world)
+    inside = Human.get_annotation_specification(
+        "inside", BodySpecification("inside")
+    ).spawn(mini_world, parent=region)
+
+    assert Human.get_instances_in_region(region) == [inside]
+
+
+def test_a_region_away_from_the_world_root_holds_what_stands_in_it(mini_world: World):
     region = RegionSpecification.box(
         "region",
         Scale(1.0, 1.0, 1.0),
@@ -55,4 +72,4 @@ def test_region_follows_its_parent_frame(mini_world: World):
     inside = spawn_human(mini_world, "inside", x=2.2)
     spawn_human(mini_world, "outside", x=0.2)
 
-    assert region.semantic_annotations_within(Human) == [inside]
+    assert Human.get_instances_in_region(region) == [inside]
