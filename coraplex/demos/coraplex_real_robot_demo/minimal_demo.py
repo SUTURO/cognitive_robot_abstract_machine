@@ -153,7 +153,7 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         return statechart
 
 def main(
-    executor_type: type[PlanExecutor] = RealRobotPlanExecutor,
+    executor_type: type[PlanExecutor] = PhysicallySimulatedPlanExecutor,
     collision_avoidance: bool = True,
     event_segmentation: bool = False,
     debug: bool = False,
@@ -181,4 +181,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    main(executor_type=RealRobotPlanExecutor, collision_avoidance=False)
