@@ -8,6 +8,8 @@ from giskardpy.middleware.ros2.scripts.iai_robots.hsr.configs import (
 )
 from giskardpy.middleware.ros2.server_config import GiskardServerConfig
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from semantic_digital_twin.adapters.urdf import URDFParser
+from semantic_digital_twin.robots.hsrb import HSRB
 
 
 def create_giskard() -> Giskard:
@@ -19,7 +21,7 @@ def create_giskard() -> Giskard:
         read from its topic.
     """
     return Giskard(
-        world_config=WorldWithHSRConfig(urdf=get_robot_description()),
+        world_config=WorldWithHSRConfig(urdf=URDFParser.from_xacro(HSRB.get_ros_file_path()).urdf),
         robot_interface_config=HSRVelocityInterface(),
         server_config=GiskardServerConfig(debug_mode=False),
         qp_controller_config=QPControllerConfig(
