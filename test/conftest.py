@@ -7,18 +7,10 @@ from dataclasses import dataclass, field
 import numpy as np
 import pytest
 
-from semantic_digital_twin.specifications.connections import (
-    ConnectionSpecification,
-    ActiveConnection1DOFSpecification,
-    PrismaticConnectionSpecification,
-)
+from semantic_digital_twin.specifications.connections import (PrismaticConnectionSpecification)
 from semantic_digital_twin.predefined_maps.building_floor import BuildingFloor
 from semantic_digital_twin.callbacks.callback import Callback
 from semantic_digital_twin.robots.daisy import DAiSy
-from semantic_digital_twin.semantic_annotations.mixins import (
-    HasRootBody,
-    HasRootKinematicStructureEntity,
-)
 from semantic_digital_twin.world_description.degree_of_freedom import (
     DegreeOfFreedomLimits,
 )
@@ -104,7 +96,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     GroundFloor,
     FirstFloor,
     Level,
-    SemanticEnvironmentAnnotation,
+    SemanticEnvironmentAnnotation, Kitchen, LivingRoom, Sofa,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -1330,4 +1322,55 @@ def kitchen_environment_fixture():
         for conn in all_elements_connections:
             world.add_connection(conn)
 
+    return world
+
+
+@pytest.fixture(scope="function")
+def kitchen_environment_with_rooms(kitchen_environment_fixture: World) -> World:
+    """
+    A copy of :func:`kitchen_environment_fixture` with a kitchen whose floor spans x
+    0..7 and y -0.5..2.5, under the tables and their produce, and a living room whose
+    floor spans x and y 9..11, under the far-away banana, with a 1 m sofa standing in
+    its middle.
+    """
+    world = deepcopy(kitchen_environment_fixture)
+    with world.modify_world():
+        kitchen_floor = Floor.create_with_new_body_from_polytope_in_world(
+            name="kitchen_floor",
+            world=world,
+            floor_polytope=[
+                Point3(-3.5, -1.5, 0),
+                Point3(-3.5, 1.5, 0),
+                Point3(3.5, 1.5, 0),
+                Point3(3.5, -1.5, 0),
+            ],
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=3.5, y=1.0
+            ),
+        )
+        living_room_floor = Floor.create_with_new_body_from_polytope_in_world(
+            name="living_room_floor",
+            world=world,
+            floor_polytope=[
+                Point3(-1, -1, 0),
+                Point3(-1, 1, 0),
+                Point3(1, 1, 0),
+                Point3(1, -1, 0),
+            ],
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=10, y=10),
+        )
+        world.add_semantic_annotations(
+            [
+                Kitchen(floor=kitchen_floor, name=PrefixedName("kitchen")),
+                LivingRoom(floor=living_room_floor, name=PrefixedName("living_room")),
+            ]
+        )
+        Sofa.create_with_new_body_in_world(
+            name="sofa",
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=10, y=10, z=0.25
+            ),
+            scale=Scale(0.5, 0.5, 0.5),
+        )
     return world

@@ -79,6 +79,46 @@ class DrivenBaseTask(ConvergingTask, ABC):
             self.drive_parent, self.base
         )
 
+@dataclass(eq=False, repr=False, kw_only=True)
+class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
+    """
+    A task that is described against the pose the base has when the task starts.
+    """
+
+    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
+    """
+    Fixes the pose of the base relative to the drive's parent when the task starts.
+    """
+
+    def set_up(self) -> None:
+        """
+        Bind the pose of the base, which the task is described against.
+        """
+        super().set_up()
+        self._parent_T_start_binding = ForwardKinematicsBinding(
+            name=PrefixedName("parent_T_start", str(self.name)),
+            root=self.drive_parent,
+            tip=self.base,
+            float_variable_data=self.context.float_variable_data,
+        )
+        self._parent_T_start_binding.bind(self.context.world)
+
+    def on_start(self) -> None:
+        self._parent_T_start_binding.bind(self.context.world)
+
+    @property
+    def parent_P_start(self) -> Point3:
+        """
+        Where the base stood when the task started, relative to the drive's parent,
+        expressed relative to the drive's new parent if the drive was moved under
+        another parent.
+        """
+        if self._parent_T_start_binding.root is not self.drive_parent:
+            self._parent_T_start_binding.change_root(
+                self.drive_parent, self.context.world
+            )
+        return self._parent_T_start_binding.root_T_tip.position
+
 
 @dataclass(eq=False, repr=False, kw_only=True)
 class BasePosition(DrivenBaseTask):
@@ -203,47 +243,59 @@ class BaseHeading(DrivenBaseRotation):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class BaseTurnTowardsGoalPosition(BaseHeading):
+class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
     """
     Turns the front of the base towards the position of :attr:`goal_pose`, as seen from
     where the base stood when the task started, so that driving does not bring the base
     closer to facing it.
     """
 
-    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
-    """
-    Fixes the pose of the base relative to the drive's parent when the task starts.
-    """
-
-    def set_up(self) -> None:
-        """
-        Bind the pose of the base, which the base faces the goal position from.
-        """
-        super().set_up()
-        self._parent_T_start_binding = ForwardKinematicsBinding(
-            name=PrefixedName("parent_T_start", str(self.name)),
-            root=self.drive_parent,
-            tip=self.base,
-            float_variable_data=self.context.float_variable_data,
-        )
-        self._parent_T_start_binding.bind(self.context.world)
-
-    def on_start(self) -> None:
-        self._parent_T_start_binding.bind(self.context.world)
-
-    def build_artifacts(self) -> MotionNodeArtifacts:
-        """
-        Differs from :meth:`DrivenBaseRotation.build_artifacts` in first expressing the
-        bound start pose relative to the drive's new parent, if the drive was moved
-        under another parent.
-        """
-        if self._parent_T_start_binding.root is not self.drive_parent:
-            self._parent_T_start_binding.change_root(
-                self.drive_parent, self.context.world
-            )
-        return super().build_artifacts()
-
     def parent_P_viewpoint(
         self, parent_T_base: HomogeneousTransformationMatrix
     ) -> Point3:
-        return self._parent_T_start_binding.root_T_tip.position
+        return self.parent_P_start
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class BaseStraightLinePosition(DrivenBaseTaskFromStart, BasePosition):
+    """
+    Drives the base to below the position of :attr:`goal_pose` along the straight line
+    from where it stood when the task started, and back onto that line whenever it
+    strays.
+    """
+
+    def build_artifacts(self) -> MotionNodeArtifacts:
+        """
+        :return: The artifacts of this task, whose error is the distance along the floor
+            between the base and the goal position.
+        """
+        artifacts = MotionNodeArtifacts()
+        parent_P_start = self.parent_P_start
+        parent_P_goal = self.parent_T_goal.position
+        parent_P_base = self.parent_T_base().position
+        parent_V_line = parent_P_goal - parent_P_start
+        parent_V_line.z = 0
+        # scale normalizes in place, so the length has to be read before it
+        line_length = parent_V_line.norm()
+        parent_V_line.scale(1)
+        parent_R_line = RotationMatrix.from_vectors(
+            x=parent_V_line,
+            z=Vector3.Z(reference_frame=self.drive_parent),
+            reference_frame=self.drive_parent,
+        )
+        line_V_travelled = parent_R_line.inverse() @ (parent_P_base - parent_P_start)
+        for line_coordinate, goal_coordinate, name in [
+            (line_V_travelled[0], line_length, "line/progress"),
+            (line_V_travelled[1], 0, "line/lateral"),
+        ]:
+            artifacts.geometry.add_position_constraint(
+                expression_current=line_coordinate,
+                expression_goal=goal_coordinate,
+                cruise_velocity=self.cruise_velocity,
+                velocity_scale=VelocityScale.TRANSLATION,
+                quadratic_weight=self.weight,
+                name=name,
+            )
+        parent_V_base_to_goal = parent_P_goal - parent_P_base
+        parent_V_base_to_goal.z = 0
+        artifacts.error = parent_V_base_to_goal.norm()
+        return artifacts

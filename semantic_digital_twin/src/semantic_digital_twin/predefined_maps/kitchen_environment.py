@@ -11,7 +11,13 @@ import trimesh
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
+    LivingRoom,
+    Kitchen,
+    Bedroom,
+    Office,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
     Table,
@@ -35,6 +41,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Oven,
     WallPanel,
     KitchenIsland,
+    SemanticEnvironmentAnnotation,
 )
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
@@ -771,6 +778,7 @@ class KitchenEnvironment(WorldSource):
         self._build_environment_walls(world)
         self._build_environment_furniture(world)
         self._build_environment_rooms(world)
+        self._build_apartment_floor(world)
 
         return world
 
@@ -2580,7 +2588,7 @@ class KitchenEnvironment(WorldSource):
                     x=2.317, y=-0.843
                 ),
             )
-            kitchen = Room(floor=kitchen_floor, name=PrefixedName("kitchen"))
+            kitchen = Kitchen(floor=kitchen_floor, name=PrefixedName("kitchen"))
             room_annotations.append(kitchen)
 
             living_room_floor = Floor.create_with_new_body_from_polytope_in_world(
@@ -2591,7 +2599,7 @@ class KitchenEnvironment(WorldSource):
                     x=2.317, y=2.2245
                 ),
             )
-            living_room = Room(
+            living_room = LivingRoom(
                 floor=living_room_floor, name=PrefixedName("living_room")
             )
             room_annotations.append(living_room)
@@ -2604,7 +2612,7 @@ class KitchenEnvironment(WorldSource):
                     x=0.96, y=4.96
                 ),
             )
-            bed_room = Room(floor=bed_room_floor, name=PrefixedName("bed_room"))
+            bed_room = Bedroom(floor=bed_room_floor, name=PrefixedName("bed_room"))
             room_annotations.append(bed_room)
 
             office_floor = Floor.create_with_new_body_from_polytope_in_world(
@@ -2615,7 +2623,36 @@ class KitchenEnvironment(WorldSource):
                     x=3.5625, y=4.96
                 ),
             )
-            office = Room(floor=office_floor, name=PrefixedName("office"))
+            office = Office(floor=office_floor, name=PrefixedName("office"))
             room_annotations.append(office)
 
             world.add_semantic_annotations(room_annotations)
+
+    def _build_apartment_floor(self, world: World, thickness: float = 0.01) -> None:
+        """
+        Annotates one floor spanning the whole environment with its top at the height
+        the robot stands at, so that a path between two rooms can be laid out on a
+        single floor.
+
+        :param world: The world holding the environment.
+        :param thickness: The thickness of the floor, in m.
+        """
+        with world.modify_world():
+            footprint = (
+                SemanticEnvironmentAnnotation(root=world.root, _world=world)
+                .as_bounding_box_collection_at_origin(
+                    HomogeneousTransformationMatrix(reference_frame=world.root)
+                )
+                .bounding_box()
+            )
+            Floor.create_with_new_body_in_world(
+                name="apartment_floor",
+                world=world,
+                scale=Scale(footprint.depth, footprint.width, thickness),
+                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=float(footprint.center.x),
+                    y=float(footprint.center.y),
+                    z=-thickness / 2,
+                    reference_frame=world.root,
+                ),
+            )
