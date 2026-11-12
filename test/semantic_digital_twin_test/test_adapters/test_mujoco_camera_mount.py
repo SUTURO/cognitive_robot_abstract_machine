@@ -92,13 +92,10 @@ def camera_facing_a_box(camera_resolution: CameraResolution) -> CameraFacingABox
 
 
 @pytest.fixture
-def camera_simulation(
-    camera_facing_a_box: CameraFacingABox, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[MujocoSim]:
+def camera_simulation(camera_facing_a_box: CameraFacingABox) -> Iterator[MujocoSim]:
     """
     A running simulation of the camera facing the cube.
     """
-    monkeypatch.setenv("MUJOCO_GL", "egl")
     camera = camera_facing_a_box.camera
     camera.root.add_simulator_property(MujocoCamera.mounted_on(camera))
     simulation = MujocoSim(world=camera.root._world, headless=True)
