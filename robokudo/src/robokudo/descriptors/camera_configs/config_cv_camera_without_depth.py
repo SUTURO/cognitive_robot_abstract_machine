@@ -62,6 +62,15 @@ class OpenCVCameraConfig(BaseCameraConfig):
     """
     Flag argument to use when retrieving/reading the frames.
     """
+    buffered_frame_grab_seconds: float = 0.005
+    """
+    Duration below which grabbing a live camera frame counts as taking one the driver
+    buffered since the last read, so a newer frame is grabbed instead.
+    """
+    maximum_buffered_frames: int = 10
+    """
+    Most buffered live camera frames skipped before reading one.
+    """
     normalize_rgb: bool = True
     """
     Normalize/stabilise rgb image contrast/brightness.
