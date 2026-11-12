@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from abc import ABC
 from dataclasses import dataclass, field
-
 
 from krrood.ormatic.utils import classproperty
 from coraplex.datastructures.enums import (
@@ -9,11 +9,11 @@ from coraplex.datastructures.enums import (
     DetectionTechnique,
     PerceptionSource,
 )
-from coraplex.perception import PerceptionQuery, PerceptionTask
+from coraplex.perception import PerceptionQuery, PerceptionTask, SeatPerceptionTask
 from cramph.node import StatechartNode
-from coraplex.robot_plans.actions.base import SequentialAction
+from coraplex.robot_plans.actions.base import Action, SequentialAction
 from coraplex.robot_plans.actions.core.exceptions import DetectionTargetMissing
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.navigation import LookAtAction, NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveManipulatorAction
 from coraplex.robot_plans.mixins import HasApproachesGraspPoses, MovesToolCenterPoint
 from krrood_spatial_math.spatial_types import (
@@ -29,9 +29,26 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     SemanticEnvironmentAnnotation,
 )
 
+# %% perceiving
+
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DetectAction(SequentialAction):
+class Perceives(Action, ABC):
+    """
+    Base class for the actions that ask a perception source what is in the world.
+    """
+
+    perception_source: PerceptionSource = field(
+        default=PerceptionSource.WORLD_MODEL, init=False
+    )
+    """
+    What answers the perception, as set by the plan transformations configuring the
+    action.
+    """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class DetectAction(Perceives, SequentialAction):
     """
     Detects an object and writes the pose it is seen at into the world.
 
@@ -78,13 +95,6 @@ class DetectAction(SequentialAction):
 
     When False, several candidates raise
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
-    """
-
-    perception_source: PerceptionSource = field(
-        default=PerceptionSource.WORLD_MODEL, init=False
-    )
-    """
-    What answers the detection.
     """
 
     @classproperty
@@ -140,6 +150,34 @@ class DetectAction(SequentialAction):
             max_y=distance,
             max_z=distance,
         )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class DetectSeatsAction(Perceives, SequentialAction):
+    """
+    Looks at each target in turn and updates the seats in view and the people on them
+    to the ones perceived there, see :class:`~coraplex.perception.SeatPerceptionTask`.
+    """
+
+    look_targets: list[Pose]
+    """
+    The poses to look at, in the order they are looked at.
+    """
+
+    def create_steps(self) -> list[StatechartNode]:
+        return [
+            step
+            for target in self.look_targets
+            for step in (
+                LookAtAction(target=target),
+                SeatPerceptionTask(
+                    robot=self.robot, answered_by=self.perception_source
+                ),
+            )
+        ]
+
+
+# %% reaching
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

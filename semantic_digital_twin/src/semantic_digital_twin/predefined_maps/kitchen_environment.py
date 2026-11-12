@@ -11,6 +11,7 @@ import trimesh
 import numpy as np
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
@@ -443,7 +444,11 @@ class SofaResource(StrEnum):
 @dataclass
 class KitchenSofa:
     """
-    A sofa with two seat cushions, two back cushions and solid armrests.
+    A sofa with two seat cushions, two back cushions and solid armrests, facing along
+    its -x axis.
+
+    Above each seat cushion hangs the region of one :class:`SofaSeat` place, listed
+    among the seat places of the :class:`Sofa`.
     """
 
     origin_height: float = 0.34
@@ -501,6 +506,11 @@ class KitchenSofa:
     seat_surface_thickness: float = 0.005
     """
     Thickness of the virtual seating support region.
+    """
+    seat_place_height: float = 0.9
+    """
+    How far above the top of a seat cushion the region of its :class:`SofaSeat` place
+    reaches, enough to hold a seated adult up to the head.
     """
     geometry_directory: Path = field(
         default_factory=lambda: create_cache_dir(SofaResource.GEOMETRY)
@@ -624,12 +634,31 @@ class KitchenSofa:
             (inner_width, self.width / 2),
         ):
             meshes.append(self.arm.create_mesh(minimum, maximum, self.origin_height))
-        for minimum, maximum, back in (
-            (-inner_width, -self.cushion_gap / 2, self.left_back),
-            (self.cushion_gap / 2, inner_width, self.right_back),
-        ):
+        cushion_widths = {
+            SofaSeat.LEFT: (-inner_width, -self.cushion_gap / 2, self.left_back),
+            SofaSeat.RIGHT: (self.cushion_gap / 2, inner_width, self.right_back),
+        }
+        for minimum, maximum, back in cushion_widths.values():
             meshes.append(self.seat.create_mesh(minimum, maximum, self.origin_height))
             meshes.append(back.create_mesh(minimum, maximum, self.origin_height))
+        cushion_depths = [point.depth for point in self.seat.points]
+        cushion_top = max(point.height for point in self.seat.points)
+        seat_places = [
+            RegionSpecification.box(
+                name=seat.value,
+                scale=Scale(
+                    max(cushion_depths) - min(cushion_depths),
+                    maximum - minimum,
+                    self.seat_place_height,
+                ),
+                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=(max(cushion_depths) + min(cushion_depths)) / 2,
+                    y=(maximum + minimum) / 2,
+                    z=cushion_top - self.origin_height + self.seat_place_height / 2,
+                ),
+            )
+            for seat, (minimum, maximum, _) in cushion_widths.items()
+        ]
         envelope = trimesh.boolean.union(meshes, engine="manifold")
         shape = Mesh.from_trimesh(
             envelope,
@@ -655,7 +684,7 @@ class KitchenSofa:
             root_specification=BodySpecification(
                 name=None,
                 shapes=ShapeCollection([shape]),
-                child_specifications=[seat_surface],
+                child_specifications=[seat_surface, *seat_places],
             ),
         )
         sofa = specification.spawn(world, parent_T_self=root_T_sofa)
@@ -664,6 +693,8 @@ class KitchenSofa:
                 Region, world.get_kinematic_structure_entity_by_name(seat_surface.name)
             )
         )
+        for seat in SofaSeat:
+            sofa.add_seat_place(seat.region_in(world))
         return sofa
 
 

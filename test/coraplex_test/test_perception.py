@@ -13,7 +13,7 @@ import inspect
 import json
 import threading
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
@@ -34,7 +34,7 @@ from coraplex.exceptions import (
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
-from coraplex.perception import PerceptionTask
+from coraplex.perception import PerceptionTask, SeatPerceptionTask, SeatQueryTerm
 from coraplex.perception import (
     ROBOKUDO_QUERY_ACTION_NAME,
     Detection,
@@ -43,7 +43,7 @@ from coraplex.perception import (
     RoboKudoPerception,
     WorldPerception,
 )
-from coraplex.robot_plans.actions.core.misc import DetectAction
+from coraplex.robot_plans.actions.core.misc import DetectAction, DetectSeatsAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from cramph.composites import TryInOrder
 from cramph.context import StatechartContext
@@ -61,13 +61,27 @@ from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl, Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bowl,
+    Chair,
+    Human,
+    Milk,
+)
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from krrood_spatial_math.spatial_types import Pose
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    BodySpecification,
+    RegionSpecification,
+)
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.world_entity import Region
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
 from ..plan_running import run_plan
+from ..semantic_digital_twin_test.test_predefined_maps.test_kitchen_sofa_seats import (
+    replayed,
+)
 
 PERCEIVED_MILK_POSITION = (2.6, 2.2, 1.05)
 """
@@ -501,6 +515,16 @@ class ReportedObject:
     Where to report it.
     """
 
+    uid: str = ""
+    """
+    The identifier to report it under; empty for an object the pipeline does not know.
+    """
+
+    attribute: list[str] = field(default_factory=list)
+    """
+    The attributes to report it with, such as whether a seat is free.
+    """
+
 
 class RecordedQueryServer:
     """
@@ -548,7 +572,12 @@ class RecordedQueryServer:
             ) = report.position
             pose_stamped.pose.orientation.w = 1.0
             designators.append(
-                ObjectDesignator(type=report.class_label, pose=[pose_stamped])
+                ObjectDesignator(
+                    uid=report.uid,
+                    type=report.class_label,
+                    attribute=report.attribute,
+                    pose=[pose_stamped],
+                )
             )
         return Query.Result(res=designators)
 
@@ -1147,3 +1176,216 @@ def test_a_detection_needs_an_object_type_or_a_box(pr2_apartment_context) -> Non
 
     with pytest.raises(DetectionTargetMissing):
         motion_nodes_of(DetectAction(technique=DetectionTechnique.TYPES), extensions)
+
+
+# %% seats and the people on them
+
+
+@pytest.fixture
+def reported_region(pr2_apartment_context) -> Region:
+    """
+    A named seat place around the position the stand-in pipeline reports its objects at.
+    """
+    world, _, _ = pr2_apartment_context
+    return RegionSpecification.box(
+        "reported_region",
+        Scale(0.5, 0.5, 0.5),
+        parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            *PERCEIVED_MILK_POSITION
+        ),
+    ).spawn(world)
+
+
+def seat_report(occupied: bool, seat_place: Region | None = None) -> ReportedObject:
+    """
+    :param occupied: Whether the pipeline saw someone sitting on the seat.
+    :param seat_place: The seat place of the world the pipeline identified the seat as,
+        None for a seat it detected on its own.
+    :return: A seat the stand-in pipeline reports at :data:`PERCEIVED_MILK_POSITION`.
+    """
+    return ReportedObject(
+        "",
+        PERCEIVED_MILK_POSITION,
+        uid="" if seat_place is None else seat_place.name.name,
+        attribute=[SeatQueryTerm.OCCUPIED if occupied else SeatQueryTerm.FREE],
+    )
+
+
+def run_seat_task(world: World, view, ros_node: Node) -> SeatPerceptionTask:
+    """
+    Build and run a seat task asking RoboKudo for the seats in view of ``view``.
+
+    :return: The task that ran.
+    """
+    task = SeatPerceptionTask(robot=view, answered_by=PerceptionSource.ROBOKUDO)
+    build_perception_task(task, world, ros_node)
+    run_perception_task(task)
+    return task
+
+
+def test_a_person_seen_on_a_seat_place_is_seated_there(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=True, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [occupant] = Human.get_instances_in_region(reported_region)
+    np.testing.assert_allclose(
+        occupant.root.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_a_seat_place_seen_free_loses_the_person_it_held(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    """
+    A person who left a seat since it was last looked at must not keep it occupied.
+    """
+    world, view, extensions = pr2_apartment_context
+    Human.get_annotation_specification(
+        "earlier_occupant", BodySpecification("earlier_occupant")
+    ).spawn(world, parent=reported_region)
+    query_server_reporting([seat_report(occupied=False, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert Human.get_instances_in_region(reported_region) == []
+
+
+def test_a_person_on_a_seat_place_seen_occupied_stays(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    """
+    The person the world already holds on a seat seen occupied is kept, rather than
+    replaced by a newly seated one.
+    """
+    world, view, extensions = pr2_apartment_context
+    sitter = Human.get_annotation_specification(
+        "sitter", BodySpecification("sitter")
+    ).spawn(world, parent=reported_region)
+    query_server_reporting([seat_report(occupied=True, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert Human.get_instances_in_region(reported_region) == [sitter]
+
+
+def test_people_off_the_reported_seats_are_left_alone(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    elsewhere = Human.get_annotation_specification(
+        "elsewhere", BodySpecification("elsewhere")
+    ).spawn(world)
+    query_server_reporting([seat_report(occupied=False, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert world.get_semantic_annotations_by_type(Human) == [elsewhere]
+
+
+def test_a_detected_chair_is_added_with_a_seat_place_where_it_was_seen(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    [seat_place] = chair.seat_places
+    np.testing.assert_allclose(
+        seat_place.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_a_detected_chair_reaches_a_copy_of_the_world_with_its_seat_place(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    Other processes, such as the perception pipeline, find a chair added to the world
+    together with its seat place.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    copy = replayed(world)
+    assert [
+        seat_place.name
+        for seat_place in copy.get_semantic_annotation_by_id(chair.id).seat_places
+    ] == [seat_place.name for seat_place in chair.seat_places]
+
+
+def test_a_person_seen_on_a_detected_chair_is_seated_on_it(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=True)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    [seat_place] = chair.seat_places
+    assert len(Human.get_instances_in_region(seat_place)) == 1
+
+
+def test_a_chair_seen_again_is_not_added_twice(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    A chair reported where a chair of the world already has its seat place is that
+    chair, so scanning a room twice does not double its chairs.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+    run_seat_task(world, view, rclpy_node)
+
+    assert len(world.get_semantic_annotations_by_type(Chair)) == 1
+
+
+def test_the_seat_query_asks_for_seats(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    server = query_server_reporting([])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert server.received_types == [SeatQueryTerm.SEAT]
+
+
+def test_seat_task_survives_a_json_round_trip(pr2_apartment_context):
+    world, view, extensions = pr2_apartment_context
+    receiving_world = deepcopy(world)
+    task = SeatPerceptionTask(robot=view, answered_by=PerceptionSource.ROBOKUDO)
+
+    restored = from_json(to_json(task), **receiving_world_kwargs(receiving_world))
+
+    assert type(restored) is SeatPerceptionTask
+    assert restored.answered_by == PerceptionSource.ROBOKUDO
+    assert restored.robot is receiving_world.get_world_entity_with_id_by_id(view.id)
+
+
+def test_detect_seats_action_asks_robokudo_on_the_real_robot(
+    pr2_apartment_context, reported_region
+) -> None:
+    world, view, extensions = pr2_apartment_context
+    plan = DetectSeatsAction(
+        look_targets=[Pose.from_xyz_rpy(reference_frame=reported_region)]
+    )
+    executor = robot_executor(extensions)
+    executor.prepare(statechart_of(executor, plan))
+
+    tasks = [node for node in plan.descendants if isinstance(node, SeatPerceptionTask)]
+    assert [task.answered_by for task in tasks] == [PerceptionSource.ROBOKUDO]

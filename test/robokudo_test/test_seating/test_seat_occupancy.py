@@ -12,20 +12,16 @@ from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.annotators.outputs import AnnotatorOutputStruct
 from robokudo.annotators.seat_detection import SeatDetection
 from robokudo.annotators.seat_occupancy import OccupancyMarking, SeatOccupancyAnnotator
-from robokudo.annotators.sofa_split import SofaSplitAnnotator
 from robokudo.cas import CAS
 from robokudo.types.scene import OccupiedAnnotation
 from .._marked_image import MarkedRegionImage
 from ._seating_scene import (
     annotate,
-    annotate_in_order,
     human,
     located,
     occupancies,
     seat,
     seat_region,
-    created_seat_regions,
-    sofa,
 )
 
 # %% free seats
@@ -263,27 +259,6 @@ def test_unlocated_seat_region_is_not_annotated() -> None:
     annotate(SeatOccupancyAnnotator(), region)
 
     assert occupancies(region) == []
-
-
-def test_split_sofa_has_one_free_seat_beside_a_sitting_human(
-    sofa_width: float, seat_distance: float
-) -> None:
-    """
-    After splitting a sofa, a human sitting on its left half occupies only the left seat
-    region.
-    """
-    occupancy = SeatOccupancyAnnotator()
-
-    annotate_in_order(
-        [SofaSplitAnnotator(), occupancy],
-        sofa(sofa_width, seat_distance),
-        located(human(HumanPosture.SITTING), x=-sofa_width / 4, z=seat_distance),
-    )
-
-    assert [occupancies(region) for region in created_seat_regions(occupancy)] == [
-        [True],
-        [False],
-    ]
 
 
 # %% visualization

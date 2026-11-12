@@ -16,7 +16,12 @@ from typing_extensions import Callable
 from coraplex import perception
 from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.datastructures.trajectory import PoseTrajectory
-from coraplex.perception import PerceptionQuery, PerceptionSource, PerceptionTask
+from coraplex.perception import (
+    SeatPerceptionTask,
+    PerceptionQuery,
+    PerceptionSource,
+    PerceptionTask,
+)
 from coraplex.robot_plans.actions import core
 from coraplex.robot_plans.actions.composite import (
     carrying,
@@ -40,7 +45,11 @@ from coraplex.robot_plans.actions.composite.transporting import (
     TransportAction,
 )
 from coraplex.robot_plans.actions.core.container import CloseAction, OpenAction
-from coraplex.robot_plans.actions.core.misc import DetectAction, MoveToReach
+from coraplex.robot_plans.actions.core.misc import (
+    DetectAction,
+    DetectSeatsAction,
+    MoveToReach,
+)
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     FaceAtAction,
@@ -70,6 +79,7 @@ from cramph.node import StatechartNode
 from semantic_digital_twin.datastructures.definitions import GripperState, TorsoState
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Human,
     CuttingKnife,
     Door,
     Elevator,
@@ -83,6 +93,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from krrood_spatial_math.spatial_types import Pose, Pose2D
 from semantic_digital_twin.world import World
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    RegionSpecification,
+)
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
 )
@@ -95,7 +108,7 @@ from semantic_digital_twin.world_description.geometry import (
     VolumetricBoundingBox,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, Region
 
 from ..test_designator.test_multi_robot_action_designator import _handle_annotation
 from ..test_tool_based_actions import _add_box_body, _attach_box_to_gripper
@@ -178,6 +191,17 @@ def _whole_scene(world: World) -> VolumetricBoundingBox:
         max_y=10,
         max_z=10,
     )
+
+
+def _seat_region(world: World) -> Region:
+    """
+    :return: A named region a person could sit in, spawned into ``world``.
+    """
+    return RegionSpecification.box(
+        "seat_region",
+        Scale(0.6, 0.6, 0.9),
+        parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.5, y=2.0, z=0.9),
+    ).spawn(world)
 
 
 # %% nodes of the cases
@@ -353,6 +377,24 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
                         Milk, _whole_scene(world), _robot(world), world
                     ),
                     answered_by=PerceptionSource.WORLD_MODEL,
+                )
+            ],
+        ),
+        ActionRoundTripCase(
+            DetectSeatsAction,
+            lambda world: [
+                DetectSeatsAction(
+                    look_targets=[
+                        Pose.from_xyz_rpy(reference_frame=_seat_region(world))
+                    ]
+                )
+            ],
+        ),
+        ActionRoundTripCase(
+            SeatPerceptionTask,
+            lambda world: [
+                SeatPerceptionTask(
+                    robot=_robot(world), answered_by=PerceptionSource.WORLD_MODEL
                 )
             ],
         ),
