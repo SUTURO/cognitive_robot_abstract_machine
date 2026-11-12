@@ -24,10 +24,9 @@ from robokudo.pipeline import Pipeline
 # %% analysis engine
 @dataclass
 class AnalysisEngine(AnalysisEngineInterface):
-    """
-    Detect objects in the current frame of the HSR head camera for each query, reply
-    with them and publish a sentence naming them for the text-to-speech.
-    """
+    """Detect objects in the current frame of the HSR head camera for each
+    query, reply with them and publish a sentence naming them for the
+    text-to-speech."""
 
     def name(self) -> str:
         return "live_yolo"
