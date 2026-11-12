@@ -6,6 +6,7 @@ from __future__ import annotations
 
 # %% Imports
 import json
+from dataclasses import replace
 
 from py_trees.common import Status
 
@@ -103,4 +104,42 @@ class TypeMappingAnnotator(SemanticTypeMappingAnnotator):
                     [semantic_classification] + classifications + other_annotations
                 )
 
+        return Status.SUCCESS
+
+
+# %% type replacement
+
+
+class SemanticTypeReplacementAnnotator(SemanticTypeMappingAnnotator):
+    """
+    Replaces each classification of an object hypothesis whose detector class has a
+    semantic type by a classification of that type.
+
+    A classification without a mapping is left unchanged, so a detector that already
+    names the semantic type keeps it.
+    """
+
+    def update(self) -> Status:
+        """
+        Overrides :meth:`BaseAnnotator.update` to replace the mapped classifications of
+        every object hypothesis.
+
+        :return: :attr:`Status.SUCCESS`.
+        """
+        for object_hypothesis in self.get_cas().filter_annotations_by_type(
+            ObjectHypothesis
+        ):
+            object_hypothesis.annotations = [
+                (
+                    replace(
+                        annotation,
+                        classname=self._type_mapping[annotation.classname],
+                        source=self.name,
+                    )
+                    if isinstance(annotation, Classification)
+                    and annotation.classname in self._type_mapping
+                    else annotation
+                )
+                for annotation in object_hypothesis.annotations
+            ]
         return Status.SUCCESS
