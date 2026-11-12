@@ -17,6 +17,7 @@ from coraplex.exceptions import SpeechInputUnavailable, SpeechMessagesUnavailabl
 from coraplex.perception import ROBOKUDO_QUERY_ACTION_NAME
 from coraplex.ros_scene_perception import RoboKudoScenePerception
 from coraplex.scene_perception import SceneQuery
+from robokudo.annotators.detected_objects_announcer import RobotVoiceInput
 from semantic_digital_twin.world import World
 
 if TYPE_CHECKING:
@@ -41,15 +42,6 @@ class SceneCommandOption(StrEnum):
     """Set the discovery, world-fetch and response timeout in seconds."""
     NO_WORLD = "--no-world"
     """Name the detected objects without fetching a world, so without locations."""
-
-
-class RobotVoiceInput(StrEnum):
-    """The HSR's documented existing speech interface."""
-
-    TOPIC = "/talk_request"
-    """Topic consumed by the running robot speech engine."""
-    MESSAGE = "tmc_voice_msgs/msg/Voice"
-    """Message supplied by the robot ROS workspace, loaded only for speech."""
 
 
 # %% robot speech

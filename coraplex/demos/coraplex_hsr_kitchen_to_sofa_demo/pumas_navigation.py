@@ -60,7 +60,7 @@ class PumasNavigation:
     The robot whose base is driven.
     """
 
-    position_threshold: float = 0.1
+    position_threshold: float = 0.3
     """
     How far the base may stand from the goal, in meters, to count as arrived.
     """
