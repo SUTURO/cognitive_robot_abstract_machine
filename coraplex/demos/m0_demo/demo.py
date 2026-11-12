@@ -149,14 +149,24 @@ class MilkPickUpDemonstration(RobotDemonstration):
     The executor sending the arm and head motions to Giskard.
     """
 
+    map_T_scene: HomogeneousTransformationMatrix = field(
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=0.44, y=0.14, yaw=-0.058
+        )
+    )
+    """
+    Where the kitchen lies in the map frame of the laser map ``apartment_master1``, as
+    the kitchen to sofa demo fitted it to three room corners clicked on the laser map.
+    """
+
     world_T_milk: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
             x=1.28, y=5.99, z=0.73
         )
     )
     """
-    Where the milk stands in the world model, in the map frame: on the middle of the
-    cooking table.
+    Where the milk stands in the world model, in the frame of the kitchen: on the middle
+    of the cooking table.
     """
 
     viewing_distance: float = 1.0
