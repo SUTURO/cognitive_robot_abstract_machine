@@ -18,7 +18,7 @@ from rclpy.publisher import Publisher
 from coraplex.plans.executors import PlanExecutor, RealRobotPlanExecutor
 from demo import KitchenToSofaDemonstration
 from exceptions import NavigationGoalNotHeard, NavigationTimedOut
-from krrood_spatial_math.spatial_types import Pose
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.world import World
@@ -184,6 +184,16 @@ class PumasKitchenToSofaDemonstration(KitchenToSofaDemonstration):
     executor_type: type[PlanExecutor] = RealRobotPlanExecutor
     """
     The executor sending the arm, torso and head motions to Giskard.
+    """
+
+    map_T_scene: HomogeneousTransformationMatrix = field(
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
+            x=0.44, y=0.14, yaw=-0.058
+        )
+    )
+    """
+    Where the kitchen lies in the map frame of the laser map ``apartment_master1``,
+    fitted to three room corners clicked on the laser map; see the README.
     """
 
     def perform_plan(self, world: World) -> None:

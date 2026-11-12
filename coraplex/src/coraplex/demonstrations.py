@@ -30,6 +30,7 @@ from coraplex.ros_session import RobotDemonstrationRosSession
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -120,6 +121,13 @@ class RobotDemonstration(ABC):
     """
     How long the physics of a physically simulated run steps before the plan starts, for
     the scene to come to rest.
+    """
+
+    map_T_scene: HomogeneousTransformationMatrix = field(
+        default_factory=HomogeneousTransformationMatrix
+    )
+    """
+    Where the root of the scene lies in the map frame the real robot localizes in.
     """
 
     visualization: WorldVisualization | None = None
@@ -272,8 +280,8 @@ class RobotDemonstration(ABC):
         merge the scene into it unless :meth:`is_scene_populated` finds it there
         already.
 
-        The scene's root is fixed to the root of the fetched world, which is the map
-        frame the robot localizes in.
+        The scene's root is fixed at :attr:`map_T_scene` to the root of the fetched
+        world, which is the map frame the robot localizes in.
 
         :return: The world the controller serves, holding the scene.
         """
@@ -283,7 +291,11 @@ class RobotDemonstration(ABC):
             scene = self.build_scene()
             world.merge_world(
                 scene,
-                root_connection=FixedConnection(parent=world.root, child=scene.root),
+                root_connection=FixedConnection(
+                    parent=world.root,
+                    child=scene.root,
+                    parent_T_connection_expression=self.map_T_scene,
+                ),
             )
         return world
 

@@ -101,8 +101,9 @@ Pumas drives only between the two Giskard runs, because Giskard sends a base vel
 sentence is printed and sent to the HSR's voice through `RobotSpeech`
 (`coraplex.scene_report_command`).
 
-The scanning pose comes from the sofa in `KitchenEnvironment`, whose frame lines up with
-the `map` frame of `apartment_master1`.
+The scanning pose comes from the sofa in `KitchenEnvironment`, whose frame does not line
+up with the `map` frame of `apartment_master1`: the kitchen is placed in it at
+`map_T_scene` of `PumasKitchenToSofaDemonstration`.
 
 ## What the plan does
 
@@ -127,4 +128,5 @@ view.
 | `scanning_distance = 1.8` | `demo.py` | Puts the camera about 2.15 m from the seat cushions, the distance measured in the depth images of recordings 05 and 07. |
 | `scanning_torso_state = LOW` | `demo.py` | Not measured; the camera height of the recordings is unknown. |
 | `position_threshold = 0.1`, `orientation_threshold = 0.1`, `timeout = 3 min` | `pumas_navigation.py` | Not measured; Pumas reports no outcome, so arriving is judged by these alone. |
+| `map_T_scene = (0.44, 0.14, yaw -0.058)` | `pumas_navigation.py` | Fitted to three room corners clicked on the laser map: the far wall at the bedroom end, the kitchen wall at the fridge end and the window wall at the oven end, taking the window wall at its cable channel. The corners still differ by 7 to 15 cm after the fit, since the room is 4.72 m by 9.05 m in the laser map and 4.86 m by 8.79 m in the model. |
 | `images_before_start = 30` | `camera_recording.py` | About one second of images at 30 Hz before the plan starts. |
