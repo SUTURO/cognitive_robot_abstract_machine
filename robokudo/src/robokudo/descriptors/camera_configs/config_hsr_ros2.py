@@ -33,6 +33,6 @@ class HsrRos2CameraConfig(
 
     topic_camera_info: str = "/head_rgbd_sensor/rgb/camera_info"
 
-    tf_from: str = "head_rgbd_sensor_rgb_optical_frame"
+    tf_from: str = "head_rgbd_sensor_rgb_frame"
 
     tf_to: str = "map"

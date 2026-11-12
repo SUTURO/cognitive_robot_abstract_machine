@@ -139,7 +139,7 @@ class MilkPickUpDemonstration(RobotDemonstration):
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
-                    # PickUpAction(grasp=closest_grasp, arm=arm),
+                    PickUpAction(grasp=closest_grasp, arm=arm),
                 ]
             )
         )

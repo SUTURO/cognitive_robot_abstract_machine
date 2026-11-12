@@ -94,3 +94,24 @@ class NotAPoseModelException(RoboKudoError, ValueError):
 
     def suggest_correction(self) -> str:
         return "set 'pretrained_model' to a YOLO pose model, e.g. 'yolov8n-pose.pt'."
+
+
+# %% robot voice
+
+
+@dataclass
+class RobotVoiceMessagesUnavailable(RoboKudoError, ImportError):
+    """
+    Raised when the message package of the robot's speech engine cannot be found.
+    """
+
+    message_type: str
+    """
+    The message type the robot's speech engine reads its sentences in.
+    """
+
+    def error_message(self) -> str:
+        return f"Speaking through the robot's voice needs the message type {self.message_type}."
+
+    def suggest_correction(self) -> str:
+        return "source the robot's ROS workspace, e.g. ~/hsr_core/install/setup.bash."

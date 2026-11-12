@@ -1,5 +1,6 @@
-"""YOLO object detection on request, answering with the detected objects and
-saying them."""
+"""
+YOLO object detection on request, answering with the detected objects and saying them.
+"""
 
 # %% imports
 import os
@@ -23,9 +24,10 @@ from robokudo.pipeline import Pipeline
 # %% analysis engine
 @dataclass
 class AnalysisEngine(AnalysisEngineInterface):
-    """Detect objects in the current frame of the HSR head camera for each
-    query, reply with them and publish a sentence naming them for the
-    text-to-speech."""
+    """
+    Detect objects in the current frame of the HSR head camera for each query, reply
+    with them and publish a sentence naming them for the text-to-speech.
+    """
 
     def name(self) -> str:
         return "live_yolo"
@@ -33,9 +35,8 @@ class AnalysisEngine(AnalysisEngineInterface):
     def implementation(self) -> Pipeline:
         camera = CollectionReaderDescriptorFactory.create_descriptor("hsr_ros2")
         yolo = YoloAnnotator.Descriptor()
-        yolo.parameters.pretrained_model = "yolov8m.pt"
+        yolo.parameters.pretrained_model = "ultimate_model_v8_1.26.2.pt"
         yolo.parameters.threshold = 0.6
-        yolo.parameters.ignored_class_names = ["person", "dining table"]
 
         pipeline = Pipeline("LiveYOLO")
         pipeline.add_children(
@@ -55,7 +56,9 @@ class AnalysisEngine(AnalysisEngineInterface):
 
 # %% direct start
 def main() -> None:
-    """Start RoboKudo with the YOLO object detection analysis engine."""
+    """
+    Start RoboKudo with the YOLO object detection analysis engine.
+    """
     os.execv(
         sys.executable,
         [
