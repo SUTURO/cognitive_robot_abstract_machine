@@ -311,6 +311,33 @@ def test_real_run_merges_the_scene_into_a_world_that_does_not_have_it(
     assert demonstration.robot.spawned_into == []
 
 
+def test_real_run_places_the_scene_where_it_lies_in_the_map(
+    cylinder_bot_world, monkeypatch
+):
+    serve_from_the_controller(monkeypatch, cylinder_bot_world)
+    map_T_scene = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.4, y=0.1, yaw=-0.06)
+    demonstration = RecordingDemonstration(
+        used_robot=MinimalRobot,
+        executor_type=RealRobotPlanExecutor,
+        map_T_scene=map_T_scene,
+    )
+
+    try:
+        demonstration.acquire_world()
+    finally:
+        demonstration.tear_down()
+
+    [scene_root_id] = demonstration.populated_scene_roots
+    scene_root = cylinder_bot_world.get_kinematic_structure_entity_by_id(scene_root_id)
+    np.testing.assert_allclose(
+        cylinder_bot_world.compute_forward_kinematics_np(
+            cylinder_bot_world.root, scene_root
+        ),
+        map_T_scene.to_np(),
+        atol=1e-9,
+    )
+
+
 def test_real_run_does_not_merge_the_scene_into_a_world_that_has_it(
     cylinder_bot_world, monkeypatch
 ):
