@@ -59,7 +59,7 @@ class MoveTorsoAction(SequentialAction):
 
     def create_steps(self) -> list[StatechartNode]:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return [JointPositionList(goal_state=joint_state)]
+        return [JointPositionList(goal_state=joint_state, threshold=0.001)]
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

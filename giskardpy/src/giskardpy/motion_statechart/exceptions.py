@@ -285,6 +285,33 @@ class NoGriplinkEndpoint(MotionStatechartError):
 
 
 @dataclass
+class NoHSRBHandEffort(MotionStatechartError):
+    """
+    Raised when the hand of the HSRB is to be driven into a gripper state no torque
+    drives it into.
+    """
+
+    end_effector: EndEffector
+    """
+    The hand whose state is to be commanded.
+    """
+
+    state_type: GripperState | None
+    """
+    The gripper state no torque drives the hand into.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The hand '{self.end_effector.name}' of the HSRB has no torque to drive it "
+            f"into the state {self.state_type}."
+        )
+
+    def suggest_correction(self) -> str:
+        return "Command the hand into GripperState.OPEN or GripperState.CLOSE."
+
+
+@dataclass
 class GriplinkParameterOutOfRangeError(MotionStatechartError):
     """
     Raised when a griplink parameter lies outside the interval the gripper accepts.

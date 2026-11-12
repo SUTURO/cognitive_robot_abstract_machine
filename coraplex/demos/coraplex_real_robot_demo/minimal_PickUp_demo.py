@@ -1,6 +1,6 @@
 """
-A milk carton appears in front of the real HSR, wherever the HSR currently stands and
-faces, and the HSR picks it up.
+A milk carton appears at a fixed place in the map, facing the way the real HSR faces,
+and the HSR picks it up and puts it down at a fixed place in the map.
 
 Run it from this folder while the HSR's controller is running::
 
@@ -14,14 +14,15 @@ from enum import StrEnum
 from pathlib import Path
 
 from coraplex.demonstrations import RobotDemonstration
+from coraplex.hsrb_hand import RealHSRBPlanExecutor
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import RealRobotPlanExecutor
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
+from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
 )
@@ -76,6 +77,11 @@ class SceneBody(StrEnum):
     The milk carton spawned in front of the robot.
     """
 
+    TRASH_CAN = "TRASH_CAN"
+    """
+    The Trashcan ... COMMENTHERE
+    """
+
 
 class HSRBBody(StrEnum):
     """
@@ -94,13 +100,14 @@ class HSRBBody(StrEnum):
 @dataclass
 class MilkSpawnDemonstration(RobotDemonstration):
     """
-    Spawns a milk carton in front of the real HSR's base, facing the way the base faces,
-    and has the HSR pick it up without driving, holding it with its arm parked.
+    Spawns a milk carton at :attr:`milk_x`, :attr:`milk_y` in the map, facing the way
+    the real HSR's base faces, and has the HSR pick it up without driving, park its arm and put it down at
+    :attr:`place_x`, :attr:`place_y`.
     """
 
     used_robot: type[AbstractRobot] = HSRB
     """
-    The robot the milk is spawned in front of.
+    The robot that picks up the milk.
     """
 
     ros_node_name: str = "hsr_minimal_pick_up_demo"
@@ -108,25 +115,50 @@ class MilkSpawnDemonstration(RobotDemonstration):
     Name of the node this demonstration registers.
     """
 
-    executor_type: type[PlanExecutor] = RealRobotPlanExecutor
+    executor_type: type[PlanExecutor] = RealHSRBPlanExecutor
     """
-    The executor running the plan, which drives the real HSR.
-    """
-
-    milk_distance_ahead: float = 0.7
-    """
-    How far ahead of the robot's base, along its heading, the milk is spawned, in meters.
+    The executor running the plan, which drives the real HSR, its hand included.
     """
 
-    milk_bottom_height: float = 0.6
+    milk_x: float = 3.19
+    """
+    The x coordinate in the map at which the milk is spawned, in meters.
+    """
+
+    milk_y: float = 3.15
+    """
+    The y coordinate in the map at which the milk is spawned, in meters.
+    """
+    # 3.19, 3.23
+    milk_bottom_height: float = 0
     """
     How high above the floor of the map the milk's lowest point is spawned, in meters.
     """
 
-    fraction_of_height: float = 4 / 6
+    fraction_of_height: float = 2 / 6
     """
     How far up the milk's bounding box the hand takes hold of it, from 0 at its bottom
     to 1 at its top.
+    """
+
+    lift_height: float = 0.25
+    """
+    How far the hand rises with the milk once it holds it, in meters.
+    """
+
+    place_x: float = 2.86
+    """
+    The x coordinate in the map at which the milk is put down, in meters.
+    """
+
+    place_y: float = 2.8
+    """
+    The y coordinate in the map at which the milk is put down, in meters.
+    """
+
+    place_bottom_height: float = 0.5
+    """
+    How high above the floor of the map the milk's lowest point is put down, in meters.
     """
 
     def scene_specification(self) -> WorldSpecification:
@@ -150,9 +182,9 @@ class MilkSpawnDemonstration(RobotDemonstration):
         else:
             milk = (
                 Milk.get_annotation_specification(
-                    name=SceneBody.MILK,
+                    name=SceneBody.MILK.value,
                     root_specification=BodySpecification.mesh(
-                        SceneBody.MILK,
+                        SceneBody.MILK.value,
                         str(SceneFile.MILK),
                         connection_specification=Connection6DoFSpecification(),
                     ),
@@ -179,27 +211,58 @@ class MilkSpawnDemonstration(RobotDemonstration):
 
     def compute_milk_pose(self, robot: AbstractRobot, milk: Body) -> Pose:
         """
-        :param robot: The robot the milk is spawned in front of.
+        :param robot: The robot that picks up the milk.
         :param milk: The body of the milk.
-        :return: The pose of ``milk`` in the world root, :attr:`milk_distance_ahead`
-            ahead of the base of ``robot`` and upright, facing the way the base faces,
-            with its lowest point at :attr:`milk_bottom_height`.
+        :return: The pose of ``milk`` in the world root at :attr:`milk_x`,
+            :attr:`milk_y`, upright, facing the way the base of ``robot`` faces, with
+            its lowest point at :attr:`milk_bottom_height`.
         """
-        world = milk._world
-        base_pose = robot.root.global_pose
-        ahead_of_base = (
-            base_pose.homogeneous_matrix
-            @ HomogeneousTransformationMatrix.from_xyz_rpy(x=self.milk_distance_ahead)
-        ).pose
+        return self.compute_upright_milk_pose(
+            milk,
+            x=self.milk_x,
+            y=self.milk_y,
+            bottom_height=self.milk_bottom_height,
+            yaw=robot.root.global_pose.yaw,
+        )
+
+    def compute_place_pose(self, robot: AbstractRobot, milk: Body) -> Pose:
+        """
+        :param robot: The robot that puts the milk down.
+        :param milk: The body of the milk.
+        :return: The pose of ``milk`` in the world root at :attr:`place_x`,
+            :attr:`place_y`, upright, facing the way the base of ``robot`` faces, with
+            its lowest point at :attr:`place_bottom_height`.
+        """
+        return self.compute_upright_milk_pose(
+            milk,
+            x=self.place_x,
+            y=self.place_y,
+            bottom_height=self.place_bottom_height,
+            yaw=robot.root.global_pose.yaw,
+        )
+
+    @staticmethod
+    def compute_upright_milk_pose(
+        milk: Body, x: float, y: float, bottom_height: float, yaw: float
+    ) -> Pose:
+        """
+        :param milk: The body of the milk.
+        :param x: The x coordinate of ``milk`` in the world root.
+        :param y: The y coordinate of ``milk`` in the world root.
+        :param bottom_height: The height of the lowest point of ``milk`` in the world
+            root.
+        :param yaw: The rotation of ``milk`` about the vertical axis of the world root.
+        :return: The pose of ``milk`` in the world root, standing upright.
+        """
         milk_box = milk.collision.as_bounding_box_collection_in_frame(
             milk
         ).bounding_box()
         return Pose.from_xyz_rpy(
-            x=ahead_of_base.x,
-            y=ahead_of_base.y,
-            z=self.milk_bottom_height - milk_box.min_z,
-            yaw=base_pose.yaw,
-            reference_frame=world.root,
+            x=x,
+            y=y,
+            z=bottom_height - milk_box.min_z,
+            yaw=yaw,
+            reference_frame=milk._world.root,
         )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
@@ -209,15 +272,22 @@ class MilkSpawnDemonstration(RobotDemonstration):
         robot = context.require_extension(RobotAccess).robot
         [milk] = context.world.get_semantic_annotations_by_type(Milk)
         [arm] = robot.all_arms
+        place_pose = self.compute_place_pose(robot, milk.root)
         statechart = Statechart(context=context)
         statechart.add_node(
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
+                    MoveTorsoAction(torso_state=TorsoState.HIGH),
+                    MoveTorsoAction(torso_state=TorsoState.LOW),
                     PickUpAction(
                         grasp=GraspCandidate(milk, self.compute_grasp_pose(milk.root)),
                         arm=arm,
+                        retreat_distance=self.lift_height,
                     ),
+                    ParkArmsAction(arms=robot.all_arms),
+                    MoveTorsoAction(torso_state=TorsoState.LOW),
+                    PlaceAction(object_designator=milk, target_location=place_pose),
                     ParkArmsAction(arms=robot.all_arms),
                 ]
             )

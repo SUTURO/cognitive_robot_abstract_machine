@@ -200,9 +200,9 @@ class MilkPickUpDemonstration(RobotDemonstration):
         :meth:`RobotDemonstration.populate_scene`.
         """
         Milk.get_annotation_specification(
-            name=SceneBody.MILK,
+            name=SceneBody.MILK.value,
             root_specification=BodySpecification.mesh(
-                SceneBody.MILK,
+                SceneBody.MILK.value,
                 str(SceneFile.MILK),
                 parent_T_self=self.world_T_milk,
                 connection_specification=Connection6DoFSpecification(),

@@ -80,6 +80,19 @@ class HSRBTopic(StrEnum):
     """
 
 
+class HSRBAction(StrEnum):
+    """
+    The ROS actions the drivers of the real HSRB serve, by the name they serve them
+    under.
+    """
+
+    HAND_GRASP = "/gripper_controller/grasp"
+    """
+    Drives the hand's motor with a torque until the hand stalls, on what it holds or at
+    the end of its stroke.
+    """
+
+
 class HSRBJoint(JointName):
     """
     Names of the HSRB's commandable connections, as spelled in its URDF.
