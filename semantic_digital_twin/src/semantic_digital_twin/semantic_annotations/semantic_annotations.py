@@ -8,6 +8,7 @@ from typing_extensions import Iterable, Iterator, Self, TYPE_CHECKING
 import numpy as np
 
 from krrood.ormatic.utils import classproperty
+from krrood.patterns.mixin import Mixin
 from krrood.symbolic_math import symbolic_math
 from random_events.interval import closed
 from random_events.product_algebra import SimpleEvent
@@ -75,6 +76,7 @@ from semantic_digital_twin.world_description.shape_collection import (
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    Region,
 )
 from semantic_digital_twin.specifications.connections import ConnectionSpecification
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
@@ -84,6 +86,9 @@ from semantic_digital_twin.specifications.kinematic_structure_entities import (
 )
 from semantic_digital_twin.specifications.semantic_annotations import (
     SemanticAnnotationWithRootSpecification,
+)
+from semantic_digital_twin.world_description.world_modification import (
+    synchronized_attribute_modification,
 )
 
 if TYPE_CHECKING:
@@ -95,6 +100,42 @@ class Furniture(SemanticAnnotation, ABC):
     """
     A semantic annotation that represents a piece of furniture.
     """
+
+
+@dataclass(eq=False)
+class HasSeatPlaces(Mixin):
+    """
+    A semantic annotation people can sit on, with one region per place a single person
+    sits on.
+    """
+
+    seat_places: list[Region] = field(default_factory=list, kw_only=True)
+    """
+    The regions above the places a single person sits on, each holding the people
+    sitting there.
+    """
+
+    @synchronized_attribute_modification
+    def add_seat_place(self, region: Region) -> None:
+        """
+        List ``region`` among the :attr:`seat_places`, recorded as a modification of the
+        world so that the copies of the world other processes hold gain it too.
+
+        :param region: The region above a place a single person sits on.
+        """
+        self.seat_places.append(region)
+
+    @property
+    def free_seat_places(self) -> list[Region]:
+        """
+        :return: The seat places no :class:`Human` sits on, in the order of
+            :attr:`seat_places`.
+        """
+        return [
+            seat_place
+            for seat_place in self.seat_places
+            if not seat_place.semantic_annotations_within(Human)
+        ]
 
 
 @dataclass(eq=False)
@@ -1255,7 +1296,7 @@ class Desk(Table, HasLegs):
 
 
 @dataclass(eq=False)
-class Chair(Furniture, HasRootBody):
+class Chair(Furniture, HasRootBody, HasSeatPlaces):
     """
     Abstract class for chairs.
     """
@@ -1304,7 +1345,7 @@ class Bed(Furniture):
 
 
 @dataclass(eq=False)
-class Sofa(Furniture, HasSupportingSurface):
+class Sofa(Furniture, HasSupportingSurface, HasSeatPlaces):
     """
     A sofa.
     """

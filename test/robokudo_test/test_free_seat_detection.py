@@ -1,0 +1,126 @@
+"""
+Tests for the pipeline detecting free seats.
+"""
+
+# %% imports
+
+from __future__ import annotations
+
+from typing_extensions import TYPE_CHECKING
+
+from robokudo.annotators.collection_reader import CollectionReaderAnnotator
+from robokudo.annotators.gpsr.sitting import HumanSittingAnnotator
+from robokudo.annotators.query import QueryAnnotator
+from robokudo.annotators.seat_occupancy import (
+    SeatOccupancyAnnotator,
+    SeatQueryAnswerAnnotator,
+)
+from robokudo.annotators.world_seat_regions import WorldSeatRegionAnnotator
+from robokudo.annotators.yolo_annotator import YoloAnnotator
+from robokudo.behaviours.action_server_checks import ActionServerCheck
+from robokudo.descriptors.analysis_engines.free_seat_detection import AnalysisEngine
+from robokudo.descriptors.analysis_engines.seat_place_occupancy import (
+    AnalysisEngine as SeatPlaceOccupancyAnalysisEngine,
+)
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+
+# %% human detection
+
+
+def test_humans_are_only_detected_with_body_keypoints(node: Node) -> None:
+    """
+    The object detection leaves persons out, so every human hypothesis comes from the
+    human detection and carries the body keypoints its posture is judged on.
+    """
+    pipeline = AnalysisEngine().implementation()
+
+    (object_detection,) = [
+        behaviour
+        for behaviour in pipeline.iterate()
+        if isinstance(behaviour, YoloAnnotator)
+    ]
+    parameters = object_detection.descriptor.parameters
+    assert parameters.person_class_name in parameters.ignored_class_names
+
+
+# %% posture
+
+
+def test_knee_at_hip_height_counts_as_sitting(node: Node) -> None:
+    """
+    The sitting rule of the pipeline also decides persons with hidden ankles, whose
+    knees are at hip height, as sitting.
+    """
+    pipeline = AnalysisEngine().implementation()
+
+    (sitting_rule,) = [
+        behaviour
+        for behaviour in pipeline.iterate()
+        if isinstance(behaviour, HumanSittingAnnotator)
+    ]
+    assert sitting_rule.descriptor.parameters.knee_at_hip_height_is_sitting
+
+
+# %% query answering
+
+
+def test_seats_are_annotated_between_query_and_answer(node: Node) -> None:
+    """
+    The pipeline waits for a query before reading a camera image and answers only after
+    the seats are annotated with their occupancy.
+    """
+    pipeline = AnalysisEngine().implementation()
+
+    behaviour_types = [type(behaviour) for behaviour in pipeline.children]
+    assert behaviour_types.index(QueryAnnotator) < behaviour_types.index(
+        CollectionReaderAnnotator
+    )
+    assert behaviour_types[-3:] == [
+        SeatOccupancyAnnotator,
+        SeatQueryAnswerAnnotator,
+        ActionServerCheck,
+    ]
+
+
+# %% seats from the world and from detection
+
+
+def test_seats_come_from_the_world_seat_places_and_detected_chairs(node: Node) -> None:
+    """
+    The seat places of the world are added as seats before the occupancy is annotated.
+    """
+    pipeline = AnalysisEngine().implementation()
+
+    behaviour_types = [type(behaviour) for behaviour in pipeline.children]
+    assert behaviour_types.index(WorldSeatRegionAnnotator) < behaviour_types.index(
+        SeatOccupancyAnnotator
+    )
+
+
+# %% seat places of the world only
+
+
+def test_the_seat_place_occupancy_detects_no_chairs(node: Node) -> None:
+    """
+    The pipeline for the seat places of the world alone runs no object detection.
+    """
+    pipeline = SeatPlaceOccupancyAnalysisEngine().implementation()
+
+    assert not any(
+        isinstance(behaviour, YoloAnnotator) for behaviour in pipeline.iterate()
+    )
+
+
+def test_the_seat_place_occupancy_annotates_the_world_seat_places(node: Node) -> None:
+    """
+    Without chair detection, the pipeline still takes the seat places of the world in
+    view and annotates their occupancy.
+    """
+    pipeline = SeatPlaceOccupancyAnalysisEngine().implementation()
+
+    behaviour_types = [type(behaviour) for behaviour in pipeline.children]
+    assert behaviour_types.index(WorldSeatRegionAnnotator) < behaviour_types.index(
+        SeatOccupancyAnnotator
+    )

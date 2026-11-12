@@ -28,7 +28,7 @@ from coraplex.robot_plans.actions.composite.transporting import (
     MoveAndPickUpAction,
     PickAndPlaceAction,
 )
-from coraplex.robot_plans.actions.core.misc import DetectAction
+from coraplex.robot_plans.actions.core.misc import DetectAction, Perceives
 from coraplex.robot_plans.actions.core.navigation import (
     DrivesBase,
     LookAtAction,
@@ -515,16 +515,16 @@ class WriteTheOdometryInsteadOfCommandingAPose(WriteTheOdometryInsteadOfDriving)
 
 
 @dataclass
-class DetectWithRoboKudo(ConfigurationTransformation[DetectAction]):
+class DetectWithRoboKudo(ConfigurationTransformation[Perceives]):
     """
-    Answers a detection with RoboKudo instead of the world model, where the world model
+    Answers a perception with RoboKudo instead of the world model, where the world model
     does not know what is in front of the robot.
     """
 
-    def is_applicable(self, plan_node: DetectAction) -> bool:
+    def is_applicable(self, plan_node: Perceives) -> bool:
         return True
 
-    def apply(self, plan_node: DetectAction) -> None:
+    def apply(self, plan_node: Perceives) -> None:
         plan_node.perception_source = PerceptionSource.ROBOKUDO
 
 

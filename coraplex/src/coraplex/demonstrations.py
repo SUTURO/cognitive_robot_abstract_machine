@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
 
+from typing_extensions import Callable
+
 from rclpy.node import Node
 
 from coraplex.plans.executors import (
@@ -34,7 +36,10 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.connections import FixedConnection
+from semantic_digital_twin.world_description.connections import (
+    ActiveConnection,
+    FixedConnection,
+)
 
 # %% demonstrations
 
@@ -42,17 +47,12 @@ from semantic_digital_twin.world_description.connections import FixedConnection
 @dataclass
 class RobotDemonstration(ABC):
     """
-    A robot demonstration that runs either in simulation or against a real controller.
+    A robot demonstration that performs its plan in the scene of :meth:`build_scene`,
+    either against a real controller, whose world the scene is merged into, or in
+    simulation, where the robot is put into the scene.
 
-    The scene, the map the robot acts in together with the objects the plan acts on, is
-    built the same way for both kinds of run, by :meth:`build_scene`, and holds no robot.
-
-    A real run takes its world, with the robot in it, from the controller and keeps it
-    synchronized, and merges the scene into it unless the controller already holds it,
-    so the scene reaches the controller before the plan needs it. A simulated run puts
-    the robot into the scene instead, and publishes it to Rviz, so its progress can be
-    watched the same way a real run's can. A physically simulated run performs its plan
-    in the physics of :meth:`build_simulation`.
+    A physically simulated run performs the plan in the physics of
+    :meth:`build_simulation`.
     """
 
     used_robot: type[AbstractRobot]
@@ -96,6 +96,15 @@ class RobotDemonstration(ABC):
     one carrying an object away and back again.
     """
 
+    scene_joints_movable: bool = True
+    """
+    Whether the joints of the scene, such as the hinges of its doors and the slides of
+    its drawers, can move.
+
+    If not, :meth:`build_scene` replaces each of them with a fixed connection holding it
+    where the scene was built with it.
+    """
+
     simulation_time_per_action: timedelta | None = None
     """
     The simulated time every action a simulated run starts adds to the time it may take;
@@ -115,8 +124,10 @@ class RobotDemonstration(ABC):
 
     visualization: WorldVisualization | None = None
     """
-    Shows every simulated run of this demonstration. Left ``None``, a simulated run is
-    shown in RViz through :attr:`ros_node`, if there is one; a real run is never shown.
+    Shows every simulated run of this demonstration.
+
+    Left ``None``, a simulated run is shown in RViz through :attr:`ros_node`, if there
+    is one; a real run is never shown.
     """
 
     ros_session: RobotDemonstrationRosSession | None = field(init=False, default=None)
@@ -140,8 +151,9 @@ class RobotDemonstration(ABC):
     @abstractmethod
     def robot_specification(self) -> RobotSpecification:
         """
-        How a simulated run puts :attr:`used_robot` into the scene. A real run takes the
-        robot from the controller instead.
+        How a simulated run puts :attr:`used_robot` into the scene.
+
+        A real run takes the robot from the controller instead.
 
         :return: The robot to put into the scene, with where it starts and how fast its
             drive is.
@@ -174,8 +186,8 @@ class RobotDemonstration(ABC):
         """
         Build what the plan's nodes read from their context, at least the
         :class:`~coraplex.plans.context_extensions.RobotAccess` of the robot resolved in
-        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting`
-        if the plan is to be rewritten.
+        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting` if
+        the plan is to be rewritten.
         """
 
     @abstractmethod
@@ -207,13 +219,41 @@ class RobotDemonstration(ABC):
     def build_scene(self) -> World:
         """
         Build the scene: the map of :meth:`scene_specification`, populated by
-        :meth:`populate_scene`.
+        :meth:`populate_scene`, with its joints replaced by
+        :meth:`replace_joints_with_fixed_connections` unless
+        :attr:`scene_joints_movable`.
 
         :return: A world holding the scene and no robot.
         """
         scene = self.scene_specification().create_world()
         self.populate_scene(scene)
+        if not self.scene_joints_movable:
+            self.replace_joints_with_fixed_connections(scene)
         return scene
+
+    def replace_joints_with_fixed_connections(self, world: World) -> None:
+        """
+        Replace every joint of ``world``, every connection with a degree of freedom that
+        can be actuated, with a fixed connection of the same name that holds its child
+        where it currently is. Bodies attached by a free connection stay free.
+
+        :param world: The world whose joints are replaced.
+        """
+        joints = world.get_connections_by_type(ActiveConnection)
+        fixed_connections = [
+            FixedConnection(
+                name=joint.name,
+                parent=joint.parent,
+                child=joint.child,
+                parent_T_connection_expression=joint.origin,
+            )
+            for joint in joints
+        ]
+        with world.modify_world():
+            for joint in joints:
+                world.remove_connection(joint)
+            for fixed_connection in fixed_connections:
+                world.add_connection(fixed_connection)
 
     def build_simulated_world(self) -> World:
         """
@@ -229,10 +269,11 @@ class RobotDemonstration(ABC):
     def fetch_real_world(self) -> World:
         """
         Fetch the world the controller serves and keep it synchronized with it, and
-        merge the scene into it unless :meth:`is_scene_populated` finds it there already.
+        merge the scene into it unless :meth:`is_scene_populated` finds it there
+        already.
 
-        The scene's root is fixed to the root of the fetched world, which is the map frame
-        the robot localizes in.
+        The scene's root is fixed to the root of the fetched world, which is the map
+        frame the robot localizes in.
 
         :return: The world the controller serves, holding the scene.
         """
@@ -318,20 +359,41 @@ class RobotDemonstration(ABC):
             world = self.acquire_world()
             self.start_simulation(world)
             for _ in range(self.repetitions):
-                executor = self.create_executor(world)
-                statechart = self.build_statechart(executor.context)
-                event_segmentation = (
-                    self.segment_events(world)
-                    if self.event_segmentation
-                    else nullcontext()
-                )
-                with event_segmentation:
-                    executor.compile(statechart)
-                    executor.execute()
-                executor.close()
+                self.perform_plan(world)
         finally:
             self.tear_down()
         return world
+
+    def perform_plan(self, world: World) -> None:
+        """
+        Perform the plan once against ``world``: the statechart of
+        :meth:`build_statechart`, in one run of an executor.
+
+        :param world: The world the plan is performed in.
+        """
+        self.execute_statechart(world, self.build_statechart)
+
+    def execute_statechart(
+        self,
+        world: World,
+        build_statechart: Callable[[StatechartContext], Statechart],
+    ) -> None:
+        """
+        Run one statechart against ``world`` with a new executor, segmenting its events
+        if :attr:`event_segmentation` asks for it.
+
+        :param world: The world the statechart runs in.
+        :param build_statechart: Builds the statechart in the executor's context.
+        """
+        executor = self.create_executor(world)
+        statechart = build_statechart(executor.context)
+        event_segmentation = (
+            self.segment_events(world) if self.event_segmentation else nullcontext()
+        )
+        with event_segmentation:
+            executor.compile(statechart)
+            executor.execute()
+        executor.close()
 
     def tear_down(self) -> None:
         """
