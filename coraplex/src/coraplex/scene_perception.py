@@ -11,7 +11,12 @@ from uuid import UUID
 
 from std_msgs.msg import String
 from typing_extensions import TYPE_CHECKING
+from coraplex.perception import Detection
 from coraplex.scene_description import SceneDescription
+from cramph.composites import ChildChooser, CompositeNodeChoosingItsChild
+from cramph.node import NodeArtifacts, StatechartNode, SucceedsOnObservingTrue
+from krrood.patterns.field_metadata import JSONMetadata
+from krrood.symbolic_math.symbolic_math import Scalar
 from krrood.entity_query_language.verbalization.fragments.base import (
     NounPhrase,
     WordFragment,
@@ -35,6 +40,7 @@ from semantic_digital_twin.utils import camel_case_split
 
 if TYPE_CHECKING:
     from rclpy.publisher import Publisher
+    from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
     from krrood_spatial_math.spatial_types import Pose
     from semantic_digital_twin.world import World
     from semantic_digital_twin.world_description.geometry import (
@@ -120,6 +126,30 @@ class SceneObservation:
 
     objects: list[ObservedObject] = field(default_factory=list)
     """Hypotheses for this request only, including unclassified ones."""
+
+    def detections(
+        self,
+        annotation_types_by_category: dict[str, type[SemanticAnnotation]],
+    ) -> list[Detection]:
+        """
+        :param annotation_types_by_category: The annotation each reported class stands
+            for; objects of other classes are left out.
+        :return: One detection per annotation type, at the pose of the first object of
+            a class standing for it that was located.
+        """
+        detections: dict[type[SemanticAnnotation], Detection] = {}
+        for observed_object in self.objects:
+            annotation_type = annotation_types_by_category.get(observed_object.category)
+            if (
+                annotation_type is None
+                or observed_object.pose is None
+                or annotation_type in detections
+            ):
+                continue
+            detections[annotation_type] = Detection(
+                semantic_annotation=annotation_type, pose=observed_object.pose
+            )
+        return list(detections.values())
 
     def describe(self, query: SceneQuery) -> str:
         """Group distinct hypotheses by their supported locations without altering the map."""
@@ -267,3 +297,64 @@ class SceneReport:
         batch = self.source.observe(query)
         sentence = batch.describe(query)
         self.publisher.publish(String(data=sentence))
+
+
+# %% observing the scene as a step of a plan
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class SceneObservationNode(CompositeNodeChoosingItsChild):
+    """
+    A step of a plan that asks the source of the :class:`SceneObserver` of its context
+    what the robot sees, and keeps the whole answer in :attr:`observation` of the copy
+    of the statechart the plan was built in.
+    """
+
+    observation: SceneObservation | None = field(
+        default=None, init=False, metadata=JSONMetadata(serialize=False).as_dict()
+    )
+    """
+    Everything the source answered the latest time this step ran, unfiltered, and
+    ``None`` before that.
+    """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class ObservationReceived(SucceedsOnObservingTrue, StatechartNode):
+    """
+    The child of a :class:`SceneObservationNode` whose answer arrived, which succeeds at
+    once so the plan goes on.
+    """
+
+    def build_artifacts(self) -> NodeArtifacts:
+        return NodeArtifacts(observation=Scalar.const_true())
+
+
+@dataclass
+class SceneObserver(ChildChooser[SceneObservationNode]):
+    """
+    Answers every :class:`SceneObservationNode` of a plan with :attr:`source`, in the
+    process the plan was built in, and moves the annotations of
+    :attr:`annotation_types_by_category` in the world to where they were seen.
+    """
+
+    source: ScenePerception
+    """
+    The scene source asked each time a :class:`SceneObservationNode` starts.
+    """
+
+    annotation_types_by_category: dict[str, type[SemanticAnnotation]] = field(
+        default_factory=dict
+    )
+    """
+    The annotation of the world each reported class stands for. Only the body of such an
+    annotation is moved, see :meth:`SceneObservation.detections`; the rest of the world
+    stays as it is.
+    """
+
+    def choose_child(self, node: SceneObservationNode) -> StatechartNode:
+        world = node.context.world
+        node.observation = self.source.observe(SceneQuery(world=world))
+        for detection in node.observation.detections(self.annotation_types_by_category):
+            detection.apply_to(world)
+        return ObservationReceived()
