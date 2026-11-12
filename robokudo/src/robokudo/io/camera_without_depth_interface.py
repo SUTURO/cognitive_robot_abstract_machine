@@ -123,12 +123,31 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
         :return: True if new data is available, False otherwise
         """
         if not self._has_new_data:
-            # try to grab next frame
-            self._has_new_data = (
-                self.video_capture.grab() or self._backup_color is not None
-            )
+            self._has_new_data = self._grab_frame() or self._backup_color is not None
 
         return self._has_new_data
+
+    def _grab_frame(self) -> bool:
+        """
+        Grab the next frame; from a live camera, the newest one rather than the frames
+        its driver buffered since the last read.
+
+        :return: Whether a frame was grabbed.
+        """
+        if self.stream_type != TYPE_CAMERA:
+            return self.video_capture.grab()
+
+        grabbed = False
+        for _ in range(self.camera_config.maximum_buffered_frames + 1):
+            grab_start = time.monotonic()
+            grabbed = self.video_capture.grab()
+            grab_seconds = time.monotonic() - grab_start
+            if (
+                not grabbed
+                or grab_seconds >= self.camera_config.buffered_frame_grab_seconds
+            ):
+                return grabbed
+        return grabbed
 
     def set_data(self, cas: CAS) -> None:
         """

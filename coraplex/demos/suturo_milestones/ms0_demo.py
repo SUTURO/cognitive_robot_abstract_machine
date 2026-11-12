@@ -18,9 +18,7 @@ from coraplex.plans.executors import RealRobotPlanExecutor
 from coraplex.querying.grasp_closeness import GraspsByCloseness
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from coraplex.ros_scene_perception import RoboKudoScenePerception
-from coraplex.scene_perception import SceneObservationNode, SceneObserver
-from cramph.composites import ChildChooserAccess, Sequence
+from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
@@ -69,33 +67,13 @@ class SceneBody(StrEnum):
     """
 
 
-class MilkClass(StrEnum):
-    """
-    The classes of RoboKudo's RoboCup model that the Suturo type mapping counts as
-    :class:`Milk`.
-    """
-
-    BUTTERMILK_MUELLER_ORIGINAL = "buttermilk_mueller_bottle_original"
-    BUTTERMILK_MUELLER_RASPBERRY = "buttermilk_mueller_bottle_raspberry"
-    BAERENMARKE = "milk_baerenmarke_pack"
-    HANSANO = "milk_hansano_pack"
-    JA = "milk_ja_pack"
-    JUMBO_HALFVOLL = "milk_jumbo_pack_halfvoll"
-    JUMBO_VOLL = "milk_jumbo_pack_voll"
-    MILBONA = "milk_milbona_pack"
-    WEIHENSTEPHAN = "milk_weihenstephan_pack"
-    MILSANI_LACTOSEFREE = "milk_milsani_pack_lactosefree"
-
-
 # %% the demonstration
 
 
 @dataclass
 class MilkPickUpDemonstration(RobotDemonstration):
     """
-    The real HSR parks its arm, then asks RoboKudo what its camera sees, keeps
-    everything RoboKudo answers and moves the milk to where RoboKudo saw one, as steps
-    of one plan.
+    The real HSR parks its arm and picks up the milk from where it stands.
     """
 
     used_robot: type[AbstractRobot] = HSRB
@@ -120,12 +98,6 @@ class MilkPickUpDemonstration(RobotDemonstration):
     )
     """
     Where the milk stands before the plan begins, in the map frame.
-    """
-
-    scene_observation: SceneObservationNode | None = field(init=False, default=None)
-    """
-    The step of the plan asking RoboKudo what the camera sees, whose
-    :attr:`~SceneObservationNode.observation` holds the answer once it ran.
     """
 
     def scene_specification(self) -> WorldSpecification:
@@ -162,59 +134,16 @@ class MilkPickUpDemonstration(RobotDemonstration):
         [closest_grasp] = GraspsByCloseness(
             milk, robot.root.global_pose, number_of_grasps=1
         )()
-        scene_observation = SceneObservationNode()
-        self.scene_observation = scene_observation
         statechart = Statechart(context=context)
         statechart.add_node(
             Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
-                    scene_observation,
                     # PickUpAction(grasp=closest_grasp, arm=arm),
                 ]
             )
         )
         return statechart
-
-    def create_executor(self, world: World) -> PlanExecutor:
-        """
-        Differs from :meth:`RobotDemonstration.create_executor` in letting RoboKudo
-        answer every :class:`SceneObservationNode` of the plan, which moves the milk of
-        the world to where RoboKudo saw a milk.
-        """
-        executor = super().create_executor(world)
-        robokudo = RoboKudoScenePerception(ros_node=self.ros_node)
-        executor.context.require_extension(ChildChooserAccess).choosers.append(
-            SceneObserver(
-                source=robokudo,
-                annotation_types_by_category={
-                    milk_class: Milk for milk_class in MilkClass
-                },
-            )
-        )
-        return executor
-
-    def print_observed_objects(self) -> None:
-        """
-        Print every object RoboKudo answered :attr:`scene_observation` with, with its
-        class, position, orientation and size, as far as RoboKudo reported them.
-        """
-        observation = self.scene_observation.observation
-        if observation is None:
-            print("RoboKudo was not asked, the plan ended before.")
-            return
-        print(f"RoboKudo reported {len(observation.objects)} objects:")
-        for observed_object in observation.objects:
-            print(f"- {observed_object.category or 'unclassified'}")
-            if observed_object.pose is not None:
-                x, y, z, _ = observed_object.pose.position.to_np()
-                qx, qy, qz, qw = observed_object.pose.quaternion.to_np()
-                frame = observed_object.pose.reference_frame.name
-                print(f"    position in {frame}: x={x:.3f} y={y:.3f} z={z:.3f}")
-                print(f"    orientation: x={qx:.3f} y={qy:.3f} z={qz:.3f} w={qw:.3f}")
-            if observed_object.dimensions is not None:
-                size = observed_object.dimensions
-                print(f"    size: {size.x:.3f} x {size.y:.3f} x {size.z:.3f} m")
 
 
 def main() -> World:
@@ -223,10 +152,7 @@ def main() -> World:
 
     :return: The world the milk was picked up in.
     """
-    demonstration = MilkPickUpDemonstration()
-    world = demonstration.run()
-    demonstration.print_observed_objects()
-    return world
+    return MilkPickUpDemonstration().run()
 
 
 if __name__ == "__main__":
