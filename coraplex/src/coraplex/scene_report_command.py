@@ -78,18 +78,43 @@ class RobotSpeech:
         )
 
     def say(self, sentence: str) -> None:
-        """Publish once after discovery and await transport, without asserting playback completion."""
-        deadline = monotonic() + self.timeout
-        while self.publisher.get_subscription_count() == 0:
-            if monotonic() >= deadline:
-                raise SpeechInputUnavailable(self.topic)
-            sleep(self.polling_period)
+        """
+        Publish ``sentence`` once to every subscriber of :attr:`topic` and wait until
+        they acknowledged it, without waiting for the robot to finish speaking.
+
+        :param sentence: The sentence the robot says.
+        :raises SpeechInputUnavailable: If no subscriber appears, or the sentence is not
+            acknowledged, within :attr:`timeout`.
+        """
+        self.wait_for_subscribers()
         message = self.message_type()
         message.language = self.language
         message.sentence = sentence
         self.publisher.publish(message)
         if not self.publisher.wait_for_all_acked(Duration(seconds=self.timeout)):
             raise SpeechInputUnavailable(self.topic)
+
+    def wait_for_subscribers(self, settling_time: float = 0.5) -> None:
+        """
+        Wait until :attr:`topic` has a subscriber and no further one has appeared for
+        ``settling_time``, since the robot's voice nodes connect one after another and
+        a sentence reaches only the subscribers connected when it is published.
+
+        :param settling_time: How long the number of subscribers has to stay the same,
+            in seconds.
+        :raises SpeechInputUnavailable: If no subscriber appears within :attr:`timeout`.
+        """
+        deadline = monotonic() + self.timeout
+        subscriber_count = self.publisher.get_subscription_count()
+        unchanged_since = monotonic()
+        while subscriber_count == 0 or monotonic() - unchanged_since < settling_time:
+            if monotonic() >= deadline:
+                raise SpeechInputUnavailable(self.topic)
+            sleep(self.polling_period)
+            current_count = self.publisher.get_subscription_count()
+            if current_count != subscriber_count:
+                subscriber_count = current_count
+                unchanged_since = monotonic()
 
 
 # %% one-shot command

@@ -28,7 +28,7 @@ from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
-from pumas_navigation import PumasNavigation
+from coraplex.pumas_navigation import PumasNavigation
 from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Milk
