@@ -57,9 +57,15 @@ class MoveTorsoAction(SequentialAction):
     The state of the torso that should be set.
     """
 
+    threshold : float = 0.001
+    """
+    If torso joint position error is smaller than this threshold, the task's observation
+    state is true.
+    """
+
     def create_steps(self) -> list[StatechartNode]:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return [JointPositionList(goal_state=joint_state, threshold=0.001)]
+        return [JointPositionList(goal_state=joint_state, threshold=self.threshold)]
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
