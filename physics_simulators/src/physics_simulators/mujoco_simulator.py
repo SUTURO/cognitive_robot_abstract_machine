@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""MuJoCo simulation and camera rendering."""
+
+# %% imports
+
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, InitVar
@@ -19,6 +23,7 @@ from physics_simulators.base_simulator import (
 )
 
 
+# %% graphics backends
 class HeadlessGraphicsBackend(StrEnum):
     """
     The OpenGL backends MuJoCo renders with when no display is available, selected
@@ -50,6 +55,25 @@ class MujocoEnvironmentVariable(StrEnum):
     """
 
 
+# %% captured camera frame
+@dataclass
+class RGBDFrame:
+    """Camera images and optical pose captured from the same simulation state."""
+
+    color: numpy.ndarray
+    """The RGB image."""
+
+    depth: numpy.ndarray
+    """Depth in meters."""
+
+    camera_position: numpy.ndarray
+    """The optical frame position in the simulation world."""
+
+    camera_quaternion: numpy.ndarray
+    """The optical frame orientation in the simulation world, scalar first."""
+
+
+# %% simulation rendering
 @dataclass
 class MujocoRenderer(SimulatorRenderer):
     """
@@ -71,6 +95,7 @@ class MujocoRenderer(SimulatorRenderer):
         return self._mj_viewer
 
 
+# %% simulator
 @dataclass(unsafe_hash=True)
 class MujocoSimulator(BaseSimulator):
     """
@@ -1596,6 +1621,44 @@ class MujocoSimulator(BaseSimulator):
         if backend in HeadlessGraphicsBackend:
             return True
         return MujocoEnvironmentVariable.DISPLAY in os.environ
+
+    @BaseSimulator.simulator_callback
+    def capture_rgbd(
+        self, camera_name: str, height: int, width: int
+    ) -> SimulatorCallbackResult:
+        """Capture color and depth for one camera at the same simulation state.
+
+        :param camera_name: The name of the camera in the simulation.
+        :param height: The image height in pixels.
+        :param width: The image width in pixels.
+        :return: The callback result containing the captured frame and camera pose.
+        """
+        with self._model_lock:
+            with mujoco.Renderer(self._mj_model, height, width) as renderer:
+                renderer.update_scene(self._mj_data, camera_name)
+                color = renderer.render()
+                renderer.enable_depth_rendering()
+                depth = renderer.render()
+                camera = self._mj_data.camera(camera_name)
+                camera_position = camera.xpos.copy()
+                mujoco_quaternion = numpy.empty(4)
+                mujoco.mju_mat2Quat(mujoco_quaternion, camera.xmat)
+                camera_quaternion = numpy.empty(4)
+                mujoco.mju_mulQuat(
+                    camera_quaternion,
+                    mujoco_quaternion,
+                    numpy.array([0.0, 1.0, 0.0, 0.0]),
+                )
+        return SimulatorCallbackResult(
+            type=SimulatorCallbackResult.ResultType.SUCCESS_WITHOUT_EXECUTION,
+            info="Captured RGB-D frame",
+            result=RGBDFrame(
+                color=color,
+                depth=depth,
+                camera_position=camera_position,
+                camera_quaternion=camera_quaternion,
+            ),
+        )
 
     @BaseSimulator.simulator_callback
     def capture_rgb(

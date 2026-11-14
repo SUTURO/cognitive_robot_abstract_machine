@@ -1,13 +1,18 @@
+"""Perception sources and statechart tasks for detecting objects in a world."""
+
 from __future__ import annotations
+
+# %% imports
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import timedelta
+from enum import StrEnum
 
 import numpy as np
 
 from krrood.ormatic.utils import classproperty
-from cramph.node import EndedByOwner, FailsOnObservingFalse
+from cramph.node import EndedByOwner, FailsOnObservingFalse, SucceedsOnObservingTrue
 from cramph.context import ContextExtension
 from cramph.data_types import ObservationStateValues
 from cramph.node import StatechartNode
@@ -15,6 +20,7 @@ from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rosidl_runtime_py.utilities import get_action, get_message
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -23,7 +29,6 @@ from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
-    RotationMatrix,
 )
 from krrood_spatial_math.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
@@ -32,7 +37,7 @@ from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
 )
-from typing_extensions import Any, Self, TYPE_CHECKING
+from typing_extensions import Any, Callable, Self, TYPE_CHECKING
 
 from coraplex.datastructures.enums import PerceptionSource
 from coraplex.exceptions import (
@@ -43,6 +48,7 @@ from coraplex.exceptions import (
 )
 
 if TYPE_CHECKING:
+    from robokudo_msgs.action import Query
     from robokudo_msgs.msg import ObjectDesignator
 
 ROBOKUDO_QUERY_ACTION_NAME = "robokudo/query"
@@ -51,6 +57,16 @@ Name of the action RoboKudo answers perception queries on.
 """
 
 # %% queries
+
+
+class RoboKudoMessageType(StrEnum):
+    """ROS interface names of the RoboKudo query action."""
+
+    QUERY = "robokudo_msgs/action/Query"
+    """The action that answers a perception query."""
+
+    OBJECT_DESIGNATOR = "robokudo_msgs/msg/ObjectDesignator"
+    """The object description carried in a query."""
 
 
 @dataclass
@@ -136,6 +152,39 @@ class PerceptionQuery(SubclassJSONSerializer):
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
         )
+
+
+@dataclass
+class RoboKudoQuery:
+    """
+    A question to a RoboKudo pipeline, in the terms of the object designator its query
+    action takes.
+    """
+
+    object_type: str
+    """
+    What kind of thing to look for, such as ``human`` or ``object``.
+    """
+
+    attributes: list[str] = field(default_factory=list)
+    """
+    Properties the thing shows, such as a posture or a gesture.
+    """
+
+    colors: list[str] = field(default_factory=list)
+    """
+    Colors of the thing.
+    """
+
+    descriptions: list[str] = field(default_factory=list)
+    """
+    Words describing the thing further, such as an object class or a piece of clothing.
+    """
+
+    location: str = ""
+    """
+    Where to look, such as the name of a room. Empty means anywhere.
+    """
 
 
 # %% detections
@@ -351,25 +400,40 @@ class RoboKudoPerception(PerceptionInterface):
     """
 
     def look_for(self, query: PerceptionQuery) -> list[Detection]:
-        # RoboKudo's messages only exist where its pipeline is installed, so they are
-        # imported here rather than at module level: reading the world in simulation must
-        # not depend on them.
-        from robokudo_msgs.action import Query
-        from robokudo_msgs.msg import ObjectDesignator
-
-        client = ActionClient(self.ros_node, Query, self.action_name)
-        if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
-            raise PerceptionSourceUnavailable(self.action_name)
-
-        goal = Query.Goal(
-            obj=ObjectDesignator(type=query.semantic_annotation.__name__.lower())
+        result = self.answer(
+            RoboKudoQuery(object_type=query.semantic_annotation.__name__.lower())
         )
-        result = client.send_goal(goal).result
         return [
             self._to_detection(designator, query)
             for designator in result.res
             if designator.pose and self._can_be_requested_object(designator, query)
         ]
+
+    def answer(self, query: RoboKudoQuery) -> Query.Result:
+        """
+        Ask the pipeline a query and wait for its answer.
+
+        :param query: What to ask.
+        :return: Everything the pipeline reported.
+        :raises PerceptionSourceUnavailable: If no pipeline serves :attr:`action_name`
+            within :attr:`server_timeout`.
+        """
+        action_type = get_action(RoboKudoMessageType.QUERY)
+        object_designator_type = get_message(RoboKudoMessageType.OBJECT_DESIGNATOR)
+        client = ActionClient(self.ros_node, action_type, self.action_name)
+        if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
+            raise PerceptionSourceUnavailable(self.action_name)
+
+        goal = action_type.Goal(
+            obj=object_designator_type(
+                type=query.object_type,
+                attribute=query.attributes,
+                color=query.colors,
+                description=query.descriptions,
+                location=query.location,
+            )
+        )
+        return client.send_goal(goal).result
 
     @staticmethod
     def _can_be_requested_object(
@@ -514,3 +578,59 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
             self.query.world, trust_orientation=self.query.trust_detected_orientation
         )
         return ObservationStateValues.TRUE
+
+
+@dataclass
+class CameraFrameCapture(ContextExtension):
+    """Provide a camera frame for a perception query."""
+
+    capture_frame: Callable[[], None]
+    """Publish the camera frame for the next query."""
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, StatechartNode):
+    """
+    Statechart node that asks a running RoboKudo pipeline a query and keeps its answer.
+
+    The query is asked on the node's first tick, which blocks until the pipeline answers.
+    The node then observes ``TRUE`` if the pipeline reported anything and ``FALSE`` if it
+    reported nothing.
+    """
+
+    query: RoboKudoQuery
+    """
+    What to ask the pipeline.
+    """
+
+    answer: Query.Result | None = field(init=False, default=None)
+    """
+    Everything the pipeline reported, None before it answered.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        """Extend :meth:`~cramph.node.StatechartNode.required_context_extensions` with ROS.
+
+        :return: The required context extensions, including ROS access.
+        """
+        return super().required_context_extensions + (RosContextExtension,)
+
+    def on_start(self) -> None:
+        """Clear the previous answer when :meth:`~cramph.node.StatechartNode.on_start` runs."""
+        self.answer = None
+
+    def on_tick(self) -> ObservationStateValues:
+        """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`.
+
+        :return: The observation indicating whether the answer contains results.
+        """
+        if self.answer is None:
+            camera = self.context.extensions.get(CameraFrameCapture)
+            if camera is not None:
+                camera.capture_frame()
+            ros_node = self.context.require_extension(RosContextExtension).ros_node
+            self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
+        if self.answer.res:
+            return ObservationStateValues.TRUE
+        return ObservationStateValues.FALSE

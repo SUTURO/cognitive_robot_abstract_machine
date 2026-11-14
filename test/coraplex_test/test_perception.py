@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 import rclpy
+import coraplex.perception as perception_module
 from coraplex.robot_plans.actions.core.exceptions import DetectionTargetMissing
 from rclpy.action import ActionServer
 from rclpy.executors import SingleThreadedExecutor
@@ -40,7 +41,10 @@ from coraplex.perception import (
     Detection,
     PerceptionInterface,
     PerceptionQuery,
+    CameraFrameCapture,
     RoboKudoPerception,
+    RoboKudoQuery,
+    RoboKudoQueryTask,
     WorldPerception,
 )
 from coraplex.robot_plans.actions.core.misc import DetectAction
@@ -49,6 +53,7 @@ from cramph.composites import TryInOrder
 from cramph.context import StatechartContext
 from cramph.data_types import LifeCycleValues, ObservationStateValues
 from cramph.exceptions import NodesMissingContextExtensionsError
+from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from giskardpy.motion_control import MotionControl
 from giskardpy.motion_statechart.graph_node import EndMotion, MotionStatechartNode
@@ -520,6 +525,7 @@ class RecordedQueryServer:
 
         self.reports = reports
         self.received_types = []
+        self.received_designators = []
         self.node = rclpy.create_node(node_name)
         self.server = ActionServer(self.node, Query, action_name, self.execute_callback)
         self.executor = SingleThreadedExecutor()
@@ -536,6 +542,7 @@ class RecordedQueryServer:
         from std_msgs.msg import Header
 
         self.received_types.append(goal_handle.request.obj.type)
+        self.received_designators.append(goal_handle.request.obj)
         goal_handle.succeed()
 
         designators = []
@@ -747,7 +754,7 @@ def test_labelled_candidates_are_narrowed_to_the_requested_type(
 
 
 def build_perception_task(
-    task: PerceptionTask, world: World, ros_node: Node
+    task: StatechartNode, world: World, ros_node: Node
 ) -> Statechart:
     """
     Put a perception task through the build phase a motion state chart would give it.
@@ -766,7 +773,7 @@ def build_perception_task(
     return statechart
 
 
-def run_perception_task(task: PerceptionTask) -> None:
+def run_perception_task(task: StatechartNode) -> None:
     """
     Start a built perception task and tick it once, as its chart does.
 
@@ -1069,6 +1076,135 @@ def test_detection_in_a_chart_corrects_a_reach_planned_before_it(
         PERCEIVED_MILK_POSITION,
         atol=1e-9,
     )
+
+
+# %% asking robokudo a query of its own
+
+
+def test_robokudo_messages_are_only_required_for_an_actual_query(
+    rclpy_node: Node, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """
+    A missing RoboKudo message type prevents queries, not source construction.
+    """
+
+    def missing_action_type(identifier: str) -> type:
+        raise ModuleNotFoundError(identifier)
+
+    monkeypatch.setattr(
+        perception_module, "get_action", missing_action_type, raising=False
+    )
+    source = RoboKudoPerception(ros_node=rclpy_node)
+
+    with pytest.raises(ModuleNotFoundError):
+        source.answer(RoboKudoQuery(object_type="human"))
+
+
+@pytest.fixture
+def query_for_a_waving_human() -> RoboKudoQuery:
+    """
+    A query that uses every field a pipeline such as GPSR reads.
+    """
+    return RoboKudoQuery(
+        object_type="human",
+        attributes=["waving"],
+        colors=["red"],
+        descriptions=["shirt"],
+        location="kitchen",
+    )
+
+
+def test_robokudo_query_task_sends_the_whole_query(
+    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_a_waving_human
+):
+    """
+    A pipeline tells things apart by more than their type, so every field of the query
+    has to reach it.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+    build_perception_task(task, world, rclpy_node)
+
+    run_perception_task(task)
+
+    [designator] = robokudo_query_server.received_designators
+    assert designator.type == query_for_a_waving_human.object_type
+    assert list(designator.attribute) == query_for_a_waving_human.attributes
+    assert list(designator.color) == query_for_a_waving_human.colors
+    assert list(designator.description) == query_for_a_waving_human.descriptions
+    assert designator.location == query_for_a_waving_human.location
+
+
+def test_robokudo_query_task_keeps_the_answer(
+    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_a_waving_human
+):
+    """
+    Later steps of a plan act on what the pipeline reported, so the answer stays with
+    the task.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+    build_perception_task(task, world, rclpy_node)
+
+    run_perception_task(task)
+
+    assert [designator.type for designator in task.answer.res] == [
+        report.class_label for report in robokudo_query_server.reports
+    ]
+
+
+def test_query_requests_one_frame_before_sending(
+    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_a_waving_human
+) -> None:
+    """
+    An optional camera supplies one frame before the query is sent.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+    chart = build_perception_task(task, world, rclpy_node)
+    observed_queries = []
+
+    def capture_frame() -> None:
+        observed_queries.append(len(robokudo_query_server.received_designators))
+
+    chart.context.add_extension(CameraFrameCapture(capture_frame))
+    run_perception_task(task)
+    task.on_tick()
+
+    assert observed_queries == [0]
+    assert len(robokudo_query_server.received_designators) == 1
+
+
+def test_robokudo_query_task_fails_when_the_pipeline_reports_nothing(
+    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_a_waving_human
+):
+    """
+    Seeing nothing is an answer the plan can act on, so it reaches the chart as a failed
+    observation.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([])
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+    build_perception_task(task, world, rclpy_node)
+
+    task.on_start()
+
+    assert task.on_tick() == ObservationStateValues.FALSE
+
+
+def test_robokudo_query_task_survives_a_json_round_trip(
+    pr2_apartment_context, query_for_a_waving_human
+):
+    """
+    On the real robot the chart is serialized to the controller, so the query has to
+    arrive whole.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_a_waving_human)
+
+    restored = from_json(to_json(task), **receiving_world_kwargs(deepcopy(world)))
+
+    assert restored.query == query_for_a_waving_human
 
 
 # %% a failed detection inside a plan
