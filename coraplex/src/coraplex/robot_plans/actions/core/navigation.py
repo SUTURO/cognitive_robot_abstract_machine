@@ -186,6 +186,12 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
     Where the robot should stand at the end of the path, with its base.
     """
 
+    start: Pose | None = None
+    """
+    Where the robot's base stands when this drive begins, such as the target of the
+    drive before it, or None for where it stands when the action is expanded.
+    """
+
     def create_steps(self) -> list[StatechartNode]:
         return [
             self.base_goal_type.moving_base_of(
@@ -193,6 +199,15 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
             )
             for waypoint in self._path()
         ]
+
+    @property
+    def _start_position(self) -> Point2:
+        """
+        :return: Where on the floor the robot begins to drive, see :attr:`start`.
+        """
+        if self.start is None:
+            return Point2.from_pose(self.robot.root.global_pose)
+        return Point2.from_pose(self.world.transform(self.start, self.world.root))
 
     @property
     def _floor(self) -> Floor:
@@ -226,15 +241,15 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
     def _stands_on(self, floor: Floor) -> bool:
         """
         :param floor: The floor to test.
-        :return: Whether the robot's base rests within this floor's footprint and no
-            lower than its top.
+        :return: Whether the robot's base, at :attr:`start`, rests within this floor's
+            footprint and no lower than its top.
         """
         extent = self._extent_of(floor)
-        base_pose = self.robot.root.global_pose
+        start_position = self._start_position
         return (
-            extent.min_x <= float(base_pose.x) <= extent.max_x
-            and extent.min_y <= float(base_pose.y) <= extent.max_y
-            and extent.max_z <= float(base_pose.z)
+            extent.min_x <= float(start_position.x) <= extent.max_x
+            and extent.min_y <= float(start_position.y) <= extent.max_y
+            and extent.max_z <= float(self.robot.root.global_pose.z)
         )
 
     def _path(self) -> list[Pose]:
@@ -279,12 +294,11 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
 
     def _waypoints(self) -> list[Point2]:
         """
-        The points the robot travels through to get from where it stands to the target.
+        The points the robot travels through to get from :attr:`start` to the target.
 
-        :return: The path, beginning at the robot's own position and ending at the
-            target's.
+        :return: The path, beginning at :attr:`start` and ending at the target's
+            position.
         """
-        base_pose = self.robot.root.global_pose
         free_space = self._floor.planar_free_space(
             max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
             .bounding_box()
@@ -292,7 +306,7 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
             bloat_obstacles=self.robot.mobile_base.base_radius,
         )
         return free_space.path_from_to(
-            Point2.from_pose(base_pose), Point2.from_pose(self.target)
+            self._start_position, Point2.from_pose(self.target)
         )
 
 

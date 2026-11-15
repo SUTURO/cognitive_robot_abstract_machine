@@ -9,19 +9,23 @@ Run it from this folder::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import StrEnum
 
 from typing_extensions import TYPE_CHECKING
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
+from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, ForwardDrivingPlanExecutor
 from coraplex.plans.plan_transformation import ConfigurationTransformation
-from coraplex.robot_plans.actions.core.navigation import DrivesBase, NavigateAction
+from coraplex.robot_plans.actions.core.navigation import (
+    DrivesBase,
+    PathPlanningNavigateAction,
+)
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Parallel, Sequence
 from cramph.statechart import Statechart
-from giskardpy.motion_statechart.tasks.drive_tasks import DifferentialDriveBaseGoal
+from giskardpy.motion_statechart.tasks.drive_tasks import StraightLineBaseGoal
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
 from semantic_digital_twin.collision_checking.collision_rules import (
@@ -40,49 +44,6 @@ if TYPE_CHECKING:
     from semantic_digital_twin.robots.robot_parts import AbstractRobot
     from semantic_digital_twin.world import World
 
-# %% the scene
-
-
-class SceneBody(StrEnum):
-    """The names of the kitchen bodies the demonstration refers to."""
-
-    SOFA = "sofa"
-    """The sofa of the kitchen environment, which marks whether the scene is
-    already loaded."""
-
-
-# %% driving forwards
-
-
-@dataclass(kw_only=True)
-class DriveFacingTheWayToTheGoal(ConfigurationTransformation[DrivesBase]):
-    """Lets the base turn towards each goal, drive there facing forwards and
-    only then turn to the goal's orientation, instead of moving sideways while
-    turning."""
-
-    def is_applicable(self, plan_node: DrivesBase) -> bool:
-        return True
-
-    def apply(self, plan_node: DrivesBase) -> None:
-        plan_node.base_goal_type = DifferentialDriveBaseGoal
-
-
-@dataclass(kw_only=True)
-class ForwardDrivingPlanExecutor(PhysicallySimulatedPlanExecutor):
-    """
-    Performs plans in MuJoCo with a base that drives facing the way it goes:
-    :attr:`plan_adaptations` is extended by :class:`DriveFacingTheWayToTheGoal`.
-    """
-
-    def __post_init__(self) -> None:
-        self.plan_adaptations = [
-            *self.plan_adaptations,
-            DriveFacingTheWayToTheGoal(),
-        ]
-        super().__post_init__()
-
-
-# %% the demonstration
 
 
 @dataclass
@@ -102,6 +63,12 @@ class KitchenNavigationDemonstration(RobotDemonstration):
     collision_avoidance: bool = True
     """Whether collision avoidance is added to every motion state chart of this
     run."""
+
+    simulation_time_per_action: timedelta | None = timedelta(seconds=120)
+    """
+    The simulated time each action may take, enough for a drive that crosses the
+    apartment around the furniture.
+    """
 
     event_segmentation: bool = False
     """Whether the events of this run are segmented; there is nothing to
@@ -132,7 +99,7 @@ class KitchenNavigationDemonstration(RobotDemonstration):
         )
 
     def is_scene_populated(self, world: World) -> bool:
-        return world.is_kinematic_structure_entity_in_world_by_name(SceneBody.SOFA)
+        return world.is_kinematic_structure_entity_in_world_by_name("sofa")
 
     def acquire_world(self) -> World:
         """Obtain the world as :meth:`RobotDemonstration.acquire_world` does,
@@ -180,14 +147,15 @@ class KitchenNavigationDemonstration(RobotDemonstration):
                             JointPositionList(goal_state=head_forward),
                         ]
                     ),
-                    NavigateAction(target_location=goal),
-                    NavigateAction(
-                        target_location=Pose.from_xyz_rpy(
+                    PathPlanningNavigateAction(target=goal),
+                    PathPlanningNavigateAction(
+                        start=goal,
+                        target=Pose.from_xyz_rpy(
                             x=0.973906,
                             y=4.48839,
                             yaw=self.goal_yaw,
                             reference_frame=context.world.root,
-                        )
+                        ),
                     ),
                 ]
             )
