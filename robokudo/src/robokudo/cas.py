@@ -101,6 +101,12 @@ class CASViews(StrEnum):
     rendered scene can be fully segmented per object.
     """
 
+    HEIGHT_COLORED_IMAGE = "height_colored_image"
+    """
+    The :attr:`COLOR_IMAGE` with each pixel of a cloth colored by its height above the
+    world's floor, from green at the cloth's lowest to blue at its highest.
+    """
+
     BODY_COLORS = "body_colors"
     """
     Object color mapping data which assigns objects visible in OBJECT_IMAGE to entity names.

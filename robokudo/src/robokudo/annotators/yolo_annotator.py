@@ -144,6 +144,11 @@ class YoloAnnotator(ThreadedAnnotator):
                 Only read for custom weights, since pretrained models carry their class
                 names.
                 """
+                self.image_view: CASViews = CASViews.COLOR_IMAGE
+                """
+                The CAS view of the image the model detects objects in, at the color
+                image resolution.
+                """
                 self.threshold: float = 0.9
                 """
                 Minimum confidence of a detection to be annotated.
@@ -321,13 +326,13 @@ class YoloAnnotator(ThreadedAnnotator):
 
     def _detection_image(self) -> npt.NDArray[np.uint8]:
         """
-        :return: The color image, scaled to the depth image resolution when depth is
-            used.
+        :return: The image of the configured view, scaled to the depth image resolution
+            when depth is used.
         """
-        color_image = self.get_cas().get_copy(CASViews.COLOR_IMAGE)
+        image = self.get_cas().get_copy(self.descriptor.parameters.image_view)
         if not self.descriptor.parameters.global_with_depth:
-            return color_image
-        return get_scaled_color_image_for_depth_image(self.get_cas(), color_image)
+            return image
+        return get_scaled_color_image_for_depth_image(self.get_cas(), image)
 
     def _detect(self, detection_image: npt.NDArray[np.uint8]) -> list[YoloDetection]:
         """

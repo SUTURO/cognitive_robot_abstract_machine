@@ -6,16 +6,23 @@ from __future__ import annotations
 
 # %% Imports
 from dataclasses import dataclass, replace
+
+import numpy as np
+from krrood.ormatic.utils import classproperty
 from typing_extensions import TYPE_CHECKING
 
 from robokudo.exceptions import CameraPoseMissing, InvalidCameraObservation
+from robokudo.types.cv import ColorToDepthRatio, Point2D
 from robokudo.utils.ros_frames import normalize_ros_frame_id
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
 from semantic_digital_twin.robots.robot_parts import Camera
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from semantic_digital_twin.world_description.world_entity import Body
 
 if TYPE_CHECKING:
+    import numpy.typing as npt
+
+    from robokudo.cas import CAS
     from semantic_digital_twin.datastructures.camera_resolution import CameraResolution
 
 if TYPE_CHECKING:
@@ -148,3 +155,118 @@ class CameraObservation:
             identifies another camera.
         """
         return replace(self, world_T_camera=world_T_camera)
+
+
+# %% depth measurements
+
+
+@dataclass
+class RegisteredDepthImage:
+    """
+    A depth image together with what places its measurements in the world, so that a
+    color image pixel can be looked up as the world point the camera saw there.
+
+    .. note::
+       Lens distortion is ignored.
+    """
+
+    depth_image: npt.NDArray
+    """
+    Distance of each depth image pixel along the optical axis, in millimetres, zero
+    where the camera measured nothing.
+    """
+
+    camera_model: PinholeCameraModel
+    """
+    Projection model at the depth image resolution.
+    """
+
+    color_to_depth_ratio: ColorToDepthRatio
+    """
+    Size of the depth image relative to the color image.
+    """
+
+    world_T_camera: HomogeneousTransformationMatrix
+    """
+    Transform from the optical frame into the world frame.
+    """
+
+    @classproperty
+    def millimetres_per_metre(cls) -> float:
+        """
+        How many of the depth image's units make up a metre.
+        """
+        return 1000.0
+
+    @classmethod
+    def from_cas(cls, cas: CAS) -> RegisteredDepthImage:
+        """
+        :param cas: A CAS holding a depth image and a camera observation with a pose.
+        :return: The CAS's depth image, registered with its camera.
+        :raises CameraObservationMissing: If the CAS has no camera observation.
+        :raises CameraPoseMissing: If the observation has no sampled pose.
+        """
+        camera_observation = cas.require_camera_observation()
+        color_to_depth_ratio = cas.color_to_depth_ratio
+        return cls(
+            depth_image=cas.depth_image,
+            camera_model=camera_observation.effective_camera_model.scaled(
+                scale_x=color_to_depth_ratio.horizontal,
+                scale_y=color_to_depth_ratio.vertical,
+            ),
+            color_to_depth_ratio=color_to_depth_ratio,
+            world_T_camera=camera_observation.world_T_camera_or_raise(),
+        )
+
+    def world_points(
+        self, color_pixels: npt.NDArray[np.int_]
+    ) -> npt.NDArray[np.float64]:
+        """
+        :param color_pixels: The (x, y) of color image pixels, one pixel per row.
+        :return: The (x, y, z) of the world point the camera saw at each of those
+            pixels, one point per row, ``NaN`` where it measured no depth or the pixel
+            lies outside the image.
+        """
+        depth_pixels = np.floor(
+            np.asarray(color_pixels, dtype=np.float64)
+            * (self.color_to_depth_ratio.horizontal, self.color_to_depth_ratio.vertical)
+        ).astype(int)
+        height, width = self.depth_image.shape[:2]
+        inside = (
+            (depth_pixels[:, 0] >= 0)
+            & (depth_pixels[:, 0] < width)
+            & (depth_pixels[:, 1] >= 0)
+            & (depth_pixels[:, 1] < height)
+        )
+        depth = np.full(len(depth_pixels), np.nan)
+        depth[inside] = (
+            self.depth_image[depth_pixels[inside, 1], depth_pixels[inside, 0]]
+            / self.millimetres_per_metre
+        )
+        depth[depth <= 0.0] = np.nan
+
+        principal_point = self.camera_model.principal_point
+        camera_points = np.column_stack(
+            [
+                (depth_pixels[:, 0] - float(principal_point.x))
+                * depth
+                / self.camera_model.focal_length_x,
+                (depth_pixels[:, 1] - float(principal_point.y))
+                * depth
+                / self.camera_model.focal_length_y,
+                depth,
+                np.ones(len(depth)),
+            ]
+        )
+        return (camera_points @ self.world_T_camera.to_np().T)[:, :3]
+
+    def world_point(self, color_pixel: Point2D) -> Point3 | None:
+        """
+        :param color_pixel: A color image pixel.
+        :return: The world point the camera saw at the pixel, or ``None`` if it
+            measured no depth there.
+        """
+        coordinates = self.world_points(np.array([[color_pixel.x, color_pixel.y]]))[0]
+        if np.isnan(coordinates).any():
+            return None
+        return Point3(*coordinates, reference_frame=self.world_T_camera.reference_frame)
