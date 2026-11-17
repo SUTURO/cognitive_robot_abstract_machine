@@ -70,6 +70,7 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from krrood_spatial_math.spatial_types import Pose, RotationMatrix
+from semantic_digital_twin.world_description.cloth import ClothSheet
 from semantic_digital_twin.world_description.connections import (
     FixedConnection,
     ActiveConnection1DOF,
@@ -399,6 +400,24 @@ class HasRootBody(HasRootKinematicStructureEntity[Body], Mixin):
             scale.to_simple_event().as_composite_set(),
             connection_specification=connection_specification,
         )
+
+
+@dataclass(eq=False)
+class IsNonRigid(HasRootBody, Mixin):
+    """
+    A mixin class for semantic annotations whose shape changes when forces act on them.
+
+    The root body locates the object; its geometry does not describe the object's
+    current shape.
+    """
+
+    @property
+    def cloth_sheet(self) -> ClothSheet | None:
+        """
+        :return: The cloth a physical simulation deforms as this object, or ``None`` if
+            the object is not simulated.
+        """
+        return self.get_simulator_property_of_type(ClothSheet)
 
 
 @dataclass(eq=False)

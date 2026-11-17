@@ -1,9 +1,11 @@
 import os
 import time
+import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy
 import pytest
+from typing_extensions import Iterator
 
 from physics_simulators.mujoco_simulator import (
     HeadlessGraphicsBackend,
@@ -664,6 +666,141 @@ class TestMujocoSimulatorComplex:
                     sim.stop()
                 except Exception:
                     pass
+
+
+class TestClothSimulation:
+    """
+    A cloth is a flex whose vertices the simulator reports, solved with the solver the
+    simulator is configured with.
+    """
+
+    file_path = os.path.join(resources_path, "cloth_grid.xml")
+
+    @pytest.fixture
+    def simulator(self) -> Iterator[MujocoSimulator]:
+        """
+        :return: A simulator of a cloth grid, configured to solve with conjugate gradients.
+        """
+        sim = MujocoSimulator(
+            _headless=True,
+            file_path=self.file_path,
+            config={"solver": mujoco.mjtSolver.mjSOL_CG},
+        )
+        yield sim
+        sim.stop()
+
+    def test_the_configured_solver_solves_the_model(
+        self, simulator: MujocoSimulator
+    ) -> None:
+        """
+        The solver named in the configuration is the one the compiled model uses.
+        """
+        assert simulator._mj_model.opt.solver == mujoco.mjtSolver.mjSOL_CG
+
+    def test_flex_vertex_positions_are_where_the_flex_was_laid_out(
+        self, simulator: MujocoSimulator
+    ) -> None:
+        """
+        Every vertex of the grid is reported, at the height the grid was laid out at.
+        """
+        flexcomp = ET.parse(self.file_path).getroot().find(".//flexcomp")
+        column_count, row_count, _ = map(int, flexcomp.get("count").split())
+        _, _, height = map(float, flexcomp.get("pos").split())
+        simulator.start(simulate_in_thread=False, render_in_thread=False)
+        simulator.step()
+
+        result = simulator.callbacks["get_flex_vertex_positions"](flex_name="cloth")
+
+        assert (
+            result.type is SimulatorCallbackResult.ResultType.SUCCESS_WITHOUT_EXECUTION
+        )
+        assert result.result.shape == (column_count * row_count, 3)
+        assert numpy.allclose(result.result[:, 2], height, atol=1e-4)
+
+    def test_flex_vertex_positions_fail_for_unknown_flex(
+        self, simulator: MujocoSimulator
+    ) -> None:
+        """
+        Asking for a flex the model lacks reports a failure instead of raising.
+        """
+        result = simulator.callbacks["get_flex_vertex_positions"](
+            flex_name="this_flex_does_not_exist"
+        )
+
+        assert (
+            result.type is SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION
+        )
+
+    def test_a_pinned_vertex_stays_with_the_body_while_the_rest_of_the_cloth_falls(
+        self, simulator: MujocoSimulator
+    ) -> None:
+        """
+        Only the vertex at the centre, given in the hook's turned frame and away from
+        the hook, is pinned, and it holds where it was pinned while the vertices left
+        free fall.
+        """
+        radius = 0.01
+        simulator.start(simulate_in_thread=False, render_in_thread=False)
+        simulator.step()
+        start = simulator.callbacks["get_flex_vertex_positions"](
+            flex_name="cloth"
+        ).result
+        hook = simulator._mj_data.body("hook")
+        centre_vertex = numpy.argmax(
+            numpy.linalg.norm(start - hook.xpos, axis=1) > 2 * radius
+        )
+        hook_P_centre = hook.xmat.reshape(3, 3).T @ (start[centre_vertex] - hook.xpos)
+        within_reach = numpy.arange(len(start)) == centre_vertex
+
+        result = simulator.callbacks["pin_flex_vertices"](
+            flex_name="cloth",
+            body_name="hook",
+            body_P_centre=hook_P_centre,
+            radius=radius,
+        )
+        for _ in range(250):
+            simulator.step()
+        end = simulator.callbacks["get_flex_vertex_positions"](flex_name="cloth").result
+
+        assert (
+            result.type
+            is SimulatorCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL
+        )
+        assert result.result.tolist() == numpy.flatnonzero(within_reach).tolist()
+        # a weld is soft, so the cloth swinging from the vertex pulls it a few millimetres
+        assert numpy.allclose(end[within_reach], start[within_reach], atol=5e-3)
+        assert numpy.all(end[~within_reach, 2] < start[~within_reach, 2])
+
+    @pytest.mark.parametrize(
+        "flex_name, body_name, radius",
+        [
+            ("this_flex_does_not_exist", "hook", 0.01),
+            ("cloth", "this_body_does_not_exist", 0.01),
+            ("cloth", "hook", 0.001),
+        ],
+    )
+    def test_pinning_fails_without_a_flex_a_body_or_a_vertex_within_the_radius(
+        self, simulator: MujocoSimulator, flex_name: str, body_name: str, radius: float
+    ) -> None:
+        """
+        Pinning reports a failure, and pins nothing, when the flex or the body is
+        missing, or when no vertex lies within the radius.
+        """
+        simulator.start(simulate_in_thread=False, render_in_thread=False)
+        simulator.step()
+        equality_count = simulator._mj_model.neq
+
+        result = simulator.callbacks["pin_flex_vertices"](
+            flex_name=flex_name,
+            body_name=body_name,
+            body_P_centre=numpy.zeros(3),
+            radius=radius,
+        )
+
+        assert (
+            result.type is SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION
+        )
+        assert simulator._mj_model.neq == equality_count
 
 
 class TestOffscreenRenderingAvailability:

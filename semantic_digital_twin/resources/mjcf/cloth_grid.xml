@@ -1,0 +1,8 @@
+<mujoco model="cloth_grid">
+  <worldbody>
+    <flexcomp name="cloth" type="grid" count="3 4 1" spacing="0.1 0.1 0.1" pos="0 0 1" dim="2" radius="0.005" mass="0.1">
+      <edge equality="true"/>
+    </flexcomp>
+    <body name="hook" pos="0.1 0.15 1.005" euler="30 45 60"/>
+  </worldbody>
+</mujoco>
