@@ -172,7 +172,7 @@ def test_a_t_shirt_keeps_its_fabric_after_a_json_roundtrip(t_shirt: TShirt) -> N
     serialized = t_shirt.to_json()
     tracker = WorldEntityWithIDKwargsTracker.from_world(t_shirt._world)
 
-    restored = TShirt.from_json(serialized, **tracker.create_kwargs())
+    restored = TShirt.from_json(data=serialized, **tracker.create_kwargs())
 
     assert restored.fabric == t_shirt.fabric
 
@@ -190,7 +190,7 @@ def test_a_t_shirt_keeps_its_cloth_sheet_after_a_json_roundtrip(
     serialized = t_shirt.to_json()
     tracker = WorldEntityWithIDKwargsTracker.from_world(t_shirt._world)
 
-    restored = TShirt.from_json(serialized, **tracker.create_kwargs())
+    restored = TShirt.from_json(data=serialized, **tracker.create_kwargs())
 
     assert restored.cloth_sheet.mass == t_shirt.cloth_sheet.mass
     assert restored.cloth_sheet.fabric == t_shirt.cloth_sheet.fabric
@@ -281,7 +281,7 @@ def test_a_t_shirt_keeps_its_unfolding_state_after_a_json_roundtrip(
     serialized = t_shirt.to_json()
     tracker = WorldEntityWithIDKwargsTracker.from_world(t_shirt._world)
 
-    restored = TShirt.from_json(serialized, **tracker.create_kwargs())
+    restored = TShirt.from_json(data=serialized, **tracker.create_kwargs())
 
     assert numpy.allclose(
         restored.grasp_points.left_grasp_point.to_np(),
