@@ -72,6 +72,12 @@ The concrete kind of property a lookup asks for, so that the lookup returns that
 rather than the base class.
 """
 
+TSimulatorProperty = TypeVar("TSimulatorProperty", bound=SimulatorAdditionalProperty)
+"""
+The concrete kind of property a lookup of several asks for, so that the lookup returns
+that kind rather than the base class.
+"""
+
 
 @dataclass(eq=False)
 class HasSimulatorProperties:
@@ -113,11 +119,18 @@ class HasSimulatorProperties:
         :param property_type: The type of property to look up.
         :return: The property, or ``None`` if none of that type is attached.
         """
-        return next(
-            (
-                simulator_property
-                for simulator_property in self.simulator_additional_properties
-                if isinstance(simulator_property, property_type)
-            ),
-            None,
-        )
+        return next(iter(self.get_simulator_properties_of_type(property_type)), None)
+
+    def get_simulator_properties_of_type(
+        self, property_type: type[TSimulatorProperty]
+    ) -> list[TSimulatorProperty]:
+        """
+        :param property_type: The type of properties to look up.
+        :return: The properties of ``property_type`` this entity carries, in the order
+            they were attached.
+        """
+        return [
+            simulator_property
+            for simulator_property in self.simulator_additional_properties
+            if isinstance(simulator_property, property_type)
+        ]

@@ -107,6 +107,8 @@ test/krrood_test/test_ripple_down_rules/test_generated_rdrs
 *.lo
 *.o
 *.obj
+# meshes are Wavefront files, not compiled objects
+!semantic_digital_twin/resources/obj/*.obj
 
 # Precompiled Headers
 *.gch

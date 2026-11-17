@@ -79,7 +79,12 @@ from semantic_digital_twin.world_description.geometry import (
     MeshFileFormat,
     Color,
 )
-from semantic_digital_twin.world_description.contact import ContactParameters
+from semantic_digital_twin.world_description.cloth import ClothSheet
+from semantic_digital_twin.world_description.contact import (
+    ContactImpedance,
+    ContactParameters,
+    ContactStiffness,
+)
 from semantic_digital_twin.world_description.world_entity import (
     Region,
     Body,
@@ -207,6 +212,62 @@ class GeomVisibilityAndCollisionType(IntEnum):
     UNDEFINED_2 = 5
     """
     Undefined geometry type (variant 2).
+    """
+
+
+class MujocoFlexElasticity(IntEnum):
+    """
+    Which deformations of a two-dimensional flex MuJoCo resists with elastic forces: the
+    values of a flex's ``elastic2d`` attribute.
+    """
+
+    NONE = 0
+    """
+    No deformation.
+    """
+
+    BENDING = 1
+    """
+    Bending out of the flex's plane.
+    """
+
+    STRETCHING = 2
+    """
+    Stretching within the flex's plane.
+    """
+
+    BENDING_AND_STRETCHING = 3
+    """
+    Both bending and stretching.
+    """
+
+
+@dataclass
+class MujocoClothVertexContact:
+    """
+    How firmly the sphere of a cloth's vertex touches what it collides with, which
+    decides how far a resting cloth's shell reaches into a surface.
+    """
+
+    margin_to_radius_ratio: float = 1.15
+    """
+    The distance at which a sphere's contact acts, as a multiple of its radius.
+    """
+
+    stiffness: ContactStiffness = field(
+        default_factory=lambda: ContactStiffness(
+            time_constant=timedelta(milliseconds=4)
+        )
+    )
+    """
+    How stiff and how damped the contact is.
+    """
+
+    impedance: ContactImpedance = field(
+        default_factory=lambda: ContactImpedance(minimum=0.99, maximum=0.999)
+    )
+    """
+    How hard the contact pushes back as it is penetrated.
     """
 
 
@@ -1346,9 +1407,9 @@ class ContactCategories(IntFlag):
     """
     A set of MuJoCo's 32 contact categories, one bit each.
 
-    Only the first category has a name: MuJoCo puts every geom into it by default, so by
-    default every geom collides with every other one. Every other bit is a category of
-    the model's own choosing, so a mask may hold bits beyond the named ones.
+    MuJoCo puts every geom into the first category by default, so by default every geom
+    collides with every other one. Every other bit is a category of the model's own
+    choosing, so a mask may hold bits beyond the named ones.
     """
 
     NONE = 0
@@ -1359,6 +1420,11 @@ class ContactCategories(IntFlag):
     DEFAULT = 1
     """
     The category MuJoCo puts every geom into unless told otherwise.
+    """
+
+    CLOTH_VERTEX = 4
+    """
+    The spheres a cloth's vertices collide as, which no other geom accepts by default.
     """
 
 
@@ -2643,6 +2709,19 @@ class MujocoBuilder(MultiSimBuilder):
     inertial or a shape can still move.
     """
 
+    cloth_vertex_minimum_mass: float = 1e-5
+    """
+    The mass, in kilograms, every body weighs at least in a world holding cloth, in place
+    of :attr:`minimum_mass`, which would outweigh the vertices of a finely meshed cloth.
+    """
+
+    cloth_vertex_contact: MujocoClothVertexContact = field(
+        default_factory=MujocoClothVertexContact
+    )
+    """
+    How firmly the vertices of the cloth sheets touch what they collide with.
+    """
+
     minimum_inertia: float = 1e-6
     """
     The moment of inertia, in kilogram square metres, every body has at least about each
@@ -2680,14 +2759,40 @@ class MujocoBuilder(MultiSimBuilder):
         # have, which MuJoCo refuses to compile unless it may correct them.
         self.spec.compiler.balanceinertia = True
         # A frame with neither an inertial nor a shape still needs some mass to move.
-        self.spec.compiler.boundmass = self.minimum_mass
+        self.spec.compiler.boundmass = self._body_minimum_mass
         self.spec.compiler.boundinertia = self.minimum_inertia
         self._thickened_mesh_paths = {}
+
+    @property
+    def _cloth_sheets(self) -> list[ClothSheet]:
+        """
+        :return: The cloth sheets of the world being built: those it holds itself and
+            those its semantic annotations carry.
+        """
+        return [
+            *self.world.get_simulator_properties_of_type(ClothSheet),
+            *(
+                cloth
+                for annotation in self.world.semantic_annotations
+                for cloth in annotation.get_simulator_properties_of_type(ClothSheet)
+            ),
+        ]
+
+    @property
+    def _body_minimum_mass(self) -> float:
+        """
+        :return: The mass every body of the world being built weighs at least.
+        """
+        if self._cloth_sheets:
+            return self.cloth_vertex_minimum_mass
+        return self.minimum_mass
 
     def _end_build(self, file_path: str):
         self._build_contact_exclusions()
         self._build_equalities()
         self._build_tendons()
+        for cloth in self._cloth_sheets:
+            self._build_cloth_sheet(cloth)
         self.spec.compile()
         self.spec.to_file(file_path)
         import xml.etree.ElementTree as ET
@@ -2698,10 +2803,12 @@ class MujocoBuilder(MultiSimBuilder):
             # A body's own inertial wins; its geoms only stand in for one it lacks.
             compiler_element.set("inertiafromgeom", "auto")
             compiler_element.set("balanceinertia", "true")
-            compiler_element.set("boundmass", str(self.minimum_mass))
+            compiler_element.set("boundmass", str(self._body_minimum_mass))
             compiler_element.set("boundinertia", str(self.minimum_inertia))
+        # the spec builds its list of bodies anew on every read
+        body_specs = self.spec.bodies
         for body_id, body_element in enumerate(root.findall(".//body")):
-            body_spec = self.spec.bodies[body_id + 1]
+            body_spec = body_specs[body_id + 1]
             if numpy.isclose(body_spec.mass, 0.0):
                 continue
             inertial_element = ET.SubElement(body_element, "inertial")
@@ -2727,6 +2834,9 @@ class MujocoBuilder(MultiSimBuilder):
             qpos += MujocoConnectionJoints.of(
                 body.parent_connection, self.world, self.element_names
             ).home_joint_positions()
+        for cloth in self._cloth_sheets:
+            # a vertex starts where its body was built, so its slide joints start at zero
+            qpos += [0.0] * cloth.starting_surface.vertices.size
         key_element.set("qpos", " ".join(map(str, qpos)))
         tree.write(file_path, encoding="utf-8", xml_declaration=True)
 
@@ -3316,6 +3426,73 @@ class MujocoBuilder(MultiSimBuilder):
                 tendon.width = mujoco_tendon.width
                 for joint_name, joint_coef in mujoco_tendon.joints.items():
                     tendon.wrap_joint(joint_name, joint_coef)
+
+    def _build_cloth_sheet(self, cloth: ClothSheet) -> None:
+        """
+        Builds a cloth sheet as a flex whose edges keep their length and whose vertices
+        are bodies of their own, each sliding freely along all three axes. They are the
+        last children of the world body, so their joints come last in the joint positions.
+
+        .. note:: Every vertex weighs at least :attr:`cloth_vertex_minimum_mass`, so a
+            cloth with very many vertices weighs more than its :attr:`ClothSheet.mass`.
+
+        .. note:: MuJoCo keeps at most ``mjMAXCONPAIR`` contacts per colliding pair and
+            drops the rest silently. A flex and a geom are one pair, so every vertex also
+            collides as a sphere of its own, which keeps a large cloth from sinking in.
+
+        :param cloth: The cloth sheet to build.
+        """
+        vertex_mass = cloth.mass / len(cloth.starting_surface.vertices)
+        vertex_body_names = []
+        for index, position in enumerate(cloth.starting_surface.vertices):
+            vertex_body = self.spec.worldbody.add_body(
+                name=f"{cloth.name}_vertex_{index}",
+                pos=position.tolist(),
+                mass=vertex_mass,
+                ipos=[0.0, 0.0, 0.0],
+            )
+            for axis in [Vector3.X(), Vector3.Y(), Vector3.Z()]:
+                vertex_body.add_joint(
+                    type=mujoco.mjtJoint.mjJNT_SLIDE, axis=axis.to_np().tolist()[:3]
+                )
+            vertex_body.add_geom(
+                type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                size=[cloth.collision_radius, 0.0, 0.0],
+                mass=0.0,
+                **MujocoGeom(
+                    contact_type=ContactCategories.CLOTH_VERTEX,
+                    contact_affinity=ContactCategories.DEFAULT,
+                ).to_dict(),
+                group=GeomVisibilityAndCollisionType.ONLY_COLLIDABLE,
+                margin=self.cloth_vertex_contact.margin_to_radius_ratio
+                * cloth.collision_radius,
+                solref=self.cloth_vertex_contact.stiffness.to_list(),
+                solimp=self.cloth_vertex_contact.impedance.to_list(),
+            )
+            vertex_body_names.append(vertex_body.name)
+        flex = self.spec.add_flex()
+        flex.name = cloth.name
+        flex.dim = 2
+        flex.vertbody = vertex_body_names
+        # every vertex lies at the origin of its body
+        flex.vert = [0.0] * cloth.starting_surface.vertices.size
+        flex.elem = cloth.starting_surface.faces.flatten().tolist()
+        flex.radius = cloth.collision_radius
+        flex.thickness = cloth.fabric.thickness
+        flex.young = cloth.fabric.elasticity.young_modulus
+        flex.poisson = cloth.fabric.elasticity.poisson_ratio
+        # the edge equality keeps the sheet from stretching, so elasticity resists bending
+        flex.elastic2d = MujocoFlexElasticity.BENDING
+        flex.selfcollide = (
+            mujoco.mjtFlexSelf.mjFLEXSELF_AUTO
+            if cloth.collides_with_itself
+            else mujoco.mjtFlexSelf.mjFLEXSELF_NONE
+        )
+        flex.rgba = list(cloth.color.to_rgba())
+        flex.edgedamping = cloth.fabric.edge_damping
+        edges = self.spec.add_equality()
+        edges.type = mujoco.mjtEq.mjEQ_FLEX
+        edges.name1 = cloth.name
 
     def body_spec_of(self, entity: KinematicStructureEntity) -> mujoco.MjsBody:
         """
