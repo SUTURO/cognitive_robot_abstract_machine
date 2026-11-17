@@ -1,6 +1,6 @@
 """
-Tests for attaching simulator properties to an entity and looking up the one property of
-a type it carries.
+Tests for attaching simulator properties to an entity and looking up the properties of a
+type it carries.
 """
 
 from __future__ import annotations
@@ -69,3 +69,19 @@ def test_lookup_returns_the_first_of_two_properties_handed_in_whole(body):
     body.simulator_additional_properties = [first, second]
 
     assert body.get_simulator_property_of_type(MujocoBody) is first
+
+
+def test_every_property_of_a_type_is_found_in_the_order_attached(body):
+    """
+    Of the properties an entity carries, exactly those of the type are found, the ones
+    it may carry several of included.
+    """
+    first, second = MujocoCamera(), MujocoCamera()
+    body.add_simulator_property(first)
+    body.add_simulator_property(MujocoGeom())
+    body.add_simulator_property(second)
+
+    found = body.get_simulator_properties_of_type(MujocoCamera)
+
+    assert len(found) == 2
+    assert found[0] is first and found[1] is second

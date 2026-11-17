@@ -14,6 +14,7 @@ dependencies = [
     "cramph>=26.10.0",
     "giskardpy>=26.10.0",
     "krrood>=26.10.0",
+    "physics_simulators>=26.10.0",
     "probabilistic_model>=26.10.0",
     "pymysql",
     "random_events>=26.10.0",
