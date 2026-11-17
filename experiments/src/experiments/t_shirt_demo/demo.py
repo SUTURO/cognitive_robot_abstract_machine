@@ -205,7 +205,11 @@ class TShirtOnTableDemonstration(RobotDemonstration):
             )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_simulation(self, world: World) -> MujocoSim:
         """
@@ -381,7 +385,7 @@ class TShirtSwingDemonstration(TShirtOnTableDemonstration):
         closest to it, turn away from the table, swing the T-shirt and let it hang.
         """
         world = context.world
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
         world_T_table_side = HomogeneousTransformationMatrix(reference_frame=world.root)
         shoulder_pose = self._shoulder_on_the_left(world)
         arm = min(
@@ -422,7 +426,7 @@ class TShirtSwingDemonstration(TShirtOnTableDemonstration):
         ]
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
                     SetGripperAction(

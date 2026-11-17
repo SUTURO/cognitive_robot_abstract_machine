@@ -168,7 +168,7 @@ class TShirtPickAndDropDemonstration(TShirtOnTableDemonstration):
         table, hold the T-shirt and drop it.
         """
         world = context.world
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
         gripper = robot.end_effector
         [arm] = robot.all_arms
         fold = self.highest_fold_within_reach(
@@ -196,7 +196,7 @@ class TShirtPickAndDropDemonstration(TShirtOnTableDemonstration):
         )
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
                     SetGripperAction(
