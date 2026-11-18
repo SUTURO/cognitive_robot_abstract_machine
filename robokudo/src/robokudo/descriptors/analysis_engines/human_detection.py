@@ -11,7 +11,10 @@ from typing_extensions import TYPE_CHECKING
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
-from robokudo.annotators.gpsr.gpsr_results import GenerateHumanPostureResult, QueryType
+from robokudo.annotators.gpsr.query_answers import (
+    GenerateHumanPostureResult,
+    QueryType,
+)
 from robokudo.annotators.gpsr.lying import HumanLyingAnnotator
 from robokudo.annotators.gpsr.sitting import HumanPosture, HumanSittingAnnotator
 from robokudo.annotators.gpsr.standing import HumanStandingAnnotator

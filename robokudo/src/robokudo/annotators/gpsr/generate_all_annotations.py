@@ -13,7 +13,7 @@ from robokudo_msgs.msg import ObjectDesignator, ShapeSize
 from robokudo.annotators.clip_annotator import CLIPAnnotator
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.gpsr.belief_state import BeliefEntry
-from robokudo.annotators.gpsr.gpsr_results import create_camera_header
+from robokudo.annotators.gpsr.query_answers import create_camera_header
 from robokudo.cas import CASViews
 from robokudo.types.annotation import (
     Classification,
