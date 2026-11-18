@@ -186,6 +186,17 @@ class RoboKudoQuery:
     Where to look, such as the name of a room. Empty means anywhere.
     """
 
+    @classmethod
+    def from_semantic_annotation(
+        cls, semantic_annotation: type[SemanticAnnotation]
+    ) -> Self:
+        """
+        :param semantic_annotation: The kind of thing to look for, such as a human.
+        :return: The query for things of that kind, whose :attr:`object_type` is the
+            name of ``semantic_annotation`` in lower case.
+        """
+        return cls(object_type=semantic_annotation.__name__.lower())
+
 
 # %% detections
 
@@ -401,7 +412,7 @@ class RoboKudoPerception(PerceptionInterface):
 
     def look_for(self, query: PerceptionQuery) -> list[Detection]:
         result = self.answer(
-            RoboKudoQuery(object_type=query.semantic_annotation.__name__.lower())
+            RoboKudoQuery.from_semantic_annotation(query.semantic_annotation)
         )
         return [
             self._to_detection(designator, query)
@@ -454,7 +465,9 @@ class RoboKudoPerception(PerceptionInterface):
             return True
         return (
             designator.type.strip().lower()
-            == query.semantic_annotation.__name__.lower()
+            == RoboKudoQuery.from_semantic_annotation(
+                query.semantic_annotation
+            ).object_type
         )
 
     def _to_detection(

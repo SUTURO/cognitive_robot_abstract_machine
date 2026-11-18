@@ -8,6 +8,7 @@ from krrood.exceptions import DataclassException
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
+    from coraplex.plans.executors import PlanExecutor
     from coraplex.robot_plans.actions.base import Action
     from coraplex.robot_plans.task_definitions import Command
     from cramph.node import StatechartNode
@@ -355,6 +356,31 @@ class PerceptionSourceUnavailable(PerceptionException):
 
     def suggest_correction(self) -> str:
         return "start the perception pipeline before running the plan."
+
+
+@dataclass
+class PerceptionWithoutPhysicalSimulation(PerceptionException):
+    """
+    Raised when a demonstration is to perceive through simulated cameras in a run
+    without physics, where no camera is rendered.
+    """
+
+    executor_type: type[PlanExecutor]
+    """
+    The executor the run was set up with.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"A run of {self.executor_type.__name__} renders no camera to perceive "
+            f"through."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "run the demonstration with a PhysicallySimulatedPlanExecutor, or leave its "
+            "simulated perception unset."
+        )
 
 
 @dataclass

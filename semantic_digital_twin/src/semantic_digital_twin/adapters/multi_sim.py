@@ -49,7 +49,6 @@ from semantic_digital_twin.callbacks.callback import (
     StateChangeCallback,
 )
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
-from semantic_digital_twin.robots.hsrb import HSRBHeadRGBDCamera
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.unique_entity_names import UniqueEntityNames
 from semantic_digital_twin.exceptions import (
@@ -111,6 +110,7 @@ from semantic_digital_twin.world_description.world_modification import (
 )
 
 if TYPE_CHECKING:
+    from rclpy.node import Node
     from semantic_digital_twin.datastructures.camera_model import (
         FieldOfViewCameraModel,
     )
@@ -1086,19 +1086,19 @@ class MujocoCamera(MultiSimCamera):
         return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
 
     @classmethod
-    def mounted_on(cls, camera: Camera[FieldOfViewCameraModel]) -> Self:
+    def mount(cls, camera: Camera[FieldOfViewCameraModel]) -> Self:
         """
-        The camera that renders what a semantic camera sees, at its optical frame and
-        named after it.
+        Attach a MuJoCo camera that renders what ``camera`` sees to its optical frame,
+        named after that frame. Only a simulation built afterwards contains it.
 
-        :param camera: The semantic camera whose image to render.
-        :return: The MuJoCo camera, to be added to the root of the semantic camera.
+        :param camera: The semantic camera whose images to render.
+        :return: The attached MuJoCo camera.
         """
         pinhole = PinholeCameraModel.from_field_of_view(
             resolution=camera.resolution, field_of_view=camera.field_of_view
         )
         resolution = [float(camera.resolution.width), float(camera.resolution.height)]
-        return cls(
+        mujoco_camera = cls(
             name=camera.root.name.name,
             body=camera.root,
             quaternion=cls.quaternion_in_optical_frame,
@@ -1106,17 +1106,8 @@ class MujocoCamera(MultiSimCamera):
             focal_pixel=[pinhole.focal_length_x, pinhole.focal_length_y],
             sensor_size=resolution,
         )
-
-    @classmethod
-    def mount_hsr_head(cls, world: World) -> HSRBHeadRGBDCamera:
-        """Attach a MuJoCo camera to the HSR head camera before building the simulation.
-
-        :param world: The world containing the HSR head camera.
-        :return: The head camera whose optical frame carries the simulated camera.
-        """
-        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
-        camera.root.add_simulator_property(cls.mounted_on(camera))
-        return camera
+        camera.root.add_simulator_property(mujoco_camera)
+        return mujoco_camera
 
     @staticmethod
     def _look_at_rotation(
@@ -4767,3 +4758,44 @@ class MujocoSim(MultiSim):
         for _ in range(round(duration.total_seconds() / self.simulator.step_size)):
             self.simulator.step()
         self.simulator.render()
+
+
+# %% perception in a simulation
+
+
+@dataclass
+class SimulatedPerception(ABC):
+    """
+    The perception of a robot in a :class:`MujocoSim`: cameras the simulation renders,
+    and what perceives through them.
+    """
+
+    @abstractmethod
+    def mount_cameras(self, world: World) -> None:
+        """
+        Attach the cameras to ``world``, before the simulation of ``world`` is built.
+
+        :param world: The world holding the robot whose cameras are perceived through.
+        """
+
+    @abstractmethod
+    def start_perceiving(self, simulation: MujocoSim, ros_node: Node) -> None:
+        """
+        Start perceiving through the cameras of :meth:`mount_cameras`.
+
+        :param simulation: The running simulation of the world the cameras were mounted
+            in.
+        :param ros_node: The node to communicate through.
+        """
+
+    @abstractmethod
+    def capture_frame(self) -> None:
+        """
+        Deliver what the cameras see now, so the next query is answered about it.
+        """
+
+    @abstractmethod
+    def stop_perceiving(self) -> None:
+        """
+        Stop what :meth:`start_perceiving` started; does nothing if it never ran.
+        """

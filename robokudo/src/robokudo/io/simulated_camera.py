@@ -1,6 +1,6 @@
 """
 A camera driver for a simulated robot: what a camera sees in MuJoCo, published the way the
-RGB-D camera driver of the real robot publishes it.
+RGB-D camera driver of the real robot publishes it, and RoboKudo perceiving through it.
 """
 
 from __future__ import annotations
@@ -18,8 +18,16 @@ from sensor_msgs.msg import CameraInfo, CompressedImage
 from std_msgs.msg import Header
 from tf2_ros import TransformBroadcaster
 
+from robokudo.analysis_engine_process import (
+    AnalysisEngineModule,
+    AnalysisEngineProcess,
+)
+from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
 from robokudo.io.camera_model_adapters import RosCameraModelAdapter
+from robokudo.io.exceptions import CameraAnnotationAmbiguous, CameraTypeNotInWorld
+from semantic_digital_twin.adapters.multi_sim import MujocoCamera, SimulatedPerception
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
+from semantic_digital_twin.robots.hsrb import HSRBHeadRGBDCamera
 from semantic_digital_twin.spatial_computations.raytracer import RayTracer
 
 if TYPE_CHECKING:
@@ -32,6 +40,7 @@ if TYPE_CHECKING:
     from semantic_digital_twin.adapters.multi_sim import MujocoSim
     from semantic_digital_twin.datastructures.camera_model import FieldOfViewCameraModel
     from semantic_digital_twin.robots.robot_parts import Camera
+    from semantic_digital_twin.world import World
 
 # %% Messages of one frame
 
@@ -218,3 +227,82 @@ class SimulatedCameraPublisher:
         self._color_publisher.publish(messages.color_image)
         self._depth_publisher.publish(messages.depth_image)
         self._camera_info_publisher.publish(messages.camera_info)
+
+
+# %% Perceiving through a simulated camera
+
+
+@dataclass
+class RoboKudoSimulatedPerception(SimulatedPerception):
+    """
+    An analysis engine perceiving through a camera of the simulated robot, which is
+    published the way the camera driver of the real robot publishes it. Left at its
+    defaults, it publishes the head camera of the HSR like the real HSR and detects humans.
+    """
+
+    camera_type: type[Camera[FieldOfViewCameraModel]] = HSRBHeadRGBDCamera
+    """
+    The kind of camera the analysis engine sees through, of which the world holds exactly
+    one.
+    """
+
+    camera_topics: RGBDComponent = field(default_factory=HsrRos2CameraConfig)
+    """
+    The configuration naming the topics of the images and of the calibration.
+    """
+
+    camera_frames: TfComponent = field(default_factory=HsrRos2CameraConfig)
+    """
+    The configuration naming the camera's optical frame and the world frame.
+    """
+
+    analysis_engine: AnalysisEngineProcess = field(
+        default_factory=lambda: AnalysisEngineProcess(
+            analysis_engine=AnalysisEngineModule.HUMAN_DETECTION
+        )
+    )
+    """
+    The analysis engine answering the queries of the plan.
+    """
+
+    camera_publisher: SimulatedCameraPublisher | None = field(init=False, default=None)
+    """
+    Publishes what the camera sees, None before :meth:`start_perceiving`.
+    """
+
+    def mount_cameras(self, world: World) -> None:
+        MujocoCamera.mount(self._find_camera(world))
+
+    def start_perceiving(self, simulation: MujocoSim, ros_node: Node) -> None:
+        self.camera_publisher = SimulatedCameraPublisher(
+            camera=self._find_camera(simulation.world),
+            simulation=simulation,
+            node=ros_node,
+            topics=self.camera_topics,
+            frames=self.camera_frames,
+        )
+        self.analysis_engine.start()
+
+    def capture_frame(self) -> None:
+        self.camera_publisher.publish()
+
+    def stop_perceiving(self) -> None:
+        if self.camera_publisher is None:
+            return
+        self.analysis_engine.stop()
+
+    def _find_camera(self, world: World) -> Camera[FieldOfViewCameraModel]:
+        """
+        :param world: The world holding the robot.
+        :return: The camera of :attr:`camera_type` in ``world``.
+        :raises CameraTypeNotInWorld: If ``world`` holds no camera of the type.
+        :raises CameraAnnotationAmbiguous: If ``world`` holds several.
+        """
+        cameras = world.get_semantic_annotations_by_type(self.camera_type)
+        if not cameras:
+            raise CameraTypeNotInWorld(camera_type=self.camera_type)
+        if len(cameras) > 1:
+            raise CameraAnnotationAmbiguous(
+                camera_names=tuple(str(camera.name) for camera in cameras)
+            )
+        return cameras[0]

@@ -674,6 +674,6 @@ class AnalysisEngineDidNotStart(RoboKudoError, RuntimeError):
 
     def suggest_correction(self) -> str:
         return (
-            "check the output of its process for an error, or wait longer for an "
-            "analysis engine that loads large models."
+            "check the output of its process for an error, or raise the startup timeout "
+            "of an analysis engine that downloads or loads large models."
         )
