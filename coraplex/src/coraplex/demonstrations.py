@@ -21,6 +21,8 @@ import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
+from coraplex.exceptions import PerceptionWithoutPhysicalSimulation
+from coraplex.perception import CameraFrameCapture
 from coraplex.plans.executors import (
     KinematicallySimulatedPlanExecutor,
     PhysicallySimulatedPlanExecutor,
@@ -30,7 +32,7 @@ from coraplex.plans.executors import (
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
-from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from semantic_digital_twin.adapters.multi_sim import MujocoSim, SimulatedPerception
 from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
@@ -223,6 +225,12 @@ class RobotDemonstration(ABC):
     shown in RViz through :attr:`ros_node`, if there is one; a real run is never shown.
     """
 
+    simulated_perception: SimulatedPerception | None = None
+    """
+    The perception of the robot in a physically simulated run, which the plan can query;
+    ``None`` for a run that perceives nothing in simulation.
+    """
+
     ros_session: RobotDemonstrationRosSession | None = field(init=False, default=None)
     """
     Session held for the duration of a real run, and ``None`` in simulation.
@@ -404,30 +412,51 @@ class RobotDemonstration(ABC):
     def start_simulation(self, world: World) -> None:
         """
         Start the physics of a run of a
-        :class:`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor`, and let it
-        step for :attr:`settling_duration`. Starts nothing for any other run.
+        :class:`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor` with the
+        cameras of :attr:`simulated_perception` mounted, let it step for
+        :attr:`settling_duration`, then start :attr:`simulated_perception`. Starts
+        nothing for any other run.
 
         :param world: The world the plan is performed in.
+        :raises PerceptionWithoutPhysicalSimulation: If :attr:`simulated_perception` is
+            set for a run without physics.
         """
-        if not issubclass(self.executor_type, PhysicallySimulatedPlanExecutor):
+        physically_simulated = issubclass(
+            self.executor_type, PhysicallySimulatedPlanExecutor
+        )
+        if self.simulated_perception is not None and not physically_simulated:
+            raise PerceptionWithoutPhysicalSimulation(executor_type=self.executor_type)
+        if not physically_simulated:
             return
+        if self.simulated_perception is not None:
+            self.simulated_perception.mount_cameras(world)
         self.simulation = self.build_simulation(world)
         self.simulation.start_stepped_simulation()
         self.simulation.step_simulation(self.settling_duration)
+        if self.simulated_perception is not None:
+            self.simulated_perception.start_perceiving(self.simulation, self.ros_node)
 
     def create_executor(self, world: World) -> PlanExecutor:
         """
         :param world: The world the plan is performed in.
         :return: An executor of :attr:`executor_type`, set up the way this demonstration
             performs its plan in :attr:`simulation`, if there is one, showing its runs
-            with :attr:`visualization`.
+            with :attr:`visualization`, and whose plan captures the frames of
+            :attr:`simulated_perception`.
         """
         executor_type = self.executor_type
         if self.simulation is not None:
             executor_type = partial(executor_type, simulation=self.simulation)
+        context_extensions = self.build_context_extensions(world)
+        if self.simulated_perception is not None:
+            context_extensions.append(
+                CameraFrameCapture(
+                    capture_frame=self.simulated_perception.capture_frame
+                )
+            )
         executor = executor_type(
             context=StatechartContext.with_extensions(
-                world=world, extensions=self.build_context_extensions(world)
+                world=world, extensions=context_extensions
             ),
             ros_node=self.ros_node,
             collision_avoidance=self.collision_avoidance,
@@ -467,9 +496,11 @@ class RobotDemonstration(ABC):
 
     def tear_down(self) -> None:
         """
-        Stop the physics, and release the ROS session if this demonstration started the
-        ROS context.
+        Stop :attr:`simulated_perception` and the physics, and release the ROS session if
+        this demonstration started the ROS context.
         """
+        if self.simulated_perception is not None:
+            self.simulated_perception.stop_perceiving()
         if self.simulation is not None:
             self.simulation.stop_simulation()
             self.simulation = None

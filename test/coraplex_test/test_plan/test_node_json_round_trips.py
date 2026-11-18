@@ -356,6 +356,16 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
                 )
             ],
         ),
+        ActionRoundTripCase(
+            perception.RoboKudoQueryTask,
+            lambda world: [
+                perception.RoboKudoQueryTask(
+                    query=perception.RoboKudoQuery(
+                        object_type="human", attributes=["standing"]
+                    )
+                )
+            ],
+        ),
     ]
 
 
