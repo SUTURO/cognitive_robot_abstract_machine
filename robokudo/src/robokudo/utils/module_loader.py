@@ -32,7 +32,10 @@ import warnings
 from importlib.resources import as_file
 from pathlib import Path
 
+from krrood.ormatic.utils import classproperty
 from typing_extensions import TYPE_CHECKING, Any
+
+from robokudo.defs import PACKAGE_NAME
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -312,3 +315,11 @@ class ModuleLoader:
         files = importlib.resources.files(module_name)
         with as_file(files) as path:
             return Path(path)
+
+    @classproperty
+    def models_directory(cls) -> Path:
+        """
+        The directory of the robokudo package that holds the weights of its models,
+        which annotators download into on first use.
+        """
+        return cls.get_module_path(PACKAGE_NAME) / "models"

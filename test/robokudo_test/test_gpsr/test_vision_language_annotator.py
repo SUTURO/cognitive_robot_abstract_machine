@@ -15,7 +15,7 @@ from robokudo.annotators.gpsr.vision_language_annotator import (
 )
 from robokudo.cas import CASViews
 
-from ._vision_language_mock import ModelLoader, ProjectorLoader
+from ._vision_language_mock import DownloadRecorder, ModelLoader, ProjectorLoader
 from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -26,25 +26,31 @@ if TYPE_CHECKING:
 # %% model stand-in
 
 
-@pytest.fixture
-def model_loader(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModelLoader:
+@pytest.fixture(autouse=True)
+def hub_downloads(monkeypatch: pytest.MonkeyPatch) -> DownloadRecorder:
     """
-    Make the annotator load the recording model from the files of a stand-in ROS
-    package.
+    Record the downloads from Hugging Face in every test instead of downloading.
+
+    :param monkeypatch: Replaces the download.
+    :return: The recorder of the downloads.
+    """
+    recorder = DownloadRecorder()
+    monkeypatch.setattr(vision_language_annotator, "hf_hub_download", recorder)
+    return recorder
+
+
+@pytest.fixture
+def model_loader(monkeypatch: pytest.MonkeyPatch) -> ModelLoader:
+    """
+    Make the annotator load the recording model instead of the model files.
 
     :param monkeypatch: Replaces the model loader.
-    :param tmp_path: Directory of the stand-in package.
     :return: The loader.
     """
     loader = ModelLoader()
     monkeypatch.setattr(vision_language_annotator, "Llama", loader)
     monkeypatch.setattr(
         vision_language_annotator, "Qwen25VLChatHandler", ProjectorLoader()
-    )
-    monkeypatch.setattr(
-        vision_language_annotator.FileLoader,
-        "get_path_to_file_in_ros_package",
-        lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path,
     )
     return loader
 
@@ -243,11 +249,11 @@ def test_model_is_loaded_once(scene: GpsrScene, model_loader: ModelLoader) -> No
     assert len(model_loader.load_arguments) == 1
 
 
-def test_model_is_loaded_from_the_ros_package(
-    scene: GpsrScene, model_loader: ModelLoader, tmp_path: Path
+def test_model_is_loaded_from_the_models_directory(
+    scene: GpsrScene, model_loader: ModelLoader
 ) -> None:
     """
-    Model is loaded from the ROS package.
+    Model is loaded from the models directory.
     """
     annotator = asking_annotator()
     parameters = annotator.descriptor.parameters
@@ -257,10 +263,50 @@ def test_model_is_loaded_from_the_ros_package(
     annotator.compute()
 
     [arguments] = model_loader.load_arguments
-    package = tmp_path / parameters.ros_package_name
-    assert arguments["model_path"] == str(package / parameters.model_file)
-    assert arguments["chat_handler"] == str(package / parameters.projector_file)
+    directory = parameters.models_directory
+    assert arguments["model_path"] == str(directory / parameters.model_file)
+    assert arguments["chat_handler"] == str(directory / parameters.projector_file)
     assert arguments["n_ctx"] == parameters.context_length
+
+
+def test_missing_model_files_are_downloaded_into_the_models_directory(
+    hub_downloads: DownloadRecorder, tmp_path: Path
+) -> None:
+    """
+    Before the analysis engine runs, the model files the models directory lacks are
+    fetched from the Hugging Face repository.
+    """
+    annotator = asking_annotator()
+    parameters = annotator.descriptor.parameters
+    parameters.models_directory = tmp_path
+
+    annotator.setup()
+
+    assert hub_downloads.downloads == [
+        {
+            "repo_id": parameters.huggingface_repository,
+            "filename": file_name,
+            "local_dir": tmp_path,
+        }
+        for file_name in (parameters.model_file, parameters.projector_file)
+    ]
+
+
+def test_model_files_in_the_models_directory_are_not_downloaded_again(
+    hub_downloads: DownloadRecorder, tmp_path: Path
+) -> None:
+    """
+    Once its files are downloaded, the model starts without the network.
+    """
+    annotator = asking_annotator()
+    parameters = annotator.descriptor.parameters
+    parameters.models_directory = tmp_path
+    for file_name in (parameters.model_file, parameters.projector_file):
+        (tmp_path / file_name).touch()
+
+    annotator.setup()
+
+    assert hub_downloads.downloads == []
 
 
 @pytest.mark.parametrize(

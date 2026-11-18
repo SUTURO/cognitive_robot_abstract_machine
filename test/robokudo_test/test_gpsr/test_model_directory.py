@@ -6,6 +6,7 @@ from __future__ import annotations
 
 # %% Imports
 import pytest
+from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.gpsr.filter_object_by_semantic_annotation import (
     FilterObjectBySemanticAnnotation,
 )
@@ -15,6 +16,9 @@ from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.descriptors.analysis_engines.gpsr.subtree_door_pipeline import (
     Subtree as DoorSubtree,
+)
+from robokudo.descriptors.analysis_engines.gpsr.subtree_human_attribute_pipeline import (
+    Subtree as HumanAttributeSubtree,
 )
 from robokudo.descriptors.analysis_engines.gpsr.subtree_human_near_object import (
     Subtree as HumanNearObjectSubtree,
@@ -29,6 +33,7 @@ from robokudo.descriptors.analysis_engines.gpsr.subtree_waving_raising_pipeline 
     Subtree as WavingRaisingSubtree,
 )
 from robokudo.utils.file_loader import FileLoader
+from robokudo.utils.module_loader import ModuleLoader
 from typing_extensions import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -61,7 +66,7 @@ def model_package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         "get_path_to_file_in_ros_package",
         lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path,
     )
-    return tmp_path / VisionLanguageAnnotator.Descriptor.Parameters().ros_package_name
+    return tmp_path / GpsrRosPackage.TRAINED_MODELS
 
 
 # %% files of the model package
@@ -149,3 +154,19 @@ def test_furniture_detector_uses_the_core_pretrained_model() -> None:
     [detector] = [child for child in tree.children if isinstance(child, YoloAnnotator)]
     assert detector.descriptor.parameters.pretrained_model == "yolov8n.pt"
     assert detector.model_location == str(default_directory / "yolov8n.pt")
+
+
+def test_vision_language_model_comes_from_the_core_model_directory() -> None:
+    """
+    The vision language model is loaded from the core model directory, where it is
+    downloaded to, and not from the model package.
+    """
+    tree = HumanAttributeSubtree().implementation()
+
+    [describer] = [
+        child for child in tree.children if isinstance(child, VisionLanguageAnnotator)
+    ]
+    assert (
+        describer.descriptor.parameters.models_directory
+        == ModuleLoader.models_directory
+    )

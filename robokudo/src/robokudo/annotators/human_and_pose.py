@@ -27,7 +27,6 @@ from ultralytics import YOLO
 from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.annotators.exceptions import NotAPoseModelException
 from robokudo.cas import CASViews
-from robokudo.defs import PACKAGE_NAME
 from robokudo.types.annotation import Classification, CloudAnnotation
 from robokudo.types.cv import Rect
 from robokudo.types.human import (
@@ -192,9 +191,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
             """
 
             def __init__(self) -> None:
-                self.models_directory: Path = (
-                    ModuleLoader.get_module_path(PACKAGE_NAME) / "models"
-                )
+                self.models_directory: Path = ModuleLoader.models_directory
                 """
                 Directory the pose model weights are loaded from.
 

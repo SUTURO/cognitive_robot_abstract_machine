@@ -8,6 +8,7 @@ from __future__ import annotations
 # %% Imports
 import py_trees
 import robokudo.analysis_engine
+from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.query import GenerateQueryResult
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 
@@ -31,7 +32,7 @@ class Subtree(robokudo.analysis_engine.SubtreeInterface):
         :return: The sequence of the door route.
         """
         yolo_descriptor = YoloAnnotator.Descriptor()
-        yolo_descriptor.parameters.ros_package_name = "robokudo_suturo"
+        yolo_descriptor.parameters.ros_package_name = GpsrRosPackage.TRAINED_MODELS
         yolo_descriptor.parameters.weights_path = "weights/door.pt"
         yolo_descriptor.parameters.class_names_path = "data/json/id2name_door.json"
         yolo_descriptor.parameters.threshold = 0.35
