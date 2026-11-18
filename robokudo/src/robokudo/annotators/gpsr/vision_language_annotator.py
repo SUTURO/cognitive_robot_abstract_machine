@@ -80,13 +80,13 @@ class VisionLanguageAnnotator(ThreadedAnnotator):
                 """
                 self.model_file: str = "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
                 """
-                The language model, inside :attr:`models_directory` and
+                File name of the language model, in :attr:`models_directory` and in
                 :attr:`huggingface_repository`.
                 """
                 self.projector_file: str = "mmproj-F16.gguf"
                 """
-                The image projector of the model, inside :attr:`models_directory` and
-                :attr:`huggingface_repository`.
+                File name of the image projector of the model, in
+                :attr:`models_directory` and in :attr:`huggingface_repository`.
                 """
                 self.context_length: int = 4096
                 """
@@ -139,8 +139,8 @@ class VisionLanguageAnnotator(ThreadedAnnotator):
 
     def setup(self, **kwargs: Any) -> bool:
         """
-        Extends :meth:`ThreadedAnnotator.setup` by downloading each model file that
-        :attr:`Descriptor.Parameters.models_directory` lacks from
+        Extends :meth:`ThreadedAnnotator.setup`: a model file missing from
+        :attr:`Descriptor.Parameters.models_directory` is first downloaded from
         :attr:`Descriptor.Parameters.huggingface_repository`.
         """
         parameters = self.descriptor.parameters

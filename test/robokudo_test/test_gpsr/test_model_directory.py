@@ -6,7 +6,6 @@ from __future__ import annotations
 
 # %% Imports
 import pytest
-from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.gpsr.filter_object_by_semantic_annotation import (
     FilterObjectBySemanticAnnotation,
 )
@@ -66,7 +65,7 @@ def model_package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         "get_path_to_file_in_ros_package",
         lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path,
     )
-    return tmp_path / GpsrRosPackage.TRAINED_MODELS
+    return tmp_path / "robokudo_suturo"
 
 
 # %% files of the model package

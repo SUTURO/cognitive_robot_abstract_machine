@@ -9,7 +9,6 @@ import py_trees.composites
 import py_trees.decorators
 
 import robokudo.analysis_engine
-from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.cas_check import CASCheckOHExists
 from robokudo.annotators.cluster_pose_bb import ClusterPoseBBAnnotator
 from robokudo.annotators.outlier_removal_objecthypothesis import (
@@ -80,7 +79,7 @@ class Subtree(robokudo.analysis_engine.SubtreeInterface):
         """
         yolo_descriptor = YoloAnnotator.Descriptor()
         yolo_descriptor.parameters.precision_mode = True
-        yolo_descriptor.parameters.ros_package_name = GpsrRosPackage.TRAINED_MODELS
+        yolo_descriptor.parameters.ros_package_name = "robokudo_suturo"
         yolo_descriptor.parameters.weights_path = f"weights/{self.model}.pt"
         yolo_descriptor.parameters.class_names_path = (
             f"data/json/id2name_{self.model}.json"

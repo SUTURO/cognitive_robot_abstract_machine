@@ -8,7 +8,6 @@ from __future__ import annotations
 import pytest
 from ament_index_python.packages import get_packages_with_prefixes
 from py_trees.behaviours import Success
-from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.gpsr.pointing import HumanPointingAnnotator
 from robokudo.descriptors.analysis_engines.gpsr.gpsr_implementation import (
     AnalysisEngine,
@@ -78,7 +77,7 @@ def real_gpsr_tree(
     :param scoring_clip: The CLIP stand-in.
     :return: An iterator over the tree.
     """
-    if GpsrRosPackage.TRAINED_MODELS not in get_packages_with_prefixes():
+    if "robokudo_suturo" not in get_packages_with_prefixes():
         pytest.skip("GPSR model package is not installed")
     tree = AnalysisEngine().implementation()
     yield tree

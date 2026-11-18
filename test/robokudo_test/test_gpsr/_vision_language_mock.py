@@ -106,7 +106,7 @@ class ProjectorLoader:
 # %% downloads
 
 
-@dataclass
+@dataclass(kw_only=True)
 class DownloadRecorder:
     """
     Stands in for the download from Hugging Face: records what it is asked to download

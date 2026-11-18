@@ -11,7 +11,6 @@ from enum import StrEnum
 import py_trees
 import robokudo.analysis_engine
 import robokudo.annotators.core
-from robokudo.annotators.gpsr import GpsrRosPackage
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.query import GenerateQueryResult
 from robokudo.cas import CASViews
@@ -166,7 +165,7 @@ class Subtree(robokudo.analysis_engine.SubtreeInterface):
         """
         yolo_descriptor = YoloAnnotator.Descriptor()
         yolo_descriptor.parameters.precision_mode = True
-        yolo_descriptor.parameters.ros_package_name = GpsrRosPackage.TRAINED_MODELS
+        yolo_descriptor.parameters.ros_package_name = "robokudo_suturo"
         yolo_descriptor.parameters.pretrained_model = "yolov8n.pt"
         yolo_descriptor.parameters.class_names_path = (
             "data/json/id2name_yolov8Model.json"
