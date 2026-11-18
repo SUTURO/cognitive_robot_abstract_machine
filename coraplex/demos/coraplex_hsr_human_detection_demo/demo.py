@@ -165,10 +165,14 @@ class HumanDetectionDemonstration(RobotDemonstration):
             )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
         human = context.world.get_body_by_name(SceneBody.HUMAN)
         steps: list[StatechartNode] = [
             ParkArmsAction(arms=robot.all_arms),
@@ -186,7 +190,7 @@ class HumanDetectionDemonstration(RobotDemonstration):
                 )
             )
         statechart = Statechart(context=context)
-        statechart.add_node(Sequence(nodes=steps))
+        statechart.add_node(node=Sequence(nodes=steps))
         return statechart
 
     def tear_down(self) -> None:

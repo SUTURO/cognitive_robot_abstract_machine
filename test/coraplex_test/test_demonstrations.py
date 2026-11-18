@@ -217,7 +217,9 @@ class RecordingDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         statechart = Statechart(context=context)
-        statechart.add_node(FunctionCall(function=lambda: self.run_plan_body(context)))
+        statechart.add_node(
+            node=FunctionCall(function=lambda: self.run_plan_body(context))
+        )
         return statechart
 
     @contextmanager
@@ -661,7 +663,9 @@ def test_the_plan_captures_frames_through_the_simulated_perception(
     )
     executor = demonstration.create_executor(cylinder_bot_world)
 
-    executor.context.require_extension(CameraFrameCapture).capture_frame()
+    executor.context.require_extension(
+        extension_type=CameraFrameCapture
+    ).capture_frame()
 
     assert simulated_perception.recorded_steps == [RunStep.CAPTURE_FRAME]
 

@@ -450,10 +450,14 @@ class RobotDemonstration(ABC):
         context_extensions = self.build_context_extensions(world)
         if self.simulated_perception is not None:
             context_extensions.append(
-                CameraFrameCapture(self.simulated_perception.capture_frame)
+                CameraFrameCapture(
+                    capture_frame=self.simulated_perception.capture_frame
+                )
             )
         executor = executor_type(
-            StatechartContext.with_extensions(world, context_extensions),
+            context=StatechartContext.with_extensions(
+                world=world, extensions=context_extensions
+            ),
             ros_node=self.ros_node,
             collision_avoidance=self.collision_avoidance,
             debug=self.debug,
@@ -483,7 +487,7 @@ class RobotDemonstration(ABC):
                     else nullcontext()
                 )
                 with event_segmentation:
-                    executor.compile(statechart)
+                    executor.compile(statechart=statechart)
                     executor.execute()
                 executor.close()
         finally:

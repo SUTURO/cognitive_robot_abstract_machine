@@ -33,10 +33,10 @@ class MyDemonstration(RobotDemonstration):
     )
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
                     RoboKudoQueryTask(

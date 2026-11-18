@@ -1,3 +1,7 @@
+"""
+Exceptions raised by plans and demonstrations.
+"""
+
 from __future__ import annotations
 
 from abc import ABC
@@ -210,7 +214,7 @@ class MissingToolFrame(DataclassException):
         return "ensure the arm's end effector defines a tool frame."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionDidNotFinish(PlanFailure):
     """
     Raised when a plan ended without succeeding.

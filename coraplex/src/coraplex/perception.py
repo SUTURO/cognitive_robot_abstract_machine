@@ -143,12 +143,13 @@ class PerceptionQuery(SubclassJSONSerializer):
         return result
 
     @classmethod
-    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
+        """Resolve the robot and world references in :meth:`SubclassJSONSerializer._from_json`."""
+        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(from_json_kwargs=kwargs)
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
-            robot=tracker.get(from_json(data["robot_id"])),
+            robot=tracker.get(key=from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
         )
@@ -562,10 +563,11 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
         return super().required_context_extensions + (RosContextExtension,)
 
     def set_up(self) -> None:
+        """Resolve the perception source in :meth:`StatechartNode.set_up`."""
         super().set_up()
         self.perception_source = PerceptionInterface.for_source(
             self.answered_by,
-            self.context.require_extension(RosContextExtension).ros_node,
+            self.context.require_extension(extension_type=RosContextExtension).ros_node,
         )
 
     def on_start(self) -> None:
@@ -642,7 +644,9 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
             camera = self.context.extensions.get(CameraFrameCapture)
             if camera is not None:
                 camera.capture_frame()
-            ros_node = self.context.require_extension(RosContextExtension).ros_node
+            ros_node = self.context.require_extension(
+                extension_type=RosContextExtension
+            ).ros_node
             self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
         if self.answer.res:
             return ObservationStateValues.TRUE
