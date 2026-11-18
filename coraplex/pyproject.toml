@@ -68,6 +68,7 @@ workspace = [
     "krrood_spatial_math",
     "probabilistic_model",
     "random_events",
+    "robokudo",
     "semantic_digital_twin",
 ]
 
