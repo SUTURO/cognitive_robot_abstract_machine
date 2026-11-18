@@ -31,7 +31,6 @@ from ultralytics.utils.plotting import colors
 
 from robokudo.annotators.core import ThreadedAnnotator
 from robokudo.cas import CASViews
-from robokudo.defs import PACKAGE_NAME
 from robokudo.exceptions import DetectionModelNotConfigured
 from robokudo.types.annotation import Classification
 from robokudo.types.cv import Rect
@@ -112,9 +111,7 @@ class YoloAnnotator(ThreadedAnnotator):
             """
 
             def __init__(self) -> None:
-                self.models_directory: Path = (
-                    ModuleLoader.get_module_path(PACKAGE_NAME) / "models"
-                )
+                self.models_directory: Path = ModuleLoader.models_directory
                 """
                 Directory the pretrained models are loaded from, and downloaded into on
                 first use.

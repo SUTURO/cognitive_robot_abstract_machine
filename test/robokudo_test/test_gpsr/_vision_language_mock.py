@@ -1,6 +1,6 @@
 """
-Stand-ins for a llama.cpp vision language model and its image projector, so no weights
-are loaded.
+Stand-ins for a llama.cpp vision language model, its image projector and the download of
+their files, so no weights are downloaded or loaded.
 """
 
 from __future__ import annotations
@@ -101,3 +101,25 @@ class ProjectorLoader:
         """
         self.projector_paths.append(clip_model_path)
         return clip_model_path
+
+
+# %% downloads
+
+
+@dataclass(kw_only=True)
+class DownloadRecorder:
+    """
+    Stands in for the download from Hugging Face: records what it is asked to download
+    instead of downloading it.
+    """
+
+    downloads: list[dict[str, Any]] = field(default_factory=list)
+    """
+    The keyword arguments of every download, in download order.
+    """
+
+    def __call__(self, **arguments: Any) -> None:
+        """
+        :param arguments: The keyword arguments of the download.
+        """
+        self.downloads.append(arguments)
