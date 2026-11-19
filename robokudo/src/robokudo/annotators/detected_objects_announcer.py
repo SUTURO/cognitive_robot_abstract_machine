@@ -41,6 +41,7 @@ class DetectedObjectsAnnouncer(BaseAnnotator):
             """Parameters of the :class:`DetectedObjectsAnnouncer`."""
 
             def __init__(self) -> None:
+                """Set the default parameters."""
                 self.queue_size: int = 10
                 """Depth of the publisher's message queue."""
 
@@ -51,6 +52,10 @@ class DetectedObjectsAnnouncer(BaseAnnotator):
         name: str = "DetectedObjectsAnnouncer",
         descriptor: DetectedObjectsAnnouncer.Descriptor | None = None,
     ) -> None:
+        """
+        :param name: Name of the annotator in the behaviour tree.
+        :param descriptor: Configuration, the default one if not given.
+        """
         super().__init__(name, descriptor)
         self.publisher: Publisher | None = None
         """Publisher of the sentences, created in :meth:`setup`."""

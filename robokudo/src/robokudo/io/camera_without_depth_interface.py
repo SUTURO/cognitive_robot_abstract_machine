@@ -1,21 +1,6 @@
 """
-OpenCV camera interface for RGB-only devices in RoboKudo.
-
-This module provides an interface for OpenCV-compatible cameras and video sources
-that only provide RGB data without depth information. It supports:
-
-* Live camera streams
-* Video file playback
-* Single image loading
-* Contrast/brightness normalization
-* Configurable looping behavior
-
-The module is used for:
-
-* USB webcams
-* IP cameras
-* Video file playback
-* Image sequence processing
+Reading color-only sources through OpenCV: USB webcams, IP cameras, video files, image
+sequences and single images.
 """
 
 from __future__ import annotations
@@ -46,20 +31,8 @@ TYPE_IMAGE: int = 2
 
 class OpenCVCameraWithoutDepthInterface(CameraInterface):
     """
-    An openCV camera without depth information.
-
-    An OpenCV-based interface for RGB-only cameras and video sources.
-
-    This class handles various types of RGB input sources through OpenCV:
-    * Live camera feeds (USB webcams, IP cameras)
-    * Video file playback
-    * Single image or image sequence loading
-
-    Supports features like:
-    * Automatic input type detection
-    * Configurable frame looping
-    * Image normalization
-    * Static camera calibration
+    Reads a live camera, a video file or an image through OpenCV into the CAS, with an
+    optional static depth image and a static calibration.
     """
 
     def __init__(self, camera_config: Any) -> None:
@@ -151,13 +124,8 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
 
     def set_data(self, cas: CAS) -> None:
         """
-        Update the Common Analysis Structure with latest frame data.
-
-        This method:
-        * Retrieves the next frame from video/camera or backup
-        * Handles looping behavior for videos and images
-        * Applies optional contrast/brightness normalization
-        * Updates the CAS with frame and camera data
+        Put the next frame, optionally normalized, and the camera data into the CAS,
+        restarting a file source as its loop mode allows.
 
         :param cas: Common Analysis Structure to update
         """

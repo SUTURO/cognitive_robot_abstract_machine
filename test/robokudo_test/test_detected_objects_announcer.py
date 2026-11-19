@@ -1,3 +1,7 @@
+"""
+Tests of the annotator that has the robot say which objects it detected.
+"""
+
 # %% imports
 import pytest
 import rclpy
@@ -16,6 +20,9 @@ from robokudo.types.scene import ObjectHypothesis
 
 # %% helpers
 def _announcer_in_pipeline() -> DetectedObjectsAnnouncer:
+    """
+    :return: An announcer inside a pipeline, so it has a CAS to read.
+    """
     pipeline = Pipeline("Sequence")
     announcer = DetectedObjectsAnnouncer()
     pipeline.add_child(announcer)
@@ -23,6 +30,9 @@ def _announcer_in_pipeline() -> DetectedObjectsAnnouncer:
 
 
 def _hypothesis(classname: str) -> ObjectHypothesis:
+    """
+    :return: An object hypothesis classified as the given class.
+    """
     hypothesis = ObjectHypothesis()
     hypothesis.annotations.append(Classification(classname=classname))
     return hypothesis
@@ -30,12 +40,18 @@ def _hypothesis(classname: str) -> ObjectHypothesis:
 
 # %% sentence
 def test_sentence_says_nothing_was_seen_without_hypotheses():
+    """
+    Without object hypotheses, the robot says it sees no objects.
+    """
     announcer = _announcer_in_pipeline()
 
     assert announcer.describe_detected_objects() == "I do not see any objects."
 
 
 def test_sentence_counts_objects_in_order_of_detection():
+    """
+    Each class is named once with its count, in the order it was first detected.
+    """
     announcer = _announcer_in_pipeline()
     announcer.get_cas().annotations = [
         _hypothesis("cup"),
@@ -50,6 +66,9 @@ def test_sentence_counts_objects_in_order_of_detection():
 
 
 def test_sentence_speaks_class_names_with_spaces():
+    """
+    Underscores in class names are spoken as spaces.
+    """
     announcer = _announcer_in_pipeline()
     announcer.get_cas().annotations = [_hypothesis("spoon_dinner_redgrip")]
 
@@ -57,6 +76,9 @@ def test_sentence_speaks_class_names_with_spaces():
 
 
 def test_sentence_ignores_annotations_outside_object_hypotheses():
+    """
+    Only classifications of object hypotheses count as detected objects.
+    """
     announcer = _announcer_in_pipeline()
     announcer.get_cas().annotations = [Classification(classname="cup")]
 
@@ -65,6 +87,9 @@ def test_sentence_ignores_annotations_outside_object_hypotheses():
 
 # %% speaking
 def test_update_says_sentence_in_english_through_robot_voice(node):
+    """
+    The sentence reaches the robot's speech engine as an English voice message.
+    """
     voice_messages = pytest.importorskip("tmc_voice_msgs.msg")
     announcer = _announcer_in_pipeline()
     announcer.get_cas().annotations = [_hypothesis("cup")]
@@ -90,6 +115,9 @@ def test_update_says_sentence_in_english_through_robot_voice(node):
 
 
 def test_setup_raises_without_robot_voice_messages(node, monkeypatch):
+    """
+    Without the robot's voice messages, setup fails with a dedicated exception.
+    """
     monkeypatch.setattr(
         robokudo.annotators.detected_objects_announcer,
         "find_spec",

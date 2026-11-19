@@ -1,3 +1,7 @@
+"""
+Tests of reading the newest frame of a live OpenCV camera instead of buffered ones.
+"""
+
 # %% imports
 from __future__ import annotations
 
@@ -86,6 +90,9 @@ class ReaderWithSource:
 def _reader(
     monkeypatch: pytest.MonkeyPatch, stream_type: int, grab_seconds: list[float]
 ) -> ReaderWithSource:
+    """
+    :return: An OpenCV reader on a frame source whose grabs take the given durations.
+    """
     clock = Clock()
     monkeypatch.setattr(
         "robokudo.io.camera_without_depth_interface.time.monotonic",
@@ -105,6 +112,9 @@ def _reader(
 
 # %% buffered frames
 def test_live_camera_skips_frames_buffered_since_the_last_read(monkeypatch):
+    """
+    Frames the driver buffered since the last read are skipped for the newest one.
+    """
     buffered = 0.0
     fresh = 0.033
     reader_with_source = _reader(
@@ -116,6 +126,9 @@ def test_live_camera_skips_frames_buffered_since_the_last_read(monkeypatch):
 
 
 def test_live_camera_read_without_buffered_frames_grabs_once(monkeypatch):
+    """
+    Without buffered frames, a live camera grabs exactly one frame.
+    """
     fresh = 0.033
     reader_with_source = _reader(monkeypatch, TYPE_CAMERA, [fresh, fresh])
 
@@ -124,6 +137,9 @@ def test_live_camera_read_without_buffered_frames_grabs_once(monkeypatch):
 
 
 def test_live_camera_stops_skipping_after_the_maximum_buffered_frames(monkeypatch):
+    """
+    Skipping buffered frames stops after the configured maximum.
+    """
     camera_config = OpenCVCameraConfig()
     instant_grabs = [0.0] * (camera_config.maximum_buffered_frames + 5)
     reader_with_source = _reader(monkeypatch, TYPE_CAMERA, instant_grabs)
@@ -136,6 +152,9 @@ def test_live_camera_stops_skipping_after_the_maximum_buffered_frames(monkeypatc
 
 
 def test_video_file_never_skips_frames(monkeypatch):
+    """
+    A video file is read frame by frame, without skipping any.
+    """
     reader_with_source = _reader(monkeypatch, TYPE_VIDEO, [0.0, 0.0, 0.0])
 
     assert reader_with_source.reader.has_new_data()

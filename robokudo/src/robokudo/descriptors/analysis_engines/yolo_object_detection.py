@@ -43,6 +43,16 @@ class AnalysisEngine(AnalysisEngineInterface):
     to-speech.
     """
 
+    pretrained_model: str = "ultimate_model_v8_1.26.2.pt"
+    """
+    YOLO model file inside RoboKudo's models directory.
+    """
+
+    detection_threshold: float = 0.6
+    """
+    Minimum confidence of a detection to be answered and said.
+    """
+
     def name(self) -> str:
         """
         :return: The name identifier of this analysis engine.
@@ -57,8 +67,8 @@ class AnalysisEngine(AnalysisEngineInterface):
         """
         camera = CollectionReaderDescriptorFactory.create_descriptor("hsr_ros2")
         yolo = YoloAnnotator.Descriptor()
-        yolo.parameters.pretrained_model = "ultimate_model_v8_1.26.2.pt"
-        yolo.parameters.threshold = 0.6
+        yolo.parameters.pretrained_model = self.pretrained_model
+        yolo.parameters.threshold = self.detection_threshold
 
         pipeline = Pipeline("LiveYOLO")
         pipeline.add_children(

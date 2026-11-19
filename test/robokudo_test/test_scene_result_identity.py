@@ -2,6 +2,7 @@
 Scene result messages retain the identity of each object hypothesis.
 """
 
+# %% imports
 from __future__ import annotations
 
 from unittest.mock import Mock
