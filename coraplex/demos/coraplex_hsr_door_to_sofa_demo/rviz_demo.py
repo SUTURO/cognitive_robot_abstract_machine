@@ -13,7 +13,8 @@ until Ctrl+C.
 
 from __future__ import annotations
 
-import time
+import signal
+import threading
 
 import rclpy
 
@@ -36,9 +37,8 @@ if __name__ == "__main__":
     TFPublisher(node=node, _world=world)
     VizMarkerPublisher(_world=world, node=node)
     print("Shown in RViz; press Ctrl+C to quit.")
-    try:
-        while True:
-            world.notify_state_change()
-            time.sleep(1)
-    except KeyboardInterrupt:
-        rclpy.try_shutdown()
+    stop_requested = threading.Event()
+    signal.signal(signal.SIGINT, lambda signal_number, frame: stop_requested.set())
+    while not stop_requested.wait(timeout=1):
+        world.notify_state_change()
+    rclpy.try_shutdown()

@@ -17,6 +17,9 @@ from rclpy.publisher import Publisher
 
 from coraplex.exceptions import NavigationGoalNotHeard, NavigationTimedOut
 from krrood_spatial_math.spatial_types import Pose
+from semantic_digital_twin.adapters.ros.semdt_to_ros2_converters import (
+    PoseToRos2StampedConverter,
+)
 from semantic_digital_twin.adapters.ros.tfwrapper import TFWrapper
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
@@ -105,64 +108,46 @@ class PumasNavigation:
         :raises NavigationGoalNotHeard: If Pumas does not listen within :attr:`timeout`.
         :raises NavigationTimedOut: If the base does not arrive within :attr:`timeout`.
         """
-        self.wait_until_pumas_listens()
         world = self.robot._world
-        map_T_goal = world.transform(goal, world.root)
-        message = PoseStamped()
-        message.header.frame_id = str(world.root.name.name)
-        message.header.stamp = self.node.get_clock().now().to_msg()
-        message.pose.position.x = float(map_T_goal.x)
-        message.pose.position.y = float(map_T_goal.y)
-        x, y, z, w = map_T_goal.quaternion.to_np()
-        message.pose.orientation.x = float(x)
-        message.pose.orientation.y = float(y)
-        message.pose.orientation.z = float(z)
-        message.pose.orientation.w = float(w)
-        self.goal_publisher.publish(message)
-        deadline = time.monotonic() + self.timeout.total_seconds()
-        while not self.has_arrived_at(map_T_goal):
-            if time.monotonic() >= deadline:
-                raise NavigationTimedOut(goal=map_T_goal, timeout=self.timeout)
-            time.sleep(self.polling_period.total_seconds())
-
-    def wait_until_pumas_listens(self) -> None:
-        """
-        :raises NavigationGoalNotHeard: If nothing subscribes to :attr:`PumasTopic.GOAL`
-            within :attr:`timeout`.
-        """
+        map_frame = str(world.root.name.name)
         deadline = time.monotonic() + self.timeout.total_seconds()
         while self.goal_publisher.get_subscription_count() == 0:
             if time.monotonic() >= deadline:
                 raise NavigationGoalNotHeard(topic=PumasTopic.GOAL)
             time.sleep(self.polling_period.total_seconds())
 
-    def has_arrived_at(self, map_T_goal: Pose) -> bool:
-        """
-        :param map_T_goal: The goal sent to Pumas, in the map frame.
-        :return: Whether the base stands within the thresholds of ``map_T_goal``, as tf
-            reports it now.
-        """
-        world = self.robot._world
-        map_T_base = self.tf.lookup_transform(
-            str(world.root.name.name), str(self.robot.root.name.name)
-        ).transform
-        base_pose = Pose.from_xyz_quaternion(
-            map_T_base.translation.x,
-            map_T_base.translation.y,
-            map_T_base.translation.z,
-            map_T_base.rotation.x,
-            map_T_base.rotation.y,
-            map_T_base.rotation.z,
-            map_T_base.rotation.w,
-            reference_frame=world.root,
-        )
-        distance = np.hypot(
-            float(base_pose.x) - float(map_T_goal.x),
-            float(base_pose.y) - float(map_T_goal.y),
-        )
-        yaw_difference = float(base_pose.yaw) - float(map_T_goal.yaw)
-        yaw_error = abs(np.arctan2(np.sin(yaw_difference), np.cos(yaw_difference)))
-        return (
-            distance <= self.position_threshold
-            and yaw_error <= self.orientation_threshold
-        )
+        map_T_goal = world.transform(goal, world.root)
+        message = PoseToRos2StampedConverter.convert(map_T_goal)
+        message.header.frame_id = map_frame
+        message.header.stamp = self.node.get_clock().now().to_msg()
+        self.goal_publisher.publish(message)
+
+        deadline = time.monotonic() + self.timeout.total_seconds()
+        while True:
+            map_T_base = self.tf.lookup_transform(
+                map_frame, str(self.robot.root.name.name)
+            ).transform
+            base_pose = Pose.from_xyz_quaternion(
+                map_T_base.translation.x,
+                map_T_base.translation.y,
+                map_T_base.translation.z,
+                map_T_base.rotation.x,
+                map_T_base.rotation.y,
+                map_T_base.rotation.z,
+                map_T_base.rotation.w,
+                reference_frame=world.root,
+            )
+            distance = np.hypot(
+                float(base_pose.x) - float(map_T_goal.x),
+                float(base_pose.y) - float(map_T_goal.y),
+            )
+            yaw_difference = float(base_pose.yaw) - float(map_T_goal.yaw)
+            yaw_error = abs(np.arctan2(np.sin(yaw_difference), np.cos(yaw_difference)))
+            if (
+                distance <= self.position_threshold
+                and yaw_error <= self.orientation_threshold
+            ):
+                return
+            if time.monotonic() >= deadline:
+                raise NavigationTimedOut(goal=map_T_goal, timeout=self.timeout)
+            time.sleep(self.polling_period.total_seconds())

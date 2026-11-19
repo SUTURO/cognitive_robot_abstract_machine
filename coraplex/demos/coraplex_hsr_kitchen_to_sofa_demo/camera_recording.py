@@ -195,14 +195,6 @@ class CameraRecordingReplay:
         """
         self.world_server = FetchWorldServer(node=self.node, world=self.world)
         self.tf_publisher = TFPublisher(node=self.node, _world=self.world)
-        self.fix_recorded_camera_to_robot()
-        self.play_until_images_arrive()
-
-    def fix_recorded_camera_to_robot(self) -> None:
-        """
-        Publish the recorded camera frame as coinciding with the default camera of
-        :attr:`robot`, whose frame is an optical frame too.
-        """
         camera_to_recorded_camera = TransformStamped()
         camera_to_recorded_camera.header.stamp = self.node.get_clock().now().to_msg()
         camera_to_recorded_camera.header.frame_id = (
@@ -213,13 +205,6 @@ class CameraRecordingReplay:
         self.static_transforms = StaticTransformBroadcaster(self.node)
         self.static_transforms.sendTransform(camera_to_recorded_camera)
 
-    def play_until_images_arrive(self) -> None:
-        """
-        Start playing :attr:`recording` and wait for :attr:`images_before_start` of its
-        color images.
-
-        :raises RecordingNotPlaying: If they do not arrive within :attr:`image_timeout`.
-        """
         self.received_image_count = 0
         self.enough_images_received.clear()
         subscription = self.node.create_subscription(
