@@ -1,5 +1,5 @@
 """
-The HSR drives from the kitchen of the kitchen lab to the sofa, looks at it, and says
+The HSR drives from the kitchen of the kitchen lab to the sofa, looks at it, and prints
 which of its seat places are free; see the README for how to run it.
 """
 
@@ -19,8 +19,6 @@ from coraplex.plans.executors import (
 from coraplex.robot_plans.actions.core.misc import DetectSeatsAction
 from coraplex.robot_plans.actions.core.navigation import NavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
-from coraplex.ros_session import RobotDemonstrationRosSession
-from coraplex.scene_report_command import RobotSpeech
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
@@ -38,12 +36,12 @@ from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
 
-# %% the spoken answer
+# %% the answer
 
 
 class FreeSeatSentence(StrEnum):
     """
-    The sentences the robot says about the free seat places of the sofa.
+    The sentences that name the free seat places of the sofa.
     """
 
     NONE = "No seat on the sofa is free."
@@ -240,47 +238,12 @@ class KitchenToSofaDemonstration(RobotDemonstration):
 # %% running it
 
 
-@dataclass
-class FreeSeatAnnouncement:
+def main(demonstration: KitchenToSofaDemonstration | None = None) -> World:
     """
-    Says which seat places of the sofa are free after a run, printed and, on the real
-    robot, through the HSR's voice.
-    """
-
-    speak: bool = False
-    """
-    Whether the sentence is also sent to the HSR's voice, which only the real robot has.
-    """
-
-    ros_node_name: str = "hsr_kitchen_to_sofa_speech"
-    """
-    The name of the ROS node the sentence is spoken through.
-    """
-
-    def announce(self, world: World) -> str:
-        """
-        :param world: The world after the run, whose sofa has a region for every seat
-            place.
-        :return: The sentence naming the free seat places of the sofa in ``world``.
-        """
-        sentence = FreeSeatSentence.describe(SofaSeat.free_in(world))
-        print(sentence, flush=True)
-        if self.speak:
-            with RobotDemonstrationRosSession.start(self.ros_node_name) as session:
-                RobotSpeech(node=session.node).say(sentence)
-        return sentence
-
-
-def main(
-    demonstration: KitchenToSofaDemonstration | None = None,
-    announcement: FreeSeatAnnouncement | None = None,
-) -> World:
-    """
-    Run the demonstration and say which seat places of the sofa are free.
+    Run the demonstration and print which seat places of the sofa are free.
 
     :param demonstration: The demonstration to run, by default a kinematically simulated
         one whose perception the world model answers.
-    :param announcement: How the free seat places are said, by default only printed.
     :return: The world after the run, holding a person on every seat place one was seen
         on.
     """
@@ -288,5 +251,5 @@ def main(
         executor_type=KinematicallySimulatedPlanExecutor
     )
     world = demonstration.run()
-    (announcement or FreeSeatAnnouncement()).announce(world)
+    print(FreeSeatSentence.describe(SofaSeat.free_in(world)), flush=True)
     return world

@@ -1,7 +1,7 @@
 # HSR kitchen to sofa demo
 
 The HSR starts in the kitchen of the kitchen lab, drives to the sofa, looks at it and
-says which of its two seat places are free:
+prints which of its two seat places are free:
 
 ```
 The right seat of the sofa is free.
@@ -10,7 +10,7 @@ The right seat of the sofa is free.
 | Run | Robot | What sees the sofa | Output |
 |---|---|---|---|
 | `rosbag_demo.py <recording>` | kinematically simulated | RoboKudo, on a recording of the real HSR's head camera | printed |
-| `real_demo.py` | real HSR, driven by Pumas | RoboKudo, on the live head camera | printed and spoken by the HSR |
+| `real_demo.py` | real HSR, driven by Pumas | RoboKudo, on the live head camera | printed |
 | `test_demo.py` | kinematically simulated | the world model (CI has no RoboKudo or recordings) | exit code |
 
 ## Before running
@@ -98,8 +98,7 @@ The run has three parts:
 
 Pumas drives only between the two Giskard runs, because Giskard sends a base velocity
 (zero if the base is not meant to move) on every control cycle of a run. At the end, the
-sentence is printed and sent to the HSR's voice through `RobotSpeech`
-(`coraplex.scene_report_command`).
+sentence is printed.
 
 The scanning pose comes from the sofa in `KitchenEnvironment`, whose frame does not line
 up with the `map` frame of `apartment_master1`: the kitchen is placed in it at
