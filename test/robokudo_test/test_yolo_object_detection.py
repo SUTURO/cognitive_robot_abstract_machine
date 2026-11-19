@@ -6,19 +6,11 @@ HSR head camera image and says them.
 # %% imports
 from __future__ import annotations
 
-import py_trees.composites
 from py_trees.behaviour import Behaviour
-from py_trees.common import Status
 
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
 from robokudo.annotators.detected_objects_announcer import DetectedObjectsAnnouncer
-from robokudo.annotators.gpsr.type_mapping_annotator import (
-    SemanticTypeReplacementAnnotator,
-)
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
-from robokudo.annotators.outlier_removal_objecthypothesis import (
-    OutlierRemovalOnObjectHypothesisAnnotator,
-)
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
@@ -38,32 +30,11 @@ def _child_of_type(pipeline: Pipeline, child_type: type[Behaviour]) -> Behaviour
     return child
 
 
-def _behaviours_of_type(root: Behaviour, behaviour_type: type[Behaviour]) -> list:
-    """
-    :return: Every behaviour of the given type in the tree below the root.
-    """
-    return [
-        behaviour
-        for behaviour in root.iterate()
-        if isinstance(behaviour, behaviour_type)
-    ]
-
-
-def _tick_to_completion(behaviour: Behaviour) -> Status:
-    """
-    :return: The status of the behaviour after ticking it until it stops running.
-    """
-    behaviour.tick_once()
-    while behaviour.status == Status.RUNNING:
-        behaviour.tick_once()
-    return behaviour.status
-
-
 # %% pipeline composition
-def test_pipeline_answers_a_query_after_detecting_localizing_and_saying_objects(node):
+def test_pipeline_answers_a_query_after_detecting_and_saying_objects(node):
     """
-    After its initialization, the pipeline waits for a query, reads one image, detects,
-    types and localizes the objects, says them and answers the query.
+    After its initialization, the pipeline waits for a query, reads one image, detects
+    the objects, says them and answers the query.
     """
     pipeline = AnalysisEngine().implementation()
 
@@ -72,8 +43,6 @@ def test_pipeline_answers_a_query_after_detecting_localizing_and_saying_objects(
         CollectionReaderAnnotator,
         ImagePreprocessorAnnotator,
         YoloAnnotator,
-        SemanticTypeReplacementAnnotator,
-        py_trees.composites.Selector,
         DetectedObjectsAnnouncer,
         GenerateQueryResult,
         ActionServerCheck,
@@ -102,23 +71,3 @@ def test_detector_uses_the_model_and_threshold_of_the_engine(node):
 
     assert detector.descriptor.parameters.pretrained_model == engine.pretrained_model
     assert detector.descriptor.parameters.threshold == engine.detection_threshold
-
-
-# %% object localization
-def test_empty_scene_succeeds_without_localizing(node):
-    """
-    Without detected objects, the localization is skipped and the query is still
-    answered.
-    """
-    localization = AnalysisEngine().object_localization()
-    pipeline = Pipeline("ObjectLocalization")
-    pipeline.add_child(localization)
-    pipeline.cas.annotations = []
-
-    status = _tick_to_completion(localization)
-
-    (outlier_removal,) = _behaviours_of_type(
-        localization, OutlierRemovalOnObjectHypothesisAnnotator
-    )
-    assert status == Status.SUCCESS
-    assert outlier_removal.status == Status.INVALID
