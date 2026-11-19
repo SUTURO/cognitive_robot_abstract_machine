@@ -146,7 +146,11 @@ class DoorToSofaDemonstration(RobotDemonstration):
         return super().build_simulation(world)
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
@@ -155,7 +159,7 @@ class DoorToSofaDemonstration(RobotDemonstration):
         the torso again.
         """
         world = context.world
-        hsrb = context.require_extension(RobotAccess).robot
+        hsrb = context.require_extension(extension_type=RobotAccess).robot
         [sofa] = world.get_semantic_annotations_by_type(Sofa)
         sofa_front = (
             sofa.root.collision.as_bounding_box_collection_in_frame(sofa.root)
@@ -170,7 +174,7 @@ class DoorToSofaDemonstration(RobotDemonstration):
         ).pose
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
                     NavigateAction(

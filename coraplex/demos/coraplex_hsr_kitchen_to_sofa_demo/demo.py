@@ -141,7 +141,11 @@ class KitchenToSofaDemonstration(RobotDemonstration):
         )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
@@ -167,7 +171,7 @@ class KitchenToSofaDemonstration(RobotDemonstration):
         :return: A statechart performing ``nodes`` in sequence.
         """
         statechart = Statechart(context=context)
-        statechart.add_node(Sequence(nodes=nodes))
+        statechart.add_node(node=Sequence(nodes=nodes))
         return statechart
 
     def departure_nodes(self, context: StatechartContext) -> list[StatechartNode]:
@@ -176,7 +180,11 @@ class KitchenToSofaDemonstration(RobotDemonstration):
         :return: What the robot does before it drives: park the arm.
         """
         return [
-            ParkArmsAction(arms=context.require_extension(RobotAccess).robot.all_arms)
+            ParkArmsAction(
+                arms=context.require_extension(
+                    extension_type=RobotAccess
+                ).robot.all_arms
+            )
         ]
 
     def scanning_pose(self, world: World) -> Pose:

@@ -147,12 +147,12 @@ class PerceptionQuery(SubclassJSONSerializer):
         return result
 
     @classmethod
-    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
+        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(from_json_kwargs=kwargs)
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
-            robot=tracker.get(from_json(data["robot_id"])),
+            robot=tracker.get(key=from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
         )
@@ -613,7 +613,9 @@ class WorldWritingPerceptionTask(
         """
         :return: The node a perception source outside this process is reached through.
         """
-        return self.context.require_extension(RosContextExtension).ros_node
+        return self.context.require_extension(
+            extension_type=RosContextExtension
+        ).ros_node
 
     def on_start(self) -> None:
         self._observation = None
