@@ -48,14 +48,14 @@ class CollisionViolatedError(DataclassException):
         return ""
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionStatechartError(StatechartError, ABC):
     """
     Base class for errors in the motion statechart that concern motion control.
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class WorldStateArrayReplacedError(MotionStatechartError):
     """
     Raised when the world replaced its state array while a motion statechart was
@@ -88,7 +88,7 @@ class WorldStateArrayReplacedError(MotionStatechartError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UnexpectedWorldEntityCountError(NodeInitializationError):
     """
     Raised when a node searches the world for entities and finds a different number than
@@ -118,7 +118,7 @@ class UnexpectedWorldEntityCountError(NodeInitializationError):
         return ""
 
 
-@dataclass
+@dataclass(kw_only=True)
 class EmptyGoalStateError(NodeInitializationError):
     """
     Raised when a node is given a goal state that names no degree of freedom.
@@ -131,7 +131,7 @@ class EmptyGoalStateError(NodeInitializationError):
         return ""
 
 
-@dataclass
+@dataclass(kw_only=True)
 class EmptyDegreesOfFreedomError(NodeInitializationError):
     """
     Raised when a node is explicitly given an empty list of degrees of freedom.
@@ -144,7 +144,7 @@ class EmptyDegreesOfFreedomError(NodeInitializationError):
         return "Pass at least one degree of freedom, or leave it None to use every active degree of freedom in the world."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class GoalPointsReferenceFrameMismatchError(NodeInitializationError):
     """
     Raised when the goal points of a node are expressed in more than one reference
@@ -168,7 +168,7 @@ class GoalPointsReferenceFrameMismatchError(NodeInitializationError):
         return "Make sure all goal points have the same reference frame."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MissingErrorSignalError(NodeInitializationError):
     """
     Raised when a converging task builds artifacts that carry no error signal.
@@ -187,7 +187,7 @@ class MissingErrorSignalError(NodeInitializationError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class NoProgressError(MotionStatechartError):
     """
     Raised when the watched tasks stopped approaching their goal for too long.
@@ -217,7 +217,7 @@ class NoProgressError(MotionStatechartError):
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class InvalidConstraintExpressionShapeError(MotionStatechartError):
     """
     Raised when a constraint expression is not a scalar.
@@ -236,7 +236,7 @@ class InvalidConstraintExpressionShapeError(MotionStatechartError):
         return "Ensure the expression evaluates to a (1, 1) scalar."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class UnknownGriplinkActionError(MotionStatechartError):
     """
     Raised when a griplink action server task is built for a griplink action it does not
@@ -255,7 +255,7 @@ class UnknownGriplinkActionError(MotionStatechartError):
         return "Build the task with Grip, Release, Flexgrip or Flexrelease."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class NoGriplinkEndpoint(MotionStatechartError):
     """
     Raised when a gripper state has no griplink action server endpoint to command it on.
@@ -284,34 +284,7 @@ class NoGriplinkEndpoint(MotionStatechartError):
         )
 
 
-@dataclass
-class NoHSRBHandEffort(MotionStatechartError):
-    """
-    Raised when the hand of the HSRB is to be driven into a gripper state no torque
-    drives it into.
-    """
-
-    end_effector: EndEffector
-    """
-    The hand whose state is to be commanded.
-    """
-
-    state_type: GripperState | None
-    """
-    The gripper state no torque drives the hand into.
-    """
-
-    def error_message(self) -> str:
-        return (
-            f"The hand '{self.end_effector.name}' of the HSRB has no torque to drive it "
-            f"into the state {self.state_type}."
-        )
-
-    def suggest_correction(self) -> str:
-        return "Command the hand into GripperState.OPEN or GripperState.CLOSE."
-
-
-@dataclass
+@dataclass(kw_only=True)
 class GriplinkParameterOutOfRangeError(MotionStatechartError):
     """
     Raised when a griplink parameter lies outside the interval the gripper accepts.
@@ -347,7 +320,7 @@ class GriplinkParameterOutOfRangeError(MotionStatechartError):
         return f"Choose a {self.parameter_name} within the valid interval."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ActionClientTypeMismatchError(MotionStatechartError):
     """
     Raised when an action topic is requested with a different message type than the one
@@ -380,7 +353,7 @@ class ActionClientTypeMismatchError(MotionStatechartError):
         return "Use a unique action_topic per message type."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RobotWithoutMobileBaseError(MotionStatechartError):
     """
     Raised when a goal is to drive the mobile base of a robot that has none.
@@ -398,7 +371,7 @@ class RobotWithoutMobileBaseError(MotionStatechartError):
         return "Move the base of this robot with a goal that needs no mobile base."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class EmptyDebugExpressionTrajectoryError(MotionStatechartError):
     """
     Raised when a plot is requested but no debug expression samples were recorded.

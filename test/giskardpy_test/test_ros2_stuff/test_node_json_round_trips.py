@@ -12,12 +12,11 @@ import pytest
 from geometry_msgs.msg import WrenchStamped
 from griplink_interfaces.action import Flexgrip, Grip
 from nav2_msgs.action import NavigateToPose
-from tmc_control_msgs.action import GripperApplyEffort
 from rclpy.action import ActionServer
 from rclpy.action.server import ServerGoalHandle
 from rclpy.node import Node
 from typing_extensions import Any, Iterator
-
+from control_msgs.action import ParallelGripperCommand
 from cramph.context import StatechartContext
 from cramph.executor import StatechartExecutor
 from cramph.node import StatechartNode
@@ -31,12 +30,11 @@ from giskardpy.motion_statechart.ros2_nodes.griplink import (
     GriplinkFlexActionServerTask,
     GriplinkPresetActionServerTask,
 )
-from giskardpy.motion_statechart.ros2_nodes.hsrb_hand import (
-    HSRBHandActionServerTask,
-    HSRBHandEffort,
+from giskardpy.motion_statechart.ros2_nodes.action_servers import (
+    NavigateActionServerTask,
+    RobotiqGripperActionServerTask,
 )
-from giskardpy.motion_statechart.ros2_nodes.ros_tasks import NavigateActionServerTask
-from giskardpy.motion_statechart.ros2_nodes.topic_monitor import (
+from giskardpy.motion_statechart.ros2_nodes.topics import (
     PublishOnStart,
     TopicNode,
     TopicPublisherNode,
@@ -65,7 +63,7 @@ class RosName(StrEnum):
     NAVIGATION_ACTION = "navigate"
     GRIP_ACTION = "grip"
     FLEXGRIP_ACTION = "flexgrip"
-    HAND_GRASP_ACTION = "hand_grasp"
+    ROBOTIQ_ACTION = "robotiq_gripper"
 
 
 def _cases() -> list[NodeRoundTripCase]:
@@ -125,11 +123,14 @@ def _cases() -> list[NodeRoundTripCase]:
             ],
         ),
         NodeRoundTripCase(
-            HSRBHandActionServerTask,
+            RobotiqGripperActionServerTask,
             lambda world: [
-                HSRBHandActionServerTask(
-                    action_topic=RosName.HAND_GRASP_ACTION,
-                    effort=HSRBHandEffort.CLOSE,
+                RobotiqGripperActionServerTask(
+                    action_topic=RosName.ROBOTIQ_ACTION,
+                    message_type=ParallelGripperCommand,
+                    target_position=0.04,
+                    target_velocity=10.0,
+                    target_effort=50.0,
                 )
             ],
         ),
@@ -172,10 +173,9 @@ def navigation_action_server(rclpy_node: Node) -> Iterator[ActionServer]:
 
 
 @pytest.fixture(autouse=True)
-def gripper_action_servers(rclpy_node: Node) -> Iterator[list[ActionServer]]:
+def griplink_action_servers(rclpy_node: Node) -> Iterator[list[ActionServer]]:
     """
-    :return: The action servers the griplink and HSRB hand tasks wait for before they
-        are built.
+    :return: The action servers the griplink tasks wait for before they are built.
     """
     servers = [
         ActionServer(
@@ -184,7 +184,6 @@ def gripper_action_servers(rclpy_node: Node) -> Iterator[list[ActionServer]]:
         for action, name in (
             (Grip, RosName.GRIP_ACTION),
             (Flexgrip, RosName.FLEXGRIP_ACTION),
-            (GripperApplyEffort, RosName.HAND_GRASP_ACTION),
         )
     ]
     yield servers
@@ -217,7 +216,7 @@ def sending_context(
     context = create_context_with_motion_control(
         request.getfixturevalue(case.world_fixture)
     )
-    RosNodeAccess(rclpy_node).extend_context(context)
+    RosNodeAccess(ros_node=rclpy_node).extend_context(context=context)
     return context
 
 
@@ -227,8 +226,23 @@ def receiving_executor(
 ) -> StatechartExecutor:
     return StatechartExecutor(
         context=StatechartContext(world=request.getfixturevalue(case.world_fixture)),
-        extensions=[RosNodeAccess(rclpy_node), MotionControl()],
+        extensions=[RosNodeAccess(ros_node=rclpy_node), MotionControl()],
     )
+
+
+@pytest.fixture(autouse=True)
+def robotiq_action_server(rclpy_node: Node) -> Iterator[ActionServer]:
+    """
+    :return: The action server the robotiq task waits for before it is built.
+    """
+    server = ActionServer(
+        rclpy_node,
+        ParallelGripperCommand,
+        RosName.ROBOTIQ_ACTION,
+        partial(_finish_the_goal_at_once, ParallelGripperCommand),
+    )
+    yield server
+    server.destroy()
 
 
 # %% round trips

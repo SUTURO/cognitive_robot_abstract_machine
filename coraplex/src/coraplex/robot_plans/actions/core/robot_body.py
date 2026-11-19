@@ -36,7 +36,7 @@ from giskardpy.motion_statechart.tasks.joint_tasks import (
     JointVelocityLimit,
 )
 from semantic_digital_twin.datastructures.joint_state import JointState
-from giskardpy.motion_statechart.goals.gripper import MoveGripper
+from giskardpy.motion_statechart.tasks.gripper import MoveGripper
 from semantic_digital_twin.datastructures.definitions import (
     TorsoState,
     StaticJointState,
@@ -57,15 +57,9 @@ class MoveTorsoAction(SequentialAction):
     The state of the torso that should be set.
     """
 
-    threshold : float = 0.001
-    """
-    If torso joint position error is smaller than this threshold, the task's observation
-    state is true.
-    """
-
     def create_steps(self) -> list[StatechartNode]:
         joint_state = self.robot.get_torso().get_joint_state_by_type(self.torso_state)
-        return [JointPositionList(goal_state=joint_state, threshold=self.threshold)]
+        return [JointPositionList(goal_state=joint_state)]
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -271,5 +265,5 @@ class MoveManipulatorAction(MovesToolCenterPoint, GoalAction):
             binding_policy=GoalBindingPolicy.Bind_on_start,
         )
         for node in self.keep_base_still():
-            goal.add_node(node)
+            goal.add_node(node=node)
         return goal

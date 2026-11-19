@@ -10,14 +10,15 @@ scene and plan.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import partial
 
-from typing_extensions import Callable
-
+import rclpy
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from coraplex.plans.executors import (
@@ -26,12 +27,11 @@ from coraplex.plans.executors import (
     PlanExecutor,
     SimulatedPlanExecutor,
 )
-from coraplex.ros_session import RobotDemonstrationRosSession
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
 from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.specifications.robots import RobotSpecification
@@ -42,6 +42,104 @@ from semantic_digital_twin.world_description.connections import (
     FixedConnection,
 )
 
+# %% ros session
+
+WORLD_FETCH_TIMEOUT_SECONDS = 300
+"""
+How long to wait for a controller to serve its world.
+
+Matches giskardpy's own client (``giskardpy/middleware/ros2/giskard_client_executor.py``), which
+waits this long for the same race: the world-fetcher server is still parsing the URDF and
+starting up when a shorter budget would expire.
+"""
+
+SPIN_THREAD_JOIN_TIMEOUT_SECONDS = 5.0
+"""
+How long to wait for the executor's spin thread to exit after :meth:`Executor.shutdown`.
+
+A daemon thread still running rclpy's native code when the interpreter starts finalizing
+gets torn down mid-call, which crashes the process rather than raising a catchable
+exception. Joining it here ensures it has actually left that code first.
+"""
+
+
+@dataclass
+class RobotDemonstrationRosSession:
+    """
+    A ROS node whose executor is spun on a background thread.
+
+    ..note:: Service responses are delivered by the executor, so a node that is not spun
+        blocks every call until its timeout.
+    """
+
+    node: Node
+    """
+    The node that service calls and synchronizers are attached to.
+    """
+
+    executor: MultiThreadedExecutor
+    """
+    Executor delivering this node's callbacks, those of different callback groups at the
+    same time.
+    """
+
+    owns_context: bool
+    """
+    Whether this session initialized rclpy and must therefore shut it down again.
+    """
+
+    spin_thread: threading.Thread = field(init=False)
+    """
+    Thread running :attr:`executor`'s spin loop, joined again in :meth:`stop`.
+    """
+
+    @classmethod
+    def start(cls, node_name: str) -> RobotDemonstrationRosSession:
+        """
+        Create a node and spin its executor, initializing rclpy if nothing else has.
+
+        :param node_name: Name to register the node under.
+        """
+        owns_context = not rclpy.ok()
+        if owns_context:
+            rclpy.init()
+        node = rclpy.create_node(node_name)
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+        session = cls(node=node, executor=executor, owns_context=owns_context)
+        session.spin_thread = threading.Thread(
+            target=executor.spin, daemon=True, name=f"{node_name}-executor"
+        )
+        session.spin_thread.start()
+        return session
+
+    def fetch_world(
+        self, timeout_seconds: float = WORLD_FETCH_TIMEOUT_SECONDS
+    ) -> World:
+        """
+        Fetch the world that a controller is serving.
+
+        :param timeout_seconds: How long to wait for the service to answer.
+        """
+        return fetch_world_from_service(node=self.node, timeout_seconds=timeout_seconds)
+
+    def stop(self) -> None:
+        """
+        Destroy the node, and release the ROS context if this session created it.
+        """
+        self.executor.shutdown()
+        self.spin_thread.join(timeout=SPIN_THREAD_JOIN_TIMEOUT_SECONDS)
+        self.node.destroy_node()
+        if self.owns_context and rclpy.ok():
+            rclpy.shutdown()
+
+    def __enter__(self) -> RobotDemonstrationRosSession:
+        return self
+
+    def __exit__(self, exception_type, exception, traceback) -> None:
+        self.stop()
+
+
 # %% demonstrations
 
 
@@ -50,10 +148,8 @@ class RobotDemonstration(ABC):
     """
     A robot demonstration that performs its plan in the scene of :meth:`build_scene`,
     either against a real controller, whose world the scene is merged into, or in
-    simulation, where the robot is put into the scene.
-
-    A physically simulated run performs the plan in the physics of
-    :meth:`build_simulation`.
+    simulation, where the robot is put into the scene. A physically simulated run
+    performs the plan in the physics of :meth:`build_simulation`.
     """
 
     used_robot: type[AbstractRobot]
@@ -100,10 +196,8 @@ class RobotDemonstration(ABC):
     scene_joints_movable: bool = True
     """
     Whether the joints of the scene, such as the hinges of its doors and the slides of
-    its drawers, can move.
-
-    If not, :meth:`build_scene` replaces each of them with a fixed connection holding it
-    where the scene was built with it.
+    its drawers, can move. If not, :meth:`build_scene` replaces each of them with a fixed
+    connection holding it where the scene was built with it.
     """
 
     simulation_time_per_action: timedelta | None = None
@@ -123,19 +217,10 @@ class RobotDemonstration(ABC):
     the scene to come to rest.
     """
 
-    map_T_scene: HomogeneousTransformationMatrix = field(
-        default_factory=HomogeneousTransformationMatrix
-    )
-    """
-    Where the root of the scene lies in the map frame the real robot localizes in.
-    """
-
     visualization: WorldVisualization | None = None
     """
-    Shows every simulated run of this demonstration.
-
-    Left ``None``, a simulated run is shown in RViz through :attr:`ros_node`, if there
-    is one; a real run is never shown.
+    Shows every simulated run of this demonstration. Left ``None``, a simulated run is
+    shown in RViz through :attr:`ros_node`, if there is one; a real run is never shown.
     """
 
     ros_session: RobotDemonstrationRosSession | None = field(init=False, default=None)
@@ -159,9 +244,8 @@ class RobotDemonstration(ABC):
     @abstractmethod
     def robot_specification(self) -> RobotSpecification:
         """
-        How a simulated run puts :attr:`used_robot` into the scene.
-
-        A real run takes the robot from the controller instead.
+        How a simulated run puts :attr:`used_robot` into the scene. A real run takes the
+        robot from the controller instead.
 
         :return: The robot to put into the scene, with where it starts and how fast its
             drive is.
@@ -194,8 +278,8 @@ class RobotDemonstration(ABC):
         """
         Build what the plan's nodes read from their context, at least the
         :class:`~coraplex.plans.context_extensions.RobotAccess` of the robot resolved in
-        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting` if
-        the plan is to be rewritten.
+        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting`
+        if the plan is to be rewritten.
         """
 
     @abstractmethod
@@ -277,11 +361,10 @@ class RobotDemonstration(ABC):
     def fetch_real_world(self) -> World:
         """
         Fetch the world the controller serves and keep it synchronized with it, and
-        merge the scene into it unless :meth:`is_scene_populated` finds it there
-        already.
+        merge the scene into it unless :meth:`is_scene_populated` finds it there already.
 
-        The scene's root is fixed at :attr:`map_T_scene` to the root of the fetched
-        world, which is the map frame the robot localizes in.
+        The scene's root is fixed to the root of the fetched world, which is the map frame
+        the robot localizes in.
 
         :return: The world the controller serves, holding the scene.
         """
@@ -291,11 +374,7 @@ class RobotDemonstration(ABC):
             scene = self.build_scene()
             world.merge_world(
                 scene,
-                root_connection=FixedConnection(
-                    parent=world.root,
-                    child=scene.root,
-                    parent_T_connection_expression=self.map_T_scene,
-                ),
+                root_connection=FixedConnection(parent=world.root, child=scene.root),
             )
         return world
 
@@ -347,8 +426,8 @@ class RobotDemonstration(ABC):
         if self.simulation is not None:
             executor_type = partial(executor_type, simulation=self.simulation)
         executor = executor_type(
-            StatechartContext.with_extensions(
-                world, self.build_context_extensions(world)
+            context=StatechartContext.with_extensions(
+                world=world, extensions=self.build_context_extensions(world)
             ),
             ros_node=self.ros_node,
             collision_avoidance=self.collision_avoidance,
@@ -371,41 +450,20 @@ class RobotDemonstration(ABC):
             world = self.acquire_world()
             self.start_simulation(world)
             for _ in range(self.repetitions):
-                self.perform_plan(world)
+                executor = self.create_executor(world)
+                statechart = self.build_statechart(executor.context)
+                event_segmentation = (
+                    self.segment_events(world)
+                    if self.event_segmentation
+                    else nullcontext()
+                )
+                with event_segmentation:
+                    executor.compile(statechart=statechart)
+                    executor.execute()
+                executor.close()
         finally:
             self.tear_down()
         return world
-
-    def perform_plan(self, world: World) -> None:
-        """
-        Perform the plan once against ``world``: the statechart of
-        :meth:`build_statechart`, in one run of an executor.
-
-        :param world: The world the plan is performed in.
-        """
-        self.execute_statechart(world, self.build_statechart)
-
-    def execute_statechart(
-        self,
-        world: World,
-        build_statechart: Callable[[StatechartContext], Statechart],
-    ) -> None:
-        """
-        Run one statechart against ``world`` with a new executor, segmenting its events
-        if :attr:`event_segmentation` asks for it.
-
-        :param world: The world the statechart runs in.
-        :param build_statechart: Builds the statechart in the executor's context.
-        """
-        executor = self.create_executor(world)
-        statechart = build_statechart(executor.context)
-        event_segmentation = (
-            self.segment_events(world) if self.event_segmentation else nullcontext()
-        )
-        with event_segmentation:
-            executor.compile(statechart)
-            executor.execute()
-        executor.close()
 
     def tear_down(self) -> None:
         """

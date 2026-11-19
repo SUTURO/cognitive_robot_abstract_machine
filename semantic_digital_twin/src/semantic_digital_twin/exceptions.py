@@ -2136,7 +2136,6 @@ class MujocoError(MultiSimError):
     """
 
 
-@dataclass
 class MujocoEntityNotFoundError(MujocoError):
     """
     Raised when a MuJoCo entity of a given type and name cannot be found.
@@ -2569,6 +2568,31 @@ class SimulationAlreadyRunningError(UsageError):
 
     def suggest_correction(self) -> str:
         return "Stop the simulation before starting it again."
+
+
+@dataclass(kw_only=True)
+class SnapshotDoesNotFitSimulationError(UsageError):
+    """
+    Raised when a simulation is restored from a snapshot of a simulation that was built
+    from a different world.
+    """
+
+    world_name: str
+    """
+    Name of the root of the world whose simulation the snapshot was restored into.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The snapshot was not taken of the simulation of the world rooted at "
+            f"{self.world_name}: its physics or world state has a different size."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Restore only snapshots taken of this simulation, after the last change to "
+            "its world's model."
+        )
 
 
 @dataclass

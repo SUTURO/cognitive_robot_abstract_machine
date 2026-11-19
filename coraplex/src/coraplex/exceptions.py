@@ -8,13 +8,12 @@ from krrood.exceptions import DataclassException
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
-    from datetime import timedelta
-
     from coraplex.robot_plans.actions.base import Action
+    from coraplex.robot_plans.task_definitions import Command
     from cramph.node import StatechartNode
-    from krrood_spatial_math.spatial_types import Pose
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
     from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
+    from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
     from semantic_digital_twin.world_description.world_entity import (
         SemanticAnnotation,
     )
@@ -210,7 +209,7 @@ class MissingToolFrame(DataclassException):
         return "ensure the arm's end effector defines a tool frame."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionDidNotFinish(PlanFailure):
     """
     Raised when a plan ended without succeeding.
@@ -394,114 +393,62 @@ class NotOnASingleLevelException(DataclassException):
         return f"Move the robot to a recognized level"
 
 
-# %% scene perception
+# %% transformation by rooms
 
 
 @dataclass
-class ScenePerceptionFailed(DataclassException):
+class MissingTasksOrRooms(DataclassException):
     """
-    A scene request did not produce a successful final result.
-    """
-
-    reason: str
-    """
-    Failure reported by the action transport or its completion policy.
+    Raised when the steps of tasks are to be ordered into room visits, but there are no
+    tasks or no rooms to perform their steps in.
     """
 
-    def error_message(self) -> str:
-        return f"Scene perception failed: {self.reason}."
-
-    def suggest_correction(self) -> str:
-        return "Check the perception pipeline and its action result before requesting another report."
-
-
-# %% robot speech transport
-
-
-@dataclass
-class SpeechMessagesUnavailable(DataclassException):
+    commands: list[Command]
     """
-    The selected robot message interface is not available in this environment.
+    The tasks that were to be ordered.
     """
 
-    message_type: str
+    rooms: list[type[Room]]
     """
-    ROS type needed by the running robot's speech node.
+    The rooms the steps were allowed to be performed in.
     """
 
     def error_message(self) -> str:
-        return f"Robot speech requires the existing ROS message interface {self.message_type}."
-
-    def suggest_correction(self) -> str:
-        return "Source the robot ROS workspace or run inside its ROS container; omit --speak to print the scene report."
-
-
-@dataclass
-class SpeechInputUnavailable(DataclassException):
-    """
-    The existing speech node was not discovered or did not acknowledge transport.
-    """
-
-    topic: str
-    """
-    Input on which speech was requested.
-    """
-
-    def error_message(self) -> str:
-        return f"Robot speech input {self.topic} is unavailable or unacknowledged."
-
-    def suggest_correction(self) -> str:
-        return "Check the robot voice node and ROS connectivity; a published request does not establish that audio finished."
-
-
-# %% driving with Pumas
-
-
-@dataclass
-class NavigationGoalNotHeard(DataclassException):
-    """
-    Nothing listens for navigation goals, so the Pumas navigation is not running.
-    """
-
-    topic: str
-    """
-    The topic the goal would have been published on.
-    """
-
-    def error_message(self) -> str:
-        return f"Nothing subscribes to {self.topic}."
-
-    def suggest_correction(self) -> str:
+        if len(self.commands) == 0:
+            return "No tasks were given, so there is nothing to plan room visits for."
         return (
-            "Start the Pumas navigation (~/start_pumas_live.sh) and run the demo in the "
-            "environment of ~/ros_clean_env.sh, so both use the same RMW."
+            "No rooms were given, so none of the steps of the "
+            f"{len(self.commands)} tasks can be performed anywhere."
         )
 
+    def suggest_correction(self) -> str:
+        if len(self.commands) == 0:
+            return "Pass at least one task."
+        return "Give every step of every task at least one room it may be performed in."
+
 
 @dataclass
-class NavigationTimedOut(DataclassException):
+class NoRoomVisitOrderFound(DataclassException):
     """
-    The base did not reach the goal it was sent to in time.
-    """
-
-    goal: Pose
-    """
-    Where the base was sent to, in the map frame.
+    Raised when the solver finds no order of room visits that performs every step of the
+    given tasks.
     """
 
-    timeout: timedelta
+    commands: list[Command]
     """
-    How long the base was given.
+    The tasks that were to be ordered.
+    """
+
+    search_time_limit: float
+    """
+    How long the solver was allowed to search, in seconds.
     """
 
     def error_message(self) -> str:
         return (
-            f"The base did not reach ({float(self.goal.x):.2f}, {float(self.goal.y):.2f}) within "
-            f"{self.timeout.total_seconds()} s."
+            f"No order of room visits performs every step of the {len(self.commands)} "
+            f"tasks within {self.search_time_limit} seconds."
         )
 
     def suggest_correction(self) -> str:
-        return (
-            "Check that the path is free (the safety limiter stops for anything closer "
-            "than 0.6 m), that AMCL is localized and that the robot clock is synced."
-        )
+        return "Give every step at least one allowed room, or raise the time limit."
