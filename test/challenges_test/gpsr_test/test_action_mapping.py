@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy
 import pytest
 from typing_extensions import Any
 
@@ -12,12 +13,15 @@ from challenges.GPSR.action_mapping.action_mapping import (
     ActionType,
     GeneratedCommand,
     GeneratedPlan,
+    ManipulationAtStandingPoseAction,
     PayloadKey,
     PlannedAction,
 )
 from coraplex.robot_plans.actions.core.navigation import PathPlanningNavigateAction
 from coraplex.robot_plans.actions.core.talking import TalkingAction
 from cramph.context import StatechartContext
+from cramph.statechart import Statechart
+from krrood_spatial_math.spatial_types import Pose
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -164,6 +168,30 @@ def test_object_to_pick_up_missing_from_the_named_room_raises(
             living_room_room,
             kitchen_environment_with_rooms,
         )
+
+
+# %% Manipulating at a standing pose
+
+
+def test_approaching_a_manipulation_keeps_its_standing_pose(
+    apartment_world_pr2_copy_with_context,
+) -> None:
+    world, robot, extensions = apartment_world_pr2_copy_with_context
+    statechart = Statechart(
+        context=StatechartContext.with_extensions(world, extensions)
+    )
+    standing_pose = Pose.from_xyz_rpy(x=1.0, y=0.5, reference_frame=world.root)
+    standing_pose_before = standing_pose.to_np().copy()
+    manipulation = ManipulationAtStandingPoseAction(
+        standing_pose=standing_pose,
+        manipulated_location=Pose.from_xyz_rpy(
+            x=2.0, y=0.5, reference_frame=world.root
+        ),
+        manipulation=TalkingAction(speaking_text="placing"),
+    )
+    statechart.add_node(manipulation)
+    manipulation.create_steps()
+    assert numpy.allclose(standing_pose.to_np(), standing_pose_before)
 
 
 # %% Rewrapping a plan into a command for the room transformation
