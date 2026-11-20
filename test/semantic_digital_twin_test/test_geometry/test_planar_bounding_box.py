@@ -216,3 +216,30 @@ def test_planar_bounding_box_collection_bounding_box():
     assert enclosing.min_y == -1
     assert enclosing.max_x == 3
     assert enclosing.max_y == 1
+
+
+# %% intersecting boxes whose origins are moved
+
+
+def test_the_intersection_of_boxes_with_moved_origins_covers_their_common_area():
+    """
+    Two boxes whose bounds are given relative to a moved origin overlap in the area they
+    both cover in their reference frame, not in an area moved once more by the origin.
+    """
+    world = World()
+    with world.modify_world():
+        world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
+    origin = HomogeneousTransformationMatrix.from_xyz_rpy(
+        3, 2, 0, reference_frame=world.root
+    )
+    box = PlanarBoundingBox(-1, -1, 1, 1, origin)
+    other_box = PlanarBoundingBox(0, 0, 2, 2, origin)
+
+    intersection = box.intersection_with(other_box)
+
+    assert (
+        intersection.x_interval.lower,
+        intersection.x_interval.upper,
+        intersection.y_interval.lower,
+        intersection.y_interval.upper,
+    ) == pytest.approx((3, 4, 2, 3))
