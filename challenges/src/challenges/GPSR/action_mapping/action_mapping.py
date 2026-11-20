@@ -45,7 +45,7 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.query.match import Match
-from krrood_spatial_math.spatial_types import Pose
+from krrood_spatial_math.spatial_types import Point3, Pose
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
@@ -224,14 +224,14 @@ class ManipulationAtStandingPoseAction(SequentialAction):
 
     def create_steps(self) -> list[StatechartNode | Match]:
         root = self.world.root
-        approach_pose = self.world.transform(self.standing_pose, root)
+        world_T_standing = self.world.transform(self.standing_pose, root)
         world_P_manipulated = self.world.transform(
             self.manipulated_location, root
         ).position
         away_from_manipulated = numpy.array(
             [
-                float(approach_pose.x) - float(world_P_manipulated.x),
-                float(approach_pose.y) - float(world_P_manipulated.y),
+                float(world_T_standing.x) - float(world_P_manipulated.x),
+                float(world_T_standing.y) - float(world_P_manipulated.y),
             ]
         )
         step_back = (
@@ -239,8 +239,15 @@ class ManipulationAtStandingPoseAction(SequentialAction):
             * away_from_manipulated
             / numpy.linalg.norm(away_from_manipulated)
         )
-        approach_pose.x = float(approach_pose.x) + step_back[0]
-        approach_pose.y = float(approach_pose.y) + step_back[1]
+        approach_pose = Pose(
+            Point3(
+                x=float(world_T_standing.x) + step_back[0],
+                y=float(world_T_standing.y) + step_back[1],
+                z=float(world_T_standing.z),
+            ),
+            world_T_standing.orientation,
+            reference_frame=root,
+        )
         return [
             a(PathPlanningNavigateAction)(target=approach_pose),
             CollisionAllowingAction(performed_action=self.manipulation),
