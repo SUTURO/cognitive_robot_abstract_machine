@@ -1477,6 +1477,12 @@ class Pen(HasGraspCandidates):
     """
     A pen.
     """
+    
+@dataclass(eq=False)
+class DishwasherTab(HasGraspCandidates):
+    """
+    A DishwasherTab.
+    """
 
 
 @dataclass(eq=False)
