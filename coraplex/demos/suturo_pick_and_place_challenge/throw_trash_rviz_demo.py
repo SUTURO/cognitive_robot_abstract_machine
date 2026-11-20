@@ -282,22 +282,28 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         ):
             return executor
         executor.pacer = SimulationPacer(real_time_factor=self.real_time_factor)
-        executor.pacer.pace_ticks_of(executor.context)
+        executor.pacer.pace_ticks_of(context=executor.context)
         return executor
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         world = context.world
-        hsrb = context.require_extension(RobotAccess).robot
+        hsrb = context.require_extension(extension_type=RobotAccess).robot
         [arm] = hsrb.all_arms
         [milk] = world.get_semantic_annotations_by_type(Milk)
         [trash_can] = world.get_semantic_annotations_by_type(TrashCan)
         [grasp] = GraspsByCloseness(
-            milk, Pose(reference_frame=hsrb.root), number_of_grasps=1
+            graspable=milk,
+            standing_position=Pose(reference_frame=hsrb.root),
+            number_of_grasps=1,
         )()
-        drop_pose = self._compute_drop_pose(trash_can.root, grasp)
+        drop_pose = self._compute_drop_pose(trash_can=trash_can.root, grasp=grasp)
         approach_pose = self._compute_standing_pose_before(
             drop_pose, self.approach_distance
         )
@@ -361,7 +367,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         ]
 
         statechart = Statechart(context=context)
-        statechart.add_node(Sequence(nodes=steps))
+        statechart.add_node(node=Sequence(nodes=steps))
         return statechart
 
     @staticmethod
@@ -488,7 +494,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
             reference_frame=target.reference_frame,
         )
 
-    def _compute_drop_pose(self, trash_can: Body, grasp: GraspCandidate) -> Pose:
+    def _compute_drop_pose(self, *, trash_can: Body, grasp: GraspCandidate) -> Pose:
         """
         :param trash_can: The body of the trash can.
         :param grasp: The grasp the robot holds the milk by.
@@ -496,29 +502,26 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
             trash can's opening, its bottom :attr:`drop_clearance` above the rim, and
             turned so that the hand reaches over the opening from the robot's side.
         """
-        world = trash_can._world
         milk = grasp.graspable.root
         trash_can_box = trash_can.collision.as_bounding_box_collection_in_frame(
-            world.root
+            trash_can
         ).bounding_box()
         milk_box = milk.collision.as_bounding_box_collection_in_frame(
             milk
         ).bounding_box()
-        drop_xy = np.array(
-            [
-                (trash_can_box.min_x + trash_can_box.max_x) / 2,
-                (trash_can_box.min_y + trash_can_box.max_y) / 2,
-            ]
-        )
-        facing = self._compute_carrying_direction(drop_xy)
+        facing = self._compute_carrying_direction(trash_can.global_pose.to_np()[:2, 3])
+        _, _, trash_can_yaw = trash_can.global_pose.rotation_matrix.rpy
         _, _, grasp_yaw = grasp.grasp_pose.rotation_matrix.rpy
-        return Pose.from_xyz_rpy(
-            x=drop_xy[0],
-            y=drop_xy[1],
+        trash_can_T_milk = Pose.from_xyz_rpy(
+            x=trash_can_box.center.x,
+            y=trash_can_box.center.y,
             z=trash_can_box.max_z + self.drop_clearance - milk_box.min_z,
-            yaw=np.arctan2(facing[1], facing[0]) - float(grasp_yaw),
-            reference_frame=world.root,
+            yaw=np.arctan2(facing[1], facing[0])
+            - float(trash_can_yaw)
+            - float(grasp_yaw),
+            reference_frame=trash_can,
         )
+        return trash_can.global_pose.homogeneous_matrix @ trash_can_T_milk
 
 
 def main(
