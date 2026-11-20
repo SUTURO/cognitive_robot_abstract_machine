@@ -591,7 +591,7 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
         physics.
         """
         return [
-            RosNodeAccess(self.ros_node),
+            RosNodeAccess(ros_node=self.ros_node),
             MotionControl(
                 qp_controller_config=self.create_qp_controller_config(),
                 environment_moved_by_physics=True,

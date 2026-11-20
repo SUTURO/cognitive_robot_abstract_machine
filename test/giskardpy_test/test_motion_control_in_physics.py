@@ -11,7 +11,7 @@ from cramph.context import StatechartContext
 from cramph.executor import StatechartExecutor
 from cramph.statechart import Statechart
 from giskardpy.motion_control import MotionControl
-from giskardpy.motion_statechart.goals.grasped_mechanism import (
+from giskardpy.motion_statechart.tasks.grasped_mechanism import (
     ArticulateGraspedMechanism,
 )
 from krrood_spatial_math.spatial_types import Pose
@@ -61,7 +61,7 @@ def test_the_controller_leaves_a_door_hinge_to_the_physics(
     )
     statechart = Statechart(context=executor.context)
     statechart.add_node(
-        ArticulateGraspedMechanism(
+        node=ArticulateGraspedMechanism(
             tip_link=robot.all_arms[0].end_effector.tool_frame,
             environment_link=door.handle.root,
             goal_joint_state=hinge.dof.limits.upper.position,

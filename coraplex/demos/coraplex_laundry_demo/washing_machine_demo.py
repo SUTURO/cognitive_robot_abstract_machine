@@ -41,7 +41,7 @@ from semantic_digital_twin.world import World
 # %% demonstration
 
 
-@dataclass
+@dataclass(kw_only=True)
 class LaundryDemonstration(RobotDemonstration):
     """
     The robot opens the cracked open door of the washing machine by reaching behind it.
@@ -76,7 +76,7 @@ class LaundryDemonstration(RobotDemonstration):
         world = self.build_scene()
         standing_pose = Pose.from_xyz_rpy(
             x=-self.standing_distance,
-            reference_frame=self._washing_machine(world).root,
+            reference_frame=self._washing_machine(world=world).root,
         )
         robot = replace(
             self.robot_specification(),
@@ -96,11 +96,15 @@ class LaundryDemonstration(RobotDemonstration):
         """
         Crack the door of the washing machine open by :attr:`door_crack_angle`.
         """
-        [door] = self._washing_machine(world).doors
+        [door] = self._washing_machine(world=world).doors
         door.root.parent_connection.position = self.door_crack_angle
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
@@ -109,8 +113,8 @@ class LaundryDemonstration(RobotDemonstration):
         fingers closing across the ring so one of them ends up behind the door.
         """
         world = context.world
-        robot = context.require_extension(RobotAccess).robot
-        washing_machine = self._washing_machine(world)
+        robot = context.require_extension(extension_type=RobotAccess).robot
+        washing_machine = self._washing_machine(world=world)
         [door] = washing_machine.doors
         handle = door.handle.root
         world_P_handle = handle.global_pose.position
@@ -132,7 +136,7 @@ class LaundryDemonstration(RobotDemonstration):
         )
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=robot.all_arms),
                     OpenAction(grasp=grasp, arm=arm),
@@ -143,7 +147,7 @@ class LaundryDemonstration(RobotDemonstration):
         return statechart
 
     @staticmethod
-    def _washing_machine(world: World) -> WashingMachine:
+    def _washing_machine(*, world: World) -> WashingMachine:
         """
         :param world: The world holding the washing machine.
         :return: The washing machine.

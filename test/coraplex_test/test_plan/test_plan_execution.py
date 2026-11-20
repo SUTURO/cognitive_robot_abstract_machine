@@ -495,7 +495,9 @@ def test_a_physically_simulated_plan_leaves_the_environment_to_the_physics(
     world, robot_view, extensions = pr2_apartment_context
     executor = physically_simulated_executor(extensions)
 
-    assert executor.require_extension(MotionControl).environment_moved_by_physics
+    assert executor.require_extension(
+        extension_type=MotionControl
+    ).environment_moved_by_physics
 
 
 def test_a_physically_simulated_plan_is_given_the_same_time_limit(
