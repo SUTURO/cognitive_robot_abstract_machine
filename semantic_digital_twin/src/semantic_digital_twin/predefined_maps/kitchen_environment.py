@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
-from enum import Enum, StrEnum
+from enum import StrEnum
 from typing_extensions import cast
 
 import trimesh
@@ -12,6 +12,8 @@ import trimesh
 from krrood.patterns.path_enumeration import PathEnumeration
 
 import numpy as np
+
+from krrood.patterns.float_enumeration import FloatEnum
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor
@@ -77,7 +79,7 @@ from semantic_digital_twin.world_source import WorldSource
 
 
 # %% Articulation limits
-class MaximumSpeed(float, Enum):
+class MaximumSpeed(FloatEnum):
     """
     The speed limits of the kitchen's movable parts.
     """
