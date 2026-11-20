@@ -898,7 +898,7 @@ def test_gcs_navigation_plans_from_the_given_start(multiple_robot_apartment_cont
     action = PathPlanningNavigateAction(start=start, target=robot.root.global_pose)
     attach_to_statechart(action, extensions)
 
-    first_waypoint = action._waypoints()[0]
+    first_waypoint = world.transform(action._waypoints()[0], world.root)
     assert (float(first_waypoint.x), float(first_waypoint.y)) == pytest.approx(
         (float(start.x), float(start.y))
     )
