@@ -15,16 +15,18 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from coraplex.robot_plans.actions.composite.transporting import (
+    TransportAction,
+    MoveAndPickUpAction,
+    MoveAndPlaceAction,
+)
 from krrood.patterns.path_enumeration import PathEnumeration
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.querying.grasp_closeness import GraspsByCloseness
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
-from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.actions.core.placing import PlaceAction
-from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
@@ -213,12 +215,17 @@ class MilkTransportDemonstration(RobotDemonstration):
             node=Sequence(
                 nodes=[
                     MoveTorsoAction(torso_state=TorsoState.HIGH),
-                    ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(target_location=taking_pose),
-                    PickUpAction(grasp=self._grasp_from(taking_pose, milk), arm=arm),
-                    NavigateAction(target_location=self._standing_pose_facing(target)),
-                    PlaceAction(object_designator=milk, target_location=target),
-                    ParkArmsAction(arms=hsrb.all_arms),
+                    # Concrete steps: in a physics run the milk is held by contact
+                    # only, so the place finds what it holds from the pick-up before
+                    # it, which a statement's trial run of the place would not see.
+                    TransportAction(
+                        pick_up=MoveAndPickUpAction.from_standing_position(
+                            taking_pose, self._grasp_from(taking_pose, milk), arm
+                        ),
+                        place=MoveAndPlaceAction.from_standing_position(
+                            self._standing_pose_facing(target), target, milk
+                        ),
+                    ),
                 ]
             )
         )
