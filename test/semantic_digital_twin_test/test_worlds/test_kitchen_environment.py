@@ -8,13 +8,19 @@ import numpy as np
 import pytest
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
+    WashingMachineLink,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Cooktop,
     CounterTop,
     KitchenIsland,
+    WashingMachine,
 )
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import (
+    PrismaticConnection,
+    RevoluteConnection,
+)
 
 # %% mesh bounds
 
@@ -131,3 +137,23 @@ def test_the_island_worktop_still_carries_its_cooktop() -> None:
     assert worktop.get_objects_of_type(Cooktop) == [
         world.get_semantic_annotation_by_name("sideboard_cooktop")
     ]
+
+
+# %% the washing machine
+
+
+def test_washing_machine_door_and_drawer_move_on_their_joints() -> None:
+    """
+    The washing machine's door turns on a hinge and its detergent drawer slides, each
+    carrying its handle.
+    """
+    world = KitchenEnvironment().create_world()
+    [washing_machine] = world.get_semantic_annotations_by_type(WashingMachine)
+    [door] = washing_machine.doors
+    [drawer] = washing_machine.drawers
+
+    assert washing_machine.root == world.get_body_by_name(WashingMachineLink.BODY)
+    assert isinstance(door.root.parent_connection, RevoluteConnection)
+    assert isinstance(drawer.root.parent_connection, PrismaticConnection)
+    assert door.handle.root.parent_kinematic_structure_entity == door.root
+    assert drawer.handle.root.parent_kinematic_structure_entity == drawer.root

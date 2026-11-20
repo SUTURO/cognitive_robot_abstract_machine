@@ -21,6 +21,7 @@ from giskardpy.qp.exceptions import EmptyProblemException
 from giskardpy.qp.qp_controller import QPController
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
 from semantic_digital_twin.world_description.world_state_trajectory_plotter import (
     WorldStateTrajectoryPlotter,
 )
@@ -46,6 +47,13 @@ class MotionControl(TickingExecutorExtension):
     speed_at_rest: float = 1e-3
     """
     The fastest a degree of freedom may move for the robot to count as at rest.
+    """
+
+    environment_moved_by_physics: bool = False
+    """
+    Whether a physics moves every degree of freedom outside the robots, such as a door
+    hinge, which then moves only as far as a robot pushes it rather than to where the
+    controller predicts it.
     """
 
     # %% init False
@@ -123,7 +131,24 @@ class MotionControl(TickingExecutorExtension):
             next_command,
             self.qp_controller.config.control_time_step.total_seconds(),
             self.qp_controller.config.max_derivative,
+            self.measured_degrees_of_freedom(world),
         )
+
+    def measured_degrees_of_freedom(self, world: World) -> list[DegreeOfFreedom]:
+        """
+        :param world: The world the commands are applied to.
+        :return: The degrees of freedom whose position the commands leave where it is,
+            since something other than the commands moves them.
+        """
+        if not self.environment_moved_by_physics:
+            return []
+        robot_bodies = world.robot_body_to_robot_mapping
+        return [
+            degree_of_freedom
+            for connection in world.connections
+            if connection.child not in robot_bodies
+            for degree_of_freedom in connection.active_dofs
+        ]
 
     def _life_cycle_state_followed(self, executor: StatechartExecutor) -> np.ndarray:
         """

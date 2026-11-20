@@ -485,6 +485,21 @@ def test_a_physically_simulated_plan_steps_the_physics_one_control_period_per_ti
     assert executor.pacer.simulation.steps == [control_time_step] * executor.tick_count
 
 
+def test_a_physically_simulated_plan_leaves_the_environment_to_the_physics(
+    pr2_apartment_context,
+) -> None:
+    """
+    A drawer or door the robot pulls moves only as far as the gripper takes it, not to
+    where the controller predicts it.
+    """
+    world, robot_view, extensions = pr2_apartment_context
+    executor = physically_simulated_executor(extensions)
+
+    assert executor.require_extension(
+        extension_type=MotionControl
+    ).environment_moved_by_physics
+
+
 def test_a_physically_simulated_plan_is_given_the_same_time_limit(
     pr2_apartment_context,
 ) -> None:

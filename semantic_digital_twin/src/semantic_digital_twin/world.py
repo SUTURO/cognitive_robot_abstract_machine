@@ -2791,7 +2791,11 @@ class World(HasSimulatorProperties):
         return RayTracer(self)
 
     def apply_control_commands(
-        self, commands: np.ndarray, dt: float, derivative: Derivatives
+        self,
+        commands: np.ndarray,
+        dt: float,
+        derivative: Derivatives,
+        measured_degrees_of_freedom: Iterable[DegreeOfFreedom] = (),
     ) -> None:
         """
         Updates the state of a system by applying control commands at a specified
@@ -2803,8 +2807,16 @@ class World(HasSimulatorProperties):
         :param dt: Time step used for the integration of lower derivatives.
         :param derivative: The derivative level to which the control commands are
             applied.
+        :param measured_degrees_of_freedom: The degrees of freedom whose position is
+            measured rather than commanded, which keep the position they have.
         """
+        measured_positions = {
+            degree_of_freedom.id: self.state[degree_of_freedom.id].position
+            for degree_of_freedom in measured_degrees_of_freedom
+        }
         self.state._apply_control_commands(commands, dt, derivative)
+        for degree_of_freedom_id, position in measured_positions.items():
+            self.state[degree_of_freedom_id].position = position
         for connection in self.connections:
             match connection:
                 case HasUpdateState():
