@@ -41,6 +41,13 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.graph_of_convex_sets.adjoining import (
+    AdjoiningFreeSpaces,
+    PlaceInFreeSpace,
+)
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    PlanarGraphOfBoundingBoxes,
+)
 
 # %% driving the base
 
@@ -175,7 +182,9 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
     Navigates the robot to a pose along a path through the environment's free space.
 
     The free space is decomposed into a graph of convex sets, so the robot drives around
-    the furniture and walls between it and the target instead of straight at them.
+    the furniture and walls between it and the target instead of straight at them. When
+    the target lies on another floor of the same storey, such as the floor of another
+    room, the path passes from floor to floor where their free spaces touch.
 
     This works for obstacles which are known in the environment beforehand, not for
     those added during navigation.
@@ -190,6 +199,19 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
     """
     Where the robot's base stands when this drive begins, such as the target of the
     drive before it, or None for where it stands when the action is expanded.
+    """
+
+    obstacle_clearance: float = 0.0
+    """
+    How much further than :attr:`~semantic_digital_twin.robots.robot_parts.MobileBase.base_radius`
+    the base keeps away from obstacles, in m, so that parts reaching out past the base,
+    such as a parked arm, pass them too.
+    """
+
+    floor_top_tolerance: float = 0.01
+    """
+    How far the top of a floor may lie above the robot's base, in m, for the robot to
+    still stand on it, and how far apart the tops of two floors of one storey may lie.
     """
 
     def create_steps(self) -> list[StatechartNode]:
@@ -212,18 +234,18 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
     @property
     def _floor(self) -> Floor:
         """
-        The floor the robot stands on, whose free space the path is laid out in.
+        The floor the robot stands on at :attr:`start`, where the path begins.
 
         A world with several storeys puts more than one floor below the robot; the one
         it stands on is the topmost of those it stands within the footprint of.
 
         :raises NoFloorBelowRobot: If the robot stands over no annotated floor.
-        :return: The floor the robot drives on.
+        :return: The floor the robot drives on first.
         """
         floors_below = [
             floor
             for floor in self.world.get_semantic_annotations_by_type(Floor)
-            if self._stands_on(floor)
+            if self._stands_on(floor=floor)
         ]
         if not floors_below:
             raise NoFloorBelowRobot(self.robot)
@@ -238,18 +260,54 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
             HomogeneousTransformationMatrix(reference_frame=self.world.root)
         ).bounding_box()
 
-    def _stands_on(self, floor: Floor) -> bool:
+    def _stands_on(self, *, floor: Floor) -> bool:
         """
         :param floor: The floor to test.
         :return: Whether the robot's base, at :attr:`start`, rests within this floor's
-            footprint and no lower than its top.
+            footprint and no more than :attr:`floor_top_tolerance` below its top.
+        """
+        return self._footprint_contains(
+            floor=floor, position=self._start_position
+        ) and self._extent_of(floor).max_z <= (
+            float(self.robot.root.global_pose.z) + self.floor_top_tolerance
+        )
+
+    def _footprint_contains(self, *, floor: Floor, position: Point2) -> bool:
+        """
+        :param floor: The floor to test.
+        :param position: The position to test, in the world's root frame.
+        :return: Whether the position lies within the floor's footprint.
         """
         extent = self._extent_of(floor)
-        start_position = self._start_position
         return (
-            extent.min_x <= float(start_position.x) <= extent.max_x
-            and extent.min_y <= float(start_position.y) <= extent.max_y
-            and extent.max_z <= float(self.robot.root.global_pose.z)
+            extent.min_x <= float(position.x) <= extent.max_x
+            and extent.min_y <= float(position.y) <= extent.max_y
+        )
+
+    def _floors_level_with(self, *, floor: Floor) -> list[Floor]:
+        """
+        :param floor: The floor whose storey is wanted.
+        :return: The floors whose tops lie within :attr:`floor_top_tolerance` of the top
+            of *floor*, *floor* included.
+        """
+        floor_top = self._extent_of(floor).max_z
+        return [
+            other
+            for other in self.world.get_semantic_annotations_by_type(Floor)
+            if abs(self._extent_of(other).max_z - floor_top) <= self.floor_top_tolerance
+        ]
+
+    def _free_space_above(self, *, floor: Floor) -> PlanarGraphOfBoundingBoxes:
+        """
+        :param floor: The floor to drive on.
+        :return: The free space above *floor* that the robot's base can be in.
+        """
+        return floor.planar_free_space(
+            max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
+            .bounding_box()
+            .scale.z,
+            bloat_obstacles=self.robot.mobile_base.base_radius
+            + self.obstacle_clearance,
         )
 
     def _path(self) -> list[Pose]:
@@ -270,26 +328,29 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
         :return: The poses to drive to, in order.
         """
         waypoints = self._waypoints()
-        base_height = self.world.transform(
-            self.robot.root.global_transform, waypoints[0].reference_frame
-        ).z
-        poses = [
-            HomogeneousTransformationMatrix.from_point_rotation_matrix(
-                Point3(waypoint.x, waypoint.y, base_height, waypoint.reference_frame),
-                RotationMatrix.from_vectors(
-                    x=Vector3(
-                        next_waypoint.x - waypoint.x,
-                        next_waypoint.y - waypoint.y,
-                        0,
-                        reference_frame=waypoint.reference_frame,
+        poses = []
+        for waypoint, next_waypoint in zip(waypoints[1:], waypoints[2:]):
+            frame = waypoint.reference_frame
+            next_position = self.world.transform(next_waypoint, frame)
+            base_height = self.world.transform(
+                self.robot.root.global_transform, frame
+            ).z
+            poses.append(
+                HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                    Point3(waypoint.x, waypoint.y, base_height, frame),
+                    RotationMatrix.from_vectors(
+                        x=Vector3(
+                            next_position.x - waypoint.x,
+                            next_position.y - waypoint.y,
+                            0,
+                            reference_frame=frame,
+                        ),
+                        z=Vector3.Z(),
+                        reference_frame=frame,
                     ),
-                    z=Vector3.Z(),
-                    reference_frame=waypoint.reference_frame,
-                ),
-                reference_frame=waypoint.reference_frame,
-            ).pose
-            for waypoint, next_waypoint in zip(waypoints[1:], waypoints[2:])
-        ]
+                    reference_frame=frame,
+                ).pose
+            )
         return poses + [self.target]
 
     def _waypoints(self) -> list[Point2]:
@@ -297,16 +358,34 @@ class PathPlanningNavigateAction(DrivesBase, SequentialAction):
         The points the robot travels through to get from :attr:`start` to the target.
 
         :return: The path, beginning at :attr:`start` and ending at the target's
-            position.
+            position, each waypoint in the frame of the floor it lies on.
         """
-        free_space = self._floor.planar_free_space(
-            max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
-            .bounding_box()
-            .scale.z,
-            bloat_obstacles=self.robot.mobile_base.base_radius,
+        start_floor = self._floor
+        target_position = Point2.from_pose(
+            self.world.transform(self.target, self.world.root)
         )
-        return free_space.path_from_to(
-            self._start_position, Point2.from_pose(self.target)
+        level_floors = self._floors_level_with(floor=start_floor)
+        target_floor = next(
+            (
+                floor
+                for floor in level_floors
+                if self._footprint_contains(floor=floor, position=target_position)
+            ),
+            start_floor,
+        )
+        floors = [start_floor] if target_floor is start_floor else level_floors
+        free_spaces = [self._free_space_above(floor=floor) for floor in floors]
+        return AdjoiningFreeSpaces(
+            world=self.world, free_spaces=free_spaces
+        ).path_from_to(
+            start=PlaceInFreeSpace(
+                free_space=free_spaces[floors.index(start_floor)],
+                position=self._start_position,
+            ),
+            goal=PlaceInFreeSpace(
+                free_space=free_spaces[floors.index(target_floor)],
+                position=target_position,
+            ),
         )
 
 

@@ -1,5 +1,5 @@
-"""The HSR drives from its start to a goal pose in the kitchen environment, in
-MuJoCo.
+"""
+The HSR drives from its start to a goal pose in the kitchen environment, in MuJoCo.
 
 Run it from this folder::
 
@@ -16,7 +16,10 @@ from typing_extensions import TYPE_CHECKING
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, ForwardDrivingPlanExecutor
+from coraplex.plans.executors import (
+    PhysicallySimulatedPlanExecutor,
+    ForwardDrivingPlanExecutor,
+)
 from coraplex.plans.plan_transformation import ConfigurationTransformation
 from coraplex.robot_plans.actions.core.navigation import (
     DrivesBase,
@@ -45,24 +48,32 @@ if TYPE_CHECKING:
     from semantic_digital_twin.world import World
 
 
-
 @dataclass
 class KitchenNavigationDemonstration(RobotDemonstration):
-    """The HSR parks its arm, turns its head to the front of its base and
-    drives from :attr:`robot_start` to the goal, facing the way it drives."""
+    """
+    The HSR parks its arm, turns its head to the front of its base and drives from
+    :attr:`robot_start` to the goal, facing the way it drives.
+    """
 
     used_robot: type[AbstractRobot] = HSRB
-    """The robot that drives."""
+    """
+    The robot that drives.
+    """
 
     ros_node_name: str = "hsr_kitchen_navigation_demo"
-    """Name of the node this demonstration registers."""
+    """
+    Name of the node this demonstration registers.
+    """
 
     executor_type: type[PlanExecutor] = ForwardDrivingPlanExecutor
-    """The executor running the plan, which performs it in MuJoCo."""
+    """
+    The executor running the plan, which performs it in MuJoCo.
+    """
 
     collision_avoidance: bool = True
-    """Whether collision avoidance is added to every motion state chart of this
-    run."""
+    """
+    Whether collision avoidance is added to every motion state chart of this run.
+    """
 
     simulation_time_per_action: timedelta | None = timedelta(seconds=120)
     """
@@ -71,23 +82,49 @@ class KitchenNavigationDemonstration(RobotDemonstration):
     """
 
     event_segmentation: bool = False
-    """Whether the events of this run are segmented; there is nothing to
-    segment here."""
+    """
+    Whether the events of this run are segmented; there is nothing to segment here.
+    """
 
     robot_start: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0)
     )
-    """Where the HSR stands before the plan begins."""
+    """
+    Where the HSR stands before the plan begins.
+    """
 
     goal_x: float = 3.75189
-    """Where the HSR drives to along the world's x axis, in meters."""
+    """
+    Where the HSR drives to along the world's x axis, in meters.
+    """
 
     goal_y: float = 4.66774
-    """Where the HSR drives to along the world's y axis, in meters."""
+    """
+    Where the HSR drives to along the world's y axis, in meters.
+    """
 
     goal_yaw: float = 0.0
-    """Which way the HSR faces at the goal, in radians around the world's z
-    axis."""
+    """
+    Which way the HSR faces at the goal, in radians around the world's z axis.
+    """
+
+    second_goal_x: float = 0.973906
+    """
+    Where the HSR drives to after the goal, in the bedroom, along the world's x axis, in
+    meters.
+    """
+
+    second_goal_y: float = 4.48839
+    """
+    Where the HSR drives to after the goal, in the bedroom, along the world's y axis, in
+    meters.
+    """
+
+    obstacle_clearance: float = 0.1
+    """
+    How much further than its base radius the HSR keeps away from furniture, in meters,
+    so that its parked hand passes the furniture too.
+    """
 
     def scene_specification(self) -> WorldSpecification:
         return WorldSpecification(world_source=KitchenEnvironment())
@@ -102,8 +139,10 @@ class KitchenNavigationDemonstration(RobotDemonstration):
         return world.is_kinematic_structure_entity_in_world_by_name("sofa")
 
     def acquire_world(self) -> World:
-        """Obtain the world as :meth:`RobotDemonstration.acquire_world` does,
-        in which the whole HSR may touch the kitchen's floors."""
+        """
+        Obtain the world as :meth:`RobotDemonstration.acquire_world` does, in which the
+        whole HSR may touch the kitchen's floors.
+        """
         world = super().acquire_world()
         [robot] = world.get_semantic_annotations_by_type(self.used_robot)
         with world.modify_world():
@@ -147,12 +186,15 @@ class KitchenNavigationDemonstration(RobotDemonstration):
                             JointPositionList(goal_state=head_forward),
                         ]
                     ),
-                    PathPlanningNavigateAction(target=goal),
+                    PathPlanningNavigateAction(
+                        target=goal, obstacle_clearance=self.obstacle_clearance
+                    ),
                     PathPlanningNavigateAction(
                         start=goal,
+                        obstacle_clearance=self.obstacle_clearance,
                         target=Pose.from_xyz_rpy(
-                            x=0.973906,
-                            y=4.48839,
+                            x=self.second_goal_x,
+                            y=self.second_goal_y,
                             yaw=self.goal_yaw,
                             reference_frame=context.world.root,
                         ),
@@ -164,7 +206,8 @@ class KitchenNavigationDemonstration(RobotDemonstration):
 
 
 def main(headless: bool = False) -> World:
-    """Run the demonstration.
+    """
+    Run the demonstration.
 
     :param headless: Whether the physics runs without a viewer.
     :return: The world the HSR drove in.

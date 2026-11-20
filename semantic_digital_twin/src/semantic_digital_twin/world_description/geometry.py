@@ -1631,14 +1631,20 @@ class AxisAlignedBox(BoundsInterface[PointT], ABC):
         Compute the intersection of two bounding boxes.
 
         :param other: The other bounding box.
-        :return: The intersection of the two bounding boxes or None if they do not
+        :return: The intersection of the two bounding boxes, relative to an unmoved
+            origin in the reference frame of this box's origin, or None if they do not
             intersect.
         """
         other_in_same_frame = other.transform_to_origin(self.origin)
         result = self.simple_event.intersection_with(other_in_same_frame.simple_event)
         if result.is_empty():
             return None
-        return self.__class__.from_simple_event(result, self.origin)[0]
+        return self.__class__.from_simple_event(
+            result,
+            HomogeneousTransformationMatrix(
+                reference_frame=self.origin.reference_frame
+            ),
+        )[0]
 
 
 @dataclass(eq=False)
