@@ -408,7 +408,7 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         return Pose.from_xyz_rpy(
             x=standing_position.x,
             y=standing_position.y,
-            yaw=np.arctan2(offset.y, offset.x),
+            yaw=float(np.arctan2(offset.y, offset.x)),
             reference_frame=target.reference_frame,
         )
 
