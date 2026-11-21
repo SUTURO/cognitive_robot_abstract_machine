@@ -75,3 +75,6 @@ workspace = [
 dev = [
     "pytest>=7.0.0,<8.0.0",
 ]
+simulated-perception = [
+    "robokudo>=26.10.0",
+]

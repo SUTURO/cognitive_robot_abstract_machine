@@ -358,6 +358,19 @@ class PerceptionSourceUnavailable(PerceptionException):
 
 
 @dataclass
+class SimulatedPerceptionNotStarted(PerceptionException):
+    """
+    Raised when a plan is to perceive through a simulated camera that is not published.
+    """
+
+    def error_message(self) -> str:
+        return "The simulated camera is not published."
+
+    def suggest_correction(self) -> str:
+        return "start the simulated perception before building the plan's context."
+
+
+@dataclass
 class NoFloorBelowRobot(DataclassException):
     """
     Raised when a robot that has to plan its way over a floor stands over none.

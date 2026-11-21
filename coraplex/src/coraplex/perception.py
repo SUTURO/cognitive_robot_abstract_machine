@@ -36,6 +36,7 @@ from semantic_digital_twin.world_description.geometry import VolumetricBoundingB
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
+    KinematicStructureEntity,
 )
 from typing_extensions import Any, Callable, Self, TYPE_CHECKING
 
@@ -297,6 +298,60 @@ class Detection:
         return candidates
 
 
+@dataclass
+class PerceivedObject:
+    """
+    One object a RoboKudo pipeline reported, under the type the pipeline gave it.
+    """
+
+    object_type: str
+    """
+    The type the pipeline reported, such as ``human`` or the name of a semantic
+    annotation; empty for a pipeline that localizes without recognizing.
+    """
+
+    pose: Pose
+    """
+    Where the pipeline saw the object, in the frame it reported.
+    """
+
+    @classmethod
+    def from_designator(
+        cls,
+        designator: ObjectDesignator,
+        world: World,
+        world_frame: PerceptionWorldFrame | None = None,
+    ) -> Self:
+        """
+        :param designator: An object designator the pipeline reported with at least one
+            pose.
+        :param world: The world holding the frame of the reported pose.
+        :param world_frame: The entity of ``world`` the pipeline's world frame stands
+            for, if ``world`` calls it differently.
+        :return: The object at the first pose the designator holds.
+        """
+        pose_stamped = designator.pose[0]
+        frame_id = pose_stamped.header.frame_id
+        reference_frame = (
+            world_frame.entity
+            if world_frame is not None and world_frame.reported_name == frame_id
+            else world.get_kinematic_structure_entity_by_name(frame_id)
+        )
+        return cls(
+            object_type=designator.type,
+            pose=Pose.from_xyz_quaternion(
+                pose_stamped.pose.position.x,
+                pose_stamped.pose.position.y,
+                pose_stamped.pose.position.z,
+                pose_stamped.pose.orientation.x,
+                pose_stamped.pose.orientation.y,
+                pose_stamped.pose.orientation.z,
+                pose_stamped.pose.orientation.w,
+                reference_frame=reference_frame,
+            ),
+        )
+
+
 # %% perception sources
 
 
@@ -471,22 +526,9 @@ class RoboKudoPerception(PerceptionInterface):
         :param query: The query it was answering, supplying the annotation and the frame.
         :return: The detection carrying the queried annotation and the reported pose.
         """
-        world = query.world
-        pose_stamped = designator.pose[0]
         return Detection(
             semantic_annotation=query.semantic_annotation,
-            pose=Pose.from_xyz_quaternion(
-                pose_stamped.pose.position.x,
-                pose_stamped.pose.position.y,
-                pose_stamped.pose.position.z,
-                pose_stamped.pose.orientation.x,
-                pose_stamped.pose.orientation.y,
-                pose_stamped.pose.orientation.z,
-                pose_stamped.pose.orientation.w,
-                reference_frame=world.get_kinematic_structure_entity_by_name(
-                    pose_stamped.header.frame_id
-                ),
-            ),
+            pose=PerceivedObject.from_designator(designator, query.world).pose,
         )
 
 
@@ -588,6 +630,24 @@ class CameraFrameCapture(ContextExtension):
     """Publish the camera frame for the next query."""
 
 
+@dataclass
+class PerceptionWorldFrame(ContextExtension):
+    """
+    The entity of the plan's world that the world frame of a perception pipeline
+    stands for, where the world calls it differently.
+    """
+
+    reported_name: str
+    """
+    The name of the frame the pipeline reports poses in.
+    """
+
+    entity: KinematicStructureEntity
+    """
+    The entity of the plan's world that frame stands for.
+    """
+
+
 @dataclass(eq=False, repr=False, kw_only=True)
 class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, StatechartNode):
     """
@@ -608,6 +668,12 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
     Everything the pipeline reported, None before it answered.
     """
 
+    perceived_objects: list[PerceivedObject] = field(init=False, default_factory=list)
+    """
+    The objects of :attr:`answer` the pipeline reported a pose for, empty before it
+    answered.
+    """
+
     @classproperty
     def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
         """Extend :meth:`~cramph.node.StatechartNode.required_context_extensions` with ROS.
@@ -619,6 +685,7 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
     def on_start(self) -> None:
         """Clear the previous answer when :meth:`~cramph.node.StatechartNode.on_start` runs."""
         self.answer = None
+        self.perceived_objects = []
 
     def on_tick(self) -> ObservationStateValues:
         """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`.
@@ -631,6 +698,15 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
                 camera.capture_frame()
             ros_node = self.context.require_extension(RosContextExtension).ros_node
             self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
+            self.perceived_objects = [
+                PerceivedObject.from_designator(
+                    designator,
+                    self.context.world,
+                    self.context.extensions.get(PerceptionWorldFrame),
+                )
+                for designator in self.answer.res
+                if designator.pose
+            ]
         if self.answer.res:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE

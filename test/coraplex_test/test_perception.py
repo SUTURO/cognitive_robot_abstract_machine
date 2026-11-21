@@ -44,6 +44,8 @@ from coraplex.perception import (
     CameraFrameCapture,
     RoboKudoPerception,
     RoboKudoQuery,
+    PerceivedObject,
+    PerceptionWorldFrame,
     RoboKudoQueryTask,
     WorldPerception,
 )
@@ -501,9 +503,9 @@ class ReportedObject:
     Label to report it under; empty for a pipeline that localizes without recognizing.
     """
 
-    position: tuple[float, float, float]
+    position: tuple[float, float, float] | None
     """
-    Where to report it.
+    Where to report it; ``None`` for an object reported without a pose.
     """
 
 
@@ -519,11 +521,16 @@ class RecordedQueryServer:
     """
 
     def __init__(
-        self, node_name: str, action_name: str, reports: list[ReportedObject]
+        self,
+        node_name: str,
+        action_name: str,
+        reports: list[ReportedObject],
+        frame_id: str = "map",
     ) -> None:
         from robokudo_msgs.action import Query
 
         self.reports = reports
+        self.frame_id = frame_id
         self.received_types = []
         self.received_designators = []
         self.node = rclpy.create_node(node_name)
@@ -547,7 +554,10 @@ class RecordedQueryServer:
 
         designators = []
         for report in self.reports:
-            pose_stamped = PoseStamped(header=Header(frame_id="map"))
+            if report.position is None:
+                designators.append(ObjectDesignator(type=report.class_label))
+                continue
+            pose_stamped = PoseStamped(header=Header(frame_id=self.frame_id))
             (
                 pose_stamped.pose.position.x,
                 pose_stamped.pose.position.y,
@@ -589,11 +599,14 @@ def query_server_reporting(rclpy_node):
     pytest.importorskip("robokudo_msgs")
     started = []
 
-    def start(reports: list[ReportedObject]) -> RecordedQueryServer:
+    def start(
+        reports: list[ReportedObject], frame_id: str = "map"
+    ) -> RecordedQueryServer:
         server = RecordedQueryServer(
             node_name="robokudo_stand_in",
             action_name="robokudo/query",
             reports=reports,
+            frame_id=frame_id,
         )
         started.append(server)
         return server
@@ -1145,6 +1158,109 @@ def test_robokudo_query_task_keeps_the_answer(
     assert [designator.type for designator in task.answer.res] == [
         report.class_label for report in robokudo_query_server.reports
     ]
+
+
+@pytest.fixture
+def query_for_every_object() -> RoboKudoQuery:
+    """
+    A query for everything the pipeline detects, as the GPSR object pipeline reads it.
+    """
+    return RoboKudoQuery(object_type="object")
+
+
+def test_robokudo_query_task_reports_every_object_with_its_type_and_pose(
+    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
+):
+    """
+    A plan that looks around needs each object the pipeline reported, by its type and
+    where it was seen.
+    """
+    world, view, extensions = pr2_apartment_context
+    server = query_server_reporting(
+        [
+            ReportedObject("Milk", PERCEIVED_MILK_POSITION),
+            ReportedObject("Cup", (1.0, 2.0, 0.8)),
+        ]
+    )
+    task = RoboKudoQueryTask(query=query_for_every_object)
+    build_perception_task(task, world, rclpy_node)
+
+    run_perception_task(task)
+
+    assert [
+        perceived_object.object_type for perceived_object in task.perceived_objects
+    ] == [report.class_label for report in server.reports]
+    for perceived_object, report in zip(task.perceived_objects, server.reports):
+        np.testing.assert_allclose(
+            world.transform(perceived_object.pose, world.root)
+            .position.to_np()
+            .flatten()[:3],
+            report.position,
+            atol=1e-9,
+        )
+
+
+def test_robokudo_query_task_leaves_out_objects_reported_without_a_pose(
+    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
+):
+    """
+    An object without a pose cannot be located, so it is not one of the perceived
+    objects, while the raw answer still holds it.
+    """
+    world, view, extensions = pr2_apartment_context
+    located = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
+    server = query_server_reporting([located, ReportedObject("Cup", None)])
+    task = RoboKudoQueryTask(query=query_for_every_object)
+    build_perception_task(task, world, rclpy_node)
+
+    run_perception_task(task)
+
+    assert [
+        perceived_object.object_type for perceived_object in task.perceived_objects
+    ] == [located.class_label]
+    assert len(task.answer.res) == len(server.reports)
+
+
+def test_robokudo_query_task_forgets_the_perceived_objects_when_restarted(
+    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_every_object
+):
+    """
+    A restarted task asks again, so what it perceived before no longer holds.
+    """
+    world, view, extensions = pr2_apartment_context
+    task = RoboKudoQueryTask(query=query_for_every_object)
+    build_perception_task(task, world, rclpy_node)
+    run_perception_task(task)
+
+    task.on_start()
+
+    assert task.perceived_objects == []
+
+
+def test_robokudo_query_task_places_objects_reported_in_the_pipelines_world_frame(
+    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
+):
+    """
+    A simulated camera is published relative to a world frame the simulated world calls
+    differently, so the context names the entity that frame stands for.
+    """
+    world, view, extensions = pr2_apartment_context
+    world_frame = PerceptionWorldFrame(reported_name="sensor_world", entity=world.root)
+    report = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
+    query_server_reporting([report], frame_id=world_frame.reported_name)
+    task = RoboKudoQueryTask(query=query_for_every_object)
+    chart = build_perception_task(task, world, rclpy_node)
+    chart.context.add_extension(world_frame)
+
+    run_perception_task(task)
+
+    [perceived_object] = task.perceived_objects
+    assert perceived_object.pose.reference_frame is world_frame.entity
+    np.testing.assert_allclose(
+        perceived_object.pose.position.to_np().flatten()[:3],
+        report.position,
+        atol=1e-9,
+    )
 
 
 def test_query_requests_one_frame_before_sending(

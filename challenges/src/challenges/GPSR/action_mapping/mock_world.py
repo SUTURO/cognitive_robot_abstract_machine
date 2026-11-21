@@ -25,10 +25,11 @@ from cramspeech.microphone import Microphone
 from cramspeech.speech_recognizer import SpeechRecognizer
 from cramspeech.transcription import WhisperTranscriber
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.perception import CameraFrameCapture, RoboKudoQuery
+from coraplex.perception import RoboKudoQuery
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
+from coraplex.simulated_perception import SimulatedHsrHeadCameraPerception
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.executor import ExecutorExtension
@@ -36,8 +37,6 @@ from giskardpy.motion_control import MotionControl
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
 from robokudo.analysis_engine_process import AnalysisEngineProcess
-from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
-from robokudo.io.simulated_camera import SimulatedCameraPublisher
 from semantic_digital_twin.adapters.multi_sim import (
     ContactCategories,
     MujocoCamera,
@@ -52,7 +51,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 )
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
-from semantic_digital_twin.robots.hsrb import HSRB, HSRBHeadRGBDCamera
+from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bedroom,
@@ -133,6 +132,7 @@ class Person(Human):
 
 # %% Simulation
 
+
 # MuJoCo Performance improvement
 class OncePerCallSyncedMujocoSim(MujocoSim):
     """
@@ -149,6 +149,7 @@ class OncePerCallSyncedMujocoSim(MujocoSim):
         super().step_simulation(duration - last_step)
         self.synchronizer.sync_rate_hz = MujocoSynchronizer.UNTHROTTLED_SYNC_RATE_HZ
         super().step_simulation(last_step)
+
 
 # MuJoco Performance improvement
 @dataclass
@@ -228,27 +229,15 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     stays where the fingers hold it."""
 
     # Perception added
-    analysis_engine: AnalysisEngineProcess | None = None
-    """The perception pipeline the plan asks to detect people, or ``None`` to
-    find people without perception."""
+    perception: SimulatedHsrHeadCameraPerception | None = None
+    """The perception the plan asks to detect people, or ``None`` to find people
+    without perception."""
 
     # Perception added
     query: RoboKudoQuery = field(
         default_factory=lambda: RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     )
-    """What the plan asks :attr:`analysis_engine` once the robot faces the
-    person."""
-
-    # Perception added
-    camera_configuration: HsrRos2CameraConfig = field(
-        default_factory=HsrRos2CameraConfig
-    )
-    """The topics and frames the head camera is published on, those of the real
-    HSR."""
-
-    # Perception added
-    camera_publisher: SimulatedCameraPublisher | None = field(init=False, default=None)
-    """Publishes the head camera while :attr:`analysis_engine` runs."""
+    """What the plan asks :attr:`perception` once the robot faces the person."""
 
     # makes it possible to ignore collision
     robot_body_contact_category: ContactCategories = ContactCategories(2)
@@ -357,28 +346,19 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     # starts the simulation and publishes head camera if Robokudo is used
     def start_simulation(self, world: World) -> None:
         """Differs from :meth:`RobotDemonstration.start_simulation` in then
-        publishing the head camera and starting :attr:`analysis_engine`, if
-        any."""
+        starting :attr:`perception`, if any."""
         super().start_simulation(world)
-        if self.analysis_engine is None:
+        if self.perception is None:
             return
-        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
-        self.camera_publisher = SimulatedCameraPublisher(
-            camera=camera,
-            simulation=self.simulation,
-            node=self.ros_node,
-            topics=self.camera_configuration,
-            frames=self.camera_configuration,
-        )
-        self.analysis_engine.start()
+        self.perception.start(world, self.simulation, self.ros_node)
 
-    # add camera publisher if not already specified
+    # adds frame capture and person detection if Robokudo is used
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         extensions: list[ContextExtension] = [
             RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
         ]
-        if self.camera_publisher is not None:
-            extensions.append(CameraFrameCapture(self.camera_publisher.publish))
+        if self.perception is not None:
+            extensions.extend(self.perception.build_context_extensions(world))
             extensions.append(PersonDetection(self.query))
         return extensions
 
@@ -386,7 +366,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     def tear_down(self) -> None:
         """Differs from :meth:`RobotDemonstration.tear_down` in first waiting for
         the viewer to be closed, if there is one, and stopping
-        :attr:`analysis_engine`, if it was started."""
+        :attr:`perception`, if any."""
         viewer_window = (
             None
             if self.headless or self.simulation is None
@@ -397,8 +377,8 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             weakref.finalize(viewer_window, viewer_window_destroyed.set)
             del viewer_window
             viewer_window_destroyed.wait()
-        if self.camera_publisher is not None:
-            self.analysis_engine.stop()
+        if self.perception is not None:
+            self.perception.stop()
         super().tear_down()
 
     # builds the plan and transforms it
@@ -593,6 +573,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             world_root_T_body.y = surface_box.max_y - body_box.max_y
         body.parent_connection.origin = world_root_T_body
 
+
 # runs everything
 def main(
     headless: bool = False,
@@ -626,8 +607,12 @@ def main(
         scene_joints_movable=False,
         headless=headless,
         json_plan=json_plan,
-        analysis_engine=(
-            AnalysisEngineProcess(analysis_engine="human_detection", shows_views=False)
+        perception=(
+            SimulatedHsrHeadCameraPerception(
+                AnalysisEngineProcess(
+                    analysis_engine="human_detection", shows_views=False
+                )
+            )
             if perceives
             else None
         ),
