@@ -4744,20 +4744,21 @@ class MujocoSim(MultiSim):
         than at the synchronizer's throttled rate.
 
         Every servo is handed the position its joint currently holds in the world, so
-        nothing rushes towards zero the moment the physics starts.
+        nothing rushes towards zero the moment the physics starts. The viewer, if any,
+        keeps showing the current state also while nothing steps the physics.
 
         :raises SimulationAlreadyRunningError: If the simulation is already running.
         """
         if self.simulator.state == SimulatorState.RUNNING:
             raise SimulationAlreadyRunningError(self.world.root.name.name)
         self.synchronizer.sync_rate_hz = MujocoSynchronizer.UNTHROTTLED_SYNC_RATE_HZ
-        self.simulator.start(simulate_in_thread=False, render_in_thread=False)
+        self.simulator.start(simulate_in_thread=False, render_in_thread=True)
         self.synchronizer.command_actuators_from_world_state()
 
     def step_simulation(self, duration: timedelta) -> None:
         """
         Advance the physics of a simulation started with
-        :meth:`start_stepped_simulation` and refresh the viewer.
+        :meth:`start_stepped_simulation`.
 
         :param duration: How much simulated time to advance.
         :raises SimulationNotStartedError: If the simulation is not running.
@@ -4766,4 +4767,3 @@ class MujocoSim(MultiSim):
             raise SimulationNotStartedError(self.world.root.name.name)
         for _ in range(round(duration.total_seconds() / self.simulator.step_size)):
             self.simulator.step()
-        self.simulator.render()

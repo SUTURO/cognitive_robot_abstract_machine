@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import logging
 import os
 from datetime import timedelta
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import mujoco
+import mujoco.viewer
 import pytest
 import numpy
 import trimesh
@@ -1886,3 +1889,71 @@ def test_a_stepped_simulation_advances_exactly_the_requested_time(falling_box_wo
 
     fallen = 0.5 * 9.81 * duration.total_seconds() ** 2
     assert height == pytest.approx(1.0 - fallen, abs=0.01)
+
+
+# %% viewer of a stepped simulation
+
+
+@dataclass
+class UpdateCountingViewer:
+    """
+    Stands in for MuJoCo's passive viewer and counts how often it is handed the
+    simulation's state.
+    """
+
+    update_count: int = 0
+    """
+    How often the viewer was handed the simulation's state.
+    """
+
+    running: bool = True
+    """
+    Whether the viewer window is open.
+    """
+
+    viewer_lock: threading.Lock = field(default_factory=threading.Lock)
+    """
+    Guards the simulation's state while the viewer reads it.
+    """
+
+    def is_running(self) -> bool:
+        return self.running
+
+    def sync(self) -> None:
+        self.update_count += 1
+
+    def close(self) -> None:
+        self.running = False
+
+    def lock(self) -> threading.Lock:
+        return self.viewer_lock
+
+    def __enter__(self) -> UpdateCountingViewer:
+        return self
+
+    def __exit__(self, *exception_info: object) -> None:
+        self.close()
+
+
+def test_a_stepped_simulation_keeps_its_viewer_up_to_date_between_steps(
+    falling_box_world, monkeypatch
+):
+    """
+    The viewer keeps being handed the simulation's state while nobody steps the physics,
+    so a controller that takes long to prepare its next step leaves no stale viewer.
+    """
+    viewer = UpdateCountingViewer()
+    monkeypatch.setattr(mujoco.viewer, "launch_passive", lambda model, data: viewer)
+    multi_sim = MujocoSim(world=falling_box_world, headless=False)
+
+    multi_sim.start_stepped_simulation()
+    try:
+        updates_at_start = viewer.update_count
+        deadline = time.monotonic() + 2.0
+        while viewer.update_count <= updates_at_start and time.monotonic() < deadline:
+            time.sleep(0.01)
+        updates_without_stepping = viewer.update_count - updates_at_start
+    finally:
+        stop_multisim_if_running(multi_sim)
+
+    assert updates_without_stepping > 0
