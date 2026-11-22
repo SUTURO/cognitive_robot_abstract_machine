@@ -10,7 +10,6 @@ from robokudo.annotators.gpsr.filter_object_by_semantic_annotation import (
     FilterObjectBySemanticAnnotation,
 )
 from robokudo.annotators.gpsr.type_mapping_annotator import TypeMappingAnnotator
-from robokudo.annotators.gpsr.vision_language_annotator import VisionLanguageAnnotator
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.descriptors.analysis_engines.gpsr.subtree_door_pipeline import (
@@ -61,7 +60,7 @@ def model_package(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         "get_path_to_file_in_ros_package",
         lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path,
     )
-    return tmp_path / VisionLanguageAnnotator.Descriptor.Parameters().ros_package_name
+    return tmp_path / "robokudo_suturo"
 
 
 # %% files of the model package
