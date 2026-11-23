@@ -3,8 +3,6 @@ YOLO object detection on request, answering with the detected objects and saying
 """
 
 # %% imports
-import os
-import sys
 from dataclasses import dataclass
 
 from robokudo.analysis_engine import AnalysisEngineInterface
@@ -69,25 +67,3 @@ class AnalysisEngine(AnalysisEngineInterface):
             ]
         )
         return pipeline
-
-
-# %% direct start
-def main() -> None:
-    """
-    Start RoboKudo with the YOLO object detection analysis engine.
-    """
-    os.execv(
-        sys.executable,
-        [
-            sys.executable,
-            "-m",
-            "robokudo.scripts.main",
-            "_ae",
-            "yolo_object_detection",
-            *sys.argv[1:],
-        ],
-    )
-
-
-if __name__ == "__main__":
-    main()
