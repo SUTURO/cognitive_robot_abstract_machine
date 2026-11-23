@@ -13,7 +13,6 @@ from py_trees.common import Status
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.annotators.seat_detection import SeatDetection, SeatRegion
-from robokudo.annotators.sofa_split import SofaSplitAnnotator
 from robokudo.cas import CAS, CASViews
 from robokudo.pipeline import Pipeline
 from robokudo.types.annotation import Classification, PositionAnnotation
@@ -85,16 +84,6 @@ def seat(
     return hypothesis
 
 
-def sofa(width: float, depth: float) -> ObjectHypothesis:
-    """
-    :param width: Width in meters of the sofa across the camera view, centered in it.
-    :param depth: Distance in meters of the sofa from the camera.
-    :return: An object hypothesis of the first sofa class.
-    """
-    sofa_class_name = SofaSplitAnnotator.Descriptor.Parameters().sofa_class_names[0]
-    return seat(sofa_class_name, width=width, depth=depth)
-
-
 def seat_region(x: float, z: float) -> SeatRegion:
     """
     :return: A seat region at the given position, in the region of
@@ -157,10 +146,3 @@ def occupancies(hypothesis: AnalyzableAnnotation) -> list[bool]:
         annotation.occupied
         for annotation in CAS.filter_by_type(OccupiedAnnotation, hypothesis.annotations)
     ]
-
-
-def created_seat_regions(annotator: BaseAnnotator) -> list[SeatRegion]:
-    """
-    :return: The seat regions in the CAS of the annotator, in the order they were added.
-    """
-    return annotator.get_cas().filter_annotations_by_type(SeatRegion)

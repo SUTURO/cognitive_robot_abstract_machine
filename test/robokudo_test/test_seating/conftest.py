@@ -50,11 +50,3 @@ def seat_distance(parameters: SeatOccupancyAnnotator.Descriptor.Parameters) -> f
     Distance from the camera of a seat within reach.
     """
     return parameters.maximum_seat_distance / 2
-
-
-@pytest.fixture
-def sofa_width(seat_detection: SeatDetection) -> float:
-    """
-    Width of a sofa, twice the maximum width of a single seat.
-    """
-    return seat_detection.maximum_seat_width * 2

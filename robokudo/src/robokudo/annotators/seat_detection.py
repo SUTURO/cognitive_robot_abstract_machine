@@ -1,8 +1,9 @@
 """
 Recognition of seats among the detected objects.
 
-Provides the region type for the seats split from larger furniture and the rules that
-decide which object hypotheses are seats for a single person.
+Provides the region types for the seats of larger furniture and for the seat places of
+the world and the rules that decide which object hypotheses are seats for a single
+person.
 """
 
 # %% imports
@@ -10,6 +11,7 @@ decide which object hypotheses are seats for a single person.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 
 import numpy as np
 from typing_extensions import TYPE_CHECKING
@@ -24,11 +26,45 @@ if TYPE_CHECKING:
 # %% seat regions
 
 
+class SeatFurniture(StrEnum):
+    """
+    The furniture a seat belongs to, as reported in :attr:`ObjectDesignator.type`.
+    """
+
+    CHAIR = "chair"
+    """
+    A seat for a single person.
+    """
+
+    SOFA = "sofa"
+    """
+    One seat region of a piece of furniture for several persons.
+    """
+
+
 @dataclass
 class SeatRegion(RegionHypothesis):
     """
     A region of a piece of furniture on which one person can sit, such as one seat of a
     sofa.
+    """
+
+    furniture: SeatFurniture = SeatFurniture.SOFA
+    """
+    The furniture the seat region belongs to.
+    """
+
+
+@dataclass
+class WorldSeatRegion(SeatRegion):
+    """
+    The seat region of a seat place the world already knows, such as one of a sofa
+    of the semantic map.
+    """
+
+    seat_place_name: str = ""
+    """
+    The name of the region of the seat place in the world.
     """
 
 
