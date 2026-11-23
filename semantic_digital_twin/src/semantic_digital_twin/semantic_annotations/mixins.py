@@ -1,3 +1,8 @@
+"""
+Mixins that give semantic annotations a shared trait, such as having a handle or moving
+on a joint of their own.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -10,7 +15,7 @@ import trimesh
 from trimesh.util import concatenate
 from krrood.class_diagrams.class_diagram import WrappedClass
 from krrood.entity_query_language.factories import variable_from, entity, variable, an
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood.parametrization.model_registries import ModelRegistry
 from krrood.patterns.mixin import Mixin
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
@@ -47,6 +52,7 @@ from semantic_digital_twin.datastructures.variables import SpatialVariables
 from semantic_digital_twin.exceptions import (
     AmbiguousPart,
     CannotBeAPartOf,
+    MissingMovableJointError,
     NoGraspGeometry,
     NoSupportingSurfaceError,
     UnknownPartWholeRelationshipField,
@@ -400,9 +406,28 @@ class HasRootBody(HasRootKinematicStructureEntity[Body], Mixin):
             connection_specification=connection_specification,
         )
 
+    @classmethod
+    def get_instances_in_region(cls, region: Region) -> list[Self]:
+        """
+        Retrieves the annotations of this type standing in a region of their world.
+
+        Where an annotation stands is its root body's origin rather than the volume it
+        fills, so an annotation whose body carries no geometry is found as well.
+
+        :param region: The region to look in.
+        :return: The annotations of this type whose root body's origin lies within the
+            bounding boxes of the region's area.
+        """
+        bounding_boxes = region.area.as_bounding_box_collection_in_frame(region)
+        return [
+            annotation
+            for annotation in region._world.get_semantic_annotations_by_type(cls)
+            if bounding_boxes.contains(annotation.root.global_pose.position)
+        ]
+
 
 @dataclass(eq=False)
-class HasGraspCandidates(HasRootBody, Mixin):
+class IsGraspable(HasRootBody, Mixin):
     """
     A mixin class for semantic annotations that state where they may be grasped, by
     their :attr:`grasp_strategy`, and offer grasp candidates.
@@ -482,9 +507,9 @@ class HasGraspCandidates(HasRootBody, Mixin):
             model_registry,
         )
         return [
-            grasp.grasp_candidate(self)
+            grasp.grasp_candidate(graspable=self)
             for grasp in grasps
-            if grasp.reaches_surface_of(self)
+            if grasp.reaches_surface_of(graspable=self)
         ]
 
     def grasp_surface(self) -> trimesh.Trimesh:
@@ -525,7 +550,7 @@ class HasGraspCandidates(HasRootBody, Mixin):
             end=Point3.from_iterable(end, reference_frame=self.root),
         )
 
-    def grasped_part(self) -> HasGraspCandidates:
+    def grasped_part(self) -> IsGraspable:
         """
         :return: The annotation whose surface the object is grasped at; the object
             itself unless one of its parts is grasped instead.
@@ -534,7 +559,7 @@ class HasGraspCandidates(HasRootBody, Mixin):
 
 
 @dataclass(eq=False)
-class HasDrawnGraspsByDefault(HasGraspCandidates, Mixin):
+class HasDrawnGraspsByDefault(IsGraspable, Mixin):
     """
     A mixin class for semantic annotations whose shape is known well enough that, while
     no model is given, their grasps are drawn uniformly from where their
@@ -746,6 +771,19 @@ class HasMovableJoint(HasRootBody, Mixin, ABC):
             else None
         )
 
+    @property
+    def opening_ratio(self) -> float:
+        """
+        How far the root stands along the travel of :attr:`movable_joint`: ``0`` at its
+        lower limit, where a door or drawer stands closed, and ``1`` at its upper limit.
+        """
+        if self.movable_joint is None:
+            raise MissingMovableJointError(self)
+        limits = self.movable_joint.dof.limits
+        return (self.movable_joint.position - limits.lower.position) / (
+            limits.upper.position - limits.lower.position
+        )
+
     @abstractmethod
     def calculate_self_T_movable_joint(
         self, axis: Vector3
@@ -831,7 +869,7 @@ class HasDoors(PartWholeRelationship, Mixin):
 
 
 @dataclass(eq=False)
-class HasHandle(HasGraspCandidates, PartWholeRelationship, Mixin):
+class HasHandle(IsGraspable, PartWholeRelationship, Mixin):
     """
     A mixin class for semantic annotations that have a handle, and are grasped at it
     when they have one.
@@ -845,7 +883,7 @@ class HasHandle(HasGraspCandidates, PartWholeRelationship, Mixin):
     The handle of the semantic annotation.
     """
 
-    def grasped_part(self) -> HasGraspCandidates:
+    def grasped_part(self) -> IsGraspable:
         """
         :return: The handle; without a handle, the part the annotation is grasped at
             otherwise.
@@ -870,7 +908,7 @@ class HasRim(HasDrawnGraspsByDefault, PartWholeRelationship, Mixin):
     The rim of the container.
     """
 
-    def grasped_part(self) -> HasGraspCandidates:
+    def grasped_part(self) -> IsGraspable:
         """
         :return: The rim; without a rim, the part the annotation is grasped at
             otherwise.
@@ -1176,7 +1214,9 @@ class HasSupportingSurface(IsStorageSpace, Mixin):
             return []
 
         samples = surface_circuit.sample(amount)
-        samples = samples[np.argsort(surface_circuit.log_likelihood(samples))[::-1]]
+        samples = samples[
+            np.argsort(surface_circuit.log_likelihood(events=samples))[::-1]
+        ]
         samples = np.concatenate((samples, z_coordinate), axis=1)
 
         if category_of_interest:
@@ -1394,7 +1434,11 @@ class HasSupportingSurface(IsStorageSpace, Mixin):
                 if self.calculate_supporting_surface() is None:
                     raise NoSupportingSurfaceError(self)
 
-        origin = HomogeneousTransformationMatrix(reference_frame=self.root)
+        # The surface's own frame lies on its top, so the free space and the paths
+        # through it are expressed relative to what stands on it.
+        origin = HomogeneousTransformationMatrix(
+            reference_frame=self.supporting_surface
+        )
         surface_box = self.supporting_surface.area.as_bounding_box_collection_at_origin(
             origin
         ).bounding_box()
@@ -1412,7 +1456,7 @@ class HasSupportingSurface(IsStorageSpace, Mixin):
                     origin,
                 )
             ],
-            self.root,
+            self.supporting_surface,
         )
 
         semantic_obstacle_annotation = SemanticEnvironmentAnnotation(
@@ -1420,13 +1464,13 @@ class HasSupportingSurface(IsStorageSpace, Mixin):
         )
 
         return PlanarGraphOfBoundingBoxes.free_space_from_semantic_annotation(
-            search_space,
-            semantic_obstacle_annotation,
-            semantic_wall_annotation,
-            tolerance,
-            bloat_obstacles,
-            bloat_walls,
-            obstacle_height_clearance,
+            search_space=search_space,
+            semantic_obstacle_annotation=semantic_obstacle_annotation,
+            semantic_wall_annotation=semantic_wall_annotation,
+            tolerance=tolerance,
+            bloat_obstacles=bloat_obstacles,
+            bloat_walls=bloat_walls,
+            obstacle_height_clearance=obstacle_height_clearance,
         )
 
 
@@ -1508,6 +1552,33 @@ class HasCaseAsRootBody(HasSupportingSurface, Mixin):
             cls._create_container_event(scale, wall_thickness),
             connection_specification=connection_specification,
         )
+
+
+# %% seat places
+
+
+@dataclass(eq=False)
+class HasSeatPlaces(HasRootBody, Mixin):
+    """
+    A semantic annotation people can sit on, with one region per place a single person
+    sits on.
+    """
+
+    seat_places: list[Region] = field(default_factory=list, kw_only=True)
+    """
+    The regions above the places a single person sits on, each holding the people
+    sitting there.
+    """
+
+    @synchronized_attribute_modification
+    def add_seat_place(self, region: Region) -> None:
+        """
+        List ``region`` among the :attr:`seat_places`, recorded as a modification of the
+        world so that the copies of the world other processes hold gain it too.
+
+        :param region: The region above a place a single person sits on.
+        """
+        self.seat_places.append(region)
 
 
 # %% furniture built from other furniture
