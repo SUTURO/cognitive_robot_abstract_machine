@@ -23,7 +23,11 @@ from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Pose,
+    Pose2D,
+)
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
@@ -156,7 +160,9 @@ class KitchenToSofaDemonstration(RobotDemonstration):
             context,
             [
                 *self.departure_nodes(context),
-                NavigateAction(target_location=self.scanning_pose(context.world)),
+                NavigateAction(
+                    planar_goal_pose=Pose2D.from_pose(self.scanning_pose(context.world))
+                ),
                 *self.scanning_nodes(context),
             ],
         )

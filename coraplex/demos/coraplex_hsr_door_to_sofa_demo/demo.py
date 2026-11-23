@@ -25,7 +25,11 @@ from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkAr
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Pose,
+    Pose2D,
+)
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
@@ -178,7 +182,7 @@ class DoorToSofaDemonstration(RobotDemonstration):
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
                     NavigateAction(
-                        target_location=Pose.from_xyz_rpy(
+                        planar_goal_pose=Pose2D.from_xy_yaw(
                             x=world_T_scanning_pose.x,
                             y=world_T_scanning_pose.y,
                             yaw=world_T_scanning_pose.yaw,

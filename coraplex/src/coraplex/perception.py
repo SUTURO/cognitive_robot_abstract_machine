@@ -1,3 +1,8 @@
+"""
+Perception for robot plans: the queries a plan asks, the detections answering them, and
+the interfaces and statechart task that perceive through the world or RoboKudo.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -7,10 +12,10 @@ from enum import StrEnum
 
 import numpy as np
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from cramph.node import EndedByOwner, FailsOnObservingFalse
 from cramph.context import ContextExtension
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
@@ -597,7 +602,7 @@ class WorldWritingPerceptionTask(
     plan is executed.
     """
 
-    _observation: ObservationStateValues | None = field(
+    _observation: ObservationStateValue | None = field(
         init=False, default=None, repr=False
     )
     """
@@ -620,13 +625,13 @@ class WorldWritingPerceptionTask(
     def on_start(self) -> None:
         self._observation = None
 
-    def on_tick(self) -> ObservationStateValues | None:
+    def on_tick(self) -> ObservationStateValue | None:
         if self._observation is None:
             self._observation = self.answer_query()
         return self._observation
 
     @abstractmethod
-    def answer_query(self) -> ObservationStateValues:
+    def answer_query(self) -> ObservationStateValue:
         """
         Ask the perception source and write what it saw into the world.
 
@@ -667,7 +672,7 @@ class PerceptionTask(WorldWritingPerceptionTask):
             self.answered_by, self.ros_node
         )
 
-    def answer_query(self) -> ObservationStateValues:
+    def answer_query(self) -> ObservationStateValue:
         """
         :return: True once the object was seen, False when the source saw nothing.
         """
@@ -675,11 +680,11 @@ class PerceptionTask(WorldWritingPerceptionTask):
             self.query, self.accept_first_if_multiple
         )
         if detection is None:
-            return ObservationStateValues.FALSE
+            return ObservationStateValue.FALSE
         detection.apply_to(
             self.query.world, trust_orientation=self.query.trust_detected_orientation
         )
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -722,7 +727,7 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
             case PerceptionSource.ROBOKUDO:
                 self.seat_perception = RoboKudoSeatPerception(ros_node=self.ros_node)
 
-    def answer_query(self) -> ObservationStateValues:
+    def answer_query(self) -> ObservationStateValue:
         """
         :return: True, since seeing no seat is an answer too.
         """
@@ -794,4 +799,4 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
                 Human.get_annotation_specification(name, BodySpecification(name)).spawn(
                     world, parent_T_self=world_T_seat_place
                 )
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE
