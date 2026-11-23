@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # %% Imports
 import json
+import logging
 
 import numpy
 from dataclasses import dataclass
@@ -318,7 +319,6 @@ class PlannedAction:
         semdt_finder = SemanticAnnotationClassFinder()
         if data.get(PayloadKey.LOCATION) is not None:
             semdt_type = semdt_finder.find_place(data.get(PayloadKey.LOCATION))
-            print(semdt_type)
             location = world.get_semantic_annotations_by_type(semdt_type)[0]
         else:
             location = None
@@ -686,21 +686,20 @@ def main(context: StatechartContext, json_plan: str) -> GeneratedCommand:
     # }
     # """
     command = GeneratedCommand.from_json(json.loads(json_plan), instruction, context)
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
     for plan in command.plans:
         for action in plan.actions:
-            print(
-                "  ",
+            logger.info(
+                "%s | location: %s | object: %s | person: %s",
                 type(action.action_type).__name__,
-                "| location:",
                 None if action.location is None else type(action.location).__name__,
-                "| object:",
                 None
                 if action.object_annotation is None
                 else type(action.object_annotation).__name__,
-                "| person:",
                 action.person,
             )
-            print(action.action_type)
+            logger.info("%s", action.action_type)
     return command
 
 

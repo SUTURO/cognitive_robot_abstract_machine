@@ -5,6 +5,7 @@ from __future__ import annotations
 
 # %% Imports
 import json
+import logging
 import threading
 import weakref
 from dataclasses import dataclass, field
@@ -591,17 +592,19 @@ def main(
         command.
     :return: The world the command was carried out in.
     """
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
     plan_model = PlanModel(model_path=plan_model_path)
     if instruction is None:
         recognizer = SpeechRecognizer(
             microphone=Microphone(), transcriber=WhisperTranscriber()
         )
-        print("SPEAK NOW...................")
+        logger.info("Speak now")
         instruction = recognizer.hear_next_utterance(timeout=30.0).text
     instruction_plans = plan_model.write_plans(instruction)
 
     json_plan = json.dumps(instruction_plans.to_json(), separators=(",", ":"))
-    print(json_plan)
+    logger.info("Generated plan: %s", json_plan)
 
     return GeneratedCommandDemonstration(
         scene_joints_movable=False,
