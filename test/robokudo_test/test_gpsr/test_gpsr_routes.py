@@ -9,7 +9,6 @@ import pytest
 from ament_index_python.packages import get_packages_with_prefixes
 from py_trees.behaviours import Success
 from robokudo.annotators.gpsr.pointing import HumanPointingAnnotator
-from robokudo.annotators.gpsr.vision_language_annotator import VisionLanguageAnnotator
 from robokudo.descriptors.analysis_engines.gpsr.gpsr_implementation import (
     AnalysisEngine,
     GpsrRoute,
@@ -78,8 +77,7 @@ def real_gpsr_tree(
     :param scoring_clip: The CLIP stand-in.
     :return: An iterator over the tree.
     """
-    model_package = VisionLanguageAnnotator.Descriptor.Parameters().ros_package_name
-    if model_package not in get_packages_with_prefixes():
+    if "robokudo_suturo" not in get_packages_with_prefixes():
         pytest.skip("GPSR model package is not installed")
     tree = AnalysisEngine().implementation()
     yield tree
