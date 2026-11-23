@@ -20,6 +20,7 @@ import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from typing_extensions import Iterator
 
+import coraplex.demonstrations
 from coraplex.demonstrations import RobotDemonstration, RobotDemonstrationRosSession
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Vector3
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -232,9 +233,9 @@ class HingedSceneDemonstration(RecordingDemonstration):
         box = Body(name=PrefixedName(HingedSceneBody.BOX))
         with world.modify_world():
             hinge = RevoluteConnection.create_with_dofs(
-                world,
-                world.root,
-                door,
+                world=world,
+                parent=world.root,
+                child=door,
                 axis=Vector3.Z(reference_frame=world.root),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=self.hinge_distance, reference_frame=world.root
@@ -242,7 +243,9 @@ class HingedSceneDemonstration(RecordingDemonstration):
             )
             world.add_connection(hinge)
             world.add_connection(
-                Connection6DoF.create_with_dofs(world, world.root, box)
+                Connection6DoF.create_with_dofs(
+                    world=world, parent=world.root, child=box
+                )
             )
         hinge.position = self.door_opening
 
@@ -282,12 +285,12 @@ def test_simulated_run_puts_the_robot_into_the_scene_it_builds():
 
 def serve_from_the_controller(monkeypatch: pytest.MonkeyPatch, world: World) -> None:
     """
-    Make every fetch of a real run return `world`, as if a controller served it.
+    Make every join of a real run return `world`, as if a controller served it.
     """
     monkeypatch.setattr(
-        RobotDemonstrationRosSession,
-        "fetch_world",
-        lambda session, timeout_seconds=None: world,
+        coraplex.demonstrations,
+        "join_shared_world",
+        lambda node, timeout_seconds=None: world,
     )
 
 

@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from coraplex.robot_plans.task_definitions import Command
     from cramph.node import StatechartNode
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
-    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
     from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
     from semantic_digital_twin.world_description.world_entity import (
         SemanticAnnotation,
@@ -230,25 +229,6 @@ class MotionDidNotFinish(PlanFailure):
 
     def suggest_correction(self) -> str:
         return ""
-
-
-@dataclass
-class ObjectIsNotHeld(DataclassException):
-    """
-    Raised when a place is asked for an object that no arm holds and no pick-up before
-    it is going to take.
-    """
-
-    object_designator: HasGraspCandidates
-    """
-    The object that was to be placed.
-    """
-
-    def error_message(self) -> str:
-        return f"no arm holds {self.object_designator.name} to place it."
-
-    def suggest_correction(self) -> str:
-        return "place the object after a pick-up of it."
 
 
 @dataclass
