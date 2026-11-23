@@ -935,9 +935,11 @@ def test_gcs_navigation_plans_from_the_given_start(multiple_robot_apartment_cont
     from there rather than from where the robot stands when the plan is built.
     """
     world, robot, extensions = multiple_robot_apartment_context
-    start = Pose.from_xyz_rpy(5, 1, 0, reference_frame=world.root)
+    start = Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
 
-    action = PathPlanningNavigateAction(start=start, target=robot.root.global_pose)
+    action = PathPlanningNavigateAction(
+        start=start, planar_goal_pose=Pose2D.from_pose(robot.root.global_pose)
+    )
     attach_to_statechart(action, extensions)
 
     first_waypoint = world.transform(action._waypoints()[0], world.root)

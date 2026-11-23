@@ -56,9 +56,6 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.adjoining impo
     AdjoiningFreeSpaces,
     PlaceInFreeSpace,
 )
-from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
-    PlanarGraphOfBoundingBoxes,
-)
 
 # %% driving the base
 
@@ -186,12 +183,7 @@ class PathPlanningNavigateAction(
     those added during navigation.
     """
 
-    target: Pose
-    """
-    Where the robot should stand at the end of the path, with its base.
-    """
-
-    start: Pose | None = None
+    start: Pose2D | None = None
     """
     Where the robot's base stands when this drive begins, such as the target of the
     drive before it, or None for where it stands when the action is expanded.
@@ -199,9 +191,8 @@ class PathPlanningNavigateAction(
 
     obstacle_clearance: float = 0.0
     """
-    How much further than :attr:`~semantic_digital_twin.robots.robot_parts.MobileBase.base_radius`
-    the base keeps away from obstacles, in m, so that parts reaching out past the base,
-    such as a parked arm, pass them too.
+    How much further than its radius the base keeps away from obstacles, in m, so that
+    parts reaching out past the base, such as a parked arm, pass them too.
     """
 
     floor_top_tolerance: float = 0.01
@@ -225,7 +216,7 @@ class PathPlanningNavigateAction(
         """
         if self.start is None:
             return Point2.from_pose(self.robot.root.global_pose)
-        return Point2.from_pose(self.world.transform(self.start, self.world.root))
+        return self.world.transform(self.start.position, self.world.root)
 
     @property
     def _floor(self) -> Floor:
@@ -293,19 +284,6 @@ class PathPlanningNavigateAction(
             if abs(self._extent_of(other).max_z - floor_top) <= self.floor_top_tolerance
         ]
 
-    def _free_space_above(self, *, floor: Floor) -> PlanarGraphOfBoundingBoxes:
-        """
-        :param floor: The floor to drive on.
-        :return: The free space above *floor* that the robot's base can be in.
-        """
-        return floor.planar_free_space(
-            max_height=self.robot.as_bounding_box_collection_in_frame(self.robot.root)
-            .bounding_box()
-            .scale.z,
-            bloat_obstacles=self.robot.mobile_base.base_radius
-            + self.obstacle_clearance,
-        )
-
     def _path(self) -> list[Pose2D]:
         """
         The poses the robot drives to, one per leg of the path.
@@ -324,29 +302,59 @@ class PathPlanningNavigateAction(
         :return: The poses to drive to, in order.
         """
         waypoints = self._waypoints()
-        poses = [
-            Pose2D(
-                waypoint,
-                yaw=np.arctan2(
-                    float(next_waypoint.y - waypoint.y),
-                    float(next_waypoint.x - waypoint.x),
-                ),
+        poses = []
+        for waypoint, next_waypoint in zip(waypoints[1:], waypoints[2:]):
+            next_position = self.world.transform(
+                next_waypoint, waypoint.reference_frame
             )
-            for waypoint, next_waypoint in zip(waypoints[1:], waypoints[2:])
-        ]
-        return poses + [self.target]
+            poses.append(
+                Pose2D(
+                    waypoint,
+                    yaw=np.arctan2(
+                        float(next_position.y - waypoint.y),
+                        float(next_position.x - waypoint.x),
+                    ),
+                )
+            )
+        return poses + [self.planar_goal_pose]
 
     def _waypoints(self) -> list[Point2]:
         """
         The points the robot travels through to get from :attr:`start` to the target.
 
         :return: The path, beginning at :attr:`start` and ending at the target's
-            position, each waypoint in the frame of the floor it lies on.
+            position, each waypoint in the frame of the free space above the floor it
+            lies on.
         """
-        base_pose = self.robot.root.global_pose
-        free_space = self._floor.navigable_space(robot=self.robot, margin=0.0)
-        return free_space.path_from_to(
-            Point2.from_pose(base_pose), self.planar_goal_pose.position
+        start_floor = self._floor
+        target_position = self.world.transform(
+            self.planar_goal_pose.position, self.world.root
+        )
+        level_floors = self._floors_level_with(floor=start_floor)
+        target_floor = next(
+            (
+                floor
+                for floor in level_floors
+                if self._footprint_contains(floor=floor, position=target_position)
+            ),
+            start_floor,
+        )
+        floors = [start_floor] if target_floor is start_floor else level_floors
+        free_spaces = [
+            floor.navigable_space(robot=self.robot, margin=self.obstacle_clearance)
+            for floor in floors
+        ]
+        return AdjoiningFreeSpaces(
+            world=self.world, free_spaces=free_spaces
+        ).path_from_to(
+            start=PlaceInFreeSpace(
+                free_space=free_spaces[floors.index(start_floor)],
+                position=self._start_position,
+            ),
+            goal=PlaceInFreeSpace(
+                free_space=free_spaces[floors.index(target_floor)],
+                position=target_position,
+            ),
         )
 
 

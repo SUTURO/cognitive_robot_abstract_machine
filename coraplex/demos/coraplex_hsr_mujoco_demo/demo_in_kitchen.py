@@ -30,7 +30,7 @@ from cramph.composites import Parallel, Sequence
 from cramph.statechart import Statechart
 from giskardpy.motion_statechart.tasks.drive_tasks import StraightLineBaseGoal
 from giskardpy.motion_statechart.tasks.joint_tasks import JointPositionList
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose2D
 from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
 )
@@ -166,7 +166,7 @@ class KitchenNavigationDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         robot = context.require_extension(extension_type=RobotAccess).robot
-        goal = Pose.from_xyz_rpy(
+        goal = Pose2D.from_xy_yaw(
             x=self.goal_x,
             y=self.goal_y,
             yaw=self.goal_yaw,
@@ -187,12 +187,13 @@ class KitchenNavigationDemonstration(RobotDemonstration):
                         ]
                     ),
                     PathPlanningNavigateAction(
-                        target=goal, obstacle_clearance=self.obstacle_clearance
+                        planar_goal_pose=goal,
+                        obstacle_clearance=self.obstacle_clearance,
                     ),
                     PathPlanningNavigateAction(
                         start=goal,
                         obstacle_clearance=self.obstacle_clearance,
-                        target=Pose.from_xyz_rpy(
+                        planar_goal_pose=Pose2D.from_xy_yaw(
                             x=self.second_goal_x,
                             y=self.second_goal_y,
                             yaw=self.goal_yaw,

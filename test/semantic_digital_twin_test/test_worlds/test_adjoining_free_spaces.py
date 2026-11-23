@@ -218,4 +218,8 @@ def test_a_path_from_the_kitchen_into_the_office_leads_through_the_living_room()
     for waypoint in path[1:]:
         if waypoint.reference_frame is not floors_passed[-1]:
             floors_passed.append(waypoint.reference_frame)
-    assert floors_passed == [kitchen.root, living_room.root, office.root]
+    assert floors_passed == [
+        kitchen.supporting_surface,
+        living_room.supporting_surface,
+        office.supporting_surface,
+    ]

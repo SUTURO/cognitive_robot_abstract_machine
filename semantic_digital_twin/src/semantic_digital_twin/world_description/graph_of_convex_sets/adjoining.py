@@ -19,7 +19,7 @@ from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
     PlanarGraphOfBoundingBoxes,
 )
 
-# %% places and the legs between them
+# %% places and the segments between them
 
 
 @dataclass(kw_only=True)
@@ -40,14 +40,14 @@ class PlaceInFreeSpace:
 
 
 @dataclass(kw_only=True)
-class Leg:
+class PathSegment:
     """
     The waypoints leading from one place to another.
     """
 
     waypoints: list[Point2]
     """
-    The waypoints, beginning at the place the leg leaves and ending at the place it
+    The waypoints, beginning at the place the segment leaves and ending at the place it
     reaches.
     """
 
@@ -57,11 +57,11 @@ class Leg:
     """
 
     @classmethod
-    def from_waypoints(cls, *, waypoints: list[Point2], world: World) -> Leg:
+    def from_waypoints(cls, *, waypoints: list[Point2], world: World) -> PathSegment:
         """
-        :param waypoints: The waypoints of the leg, in any reference frames.
+        :param waypoints: The waypoints of the segment, in any reference frames.
         :param world: The world the reference frames of the waypoints belong to.
-        :return: The leg along the waypoints, with the length of the line through them.
+        :return: The segment along the waypoints, with the length of the line through them.
         """
         positions = np.array(
             [
@@ -74,11 +74,11 @@ class Leg:
             length=float(np.linalg.norm(np.diff(positions, axis=0), axis=1).sum()),
         )
 
-    def reversed(self) -> Leg:
+    def reversed(self) -> PathSegment:
         """
-        :return: The same leg, travelled the other way.
+        :return: The same segment, travelled the other way.
         """
-        return Leg(waypoints=self.waypoints[::-1], length=self.length)
+        return PathSegment(waypoints=self.waypoints[::-1], length=self.length)
 
 
 # %% joining the free spaces
@@ -124,11 +124,11 @@ class AdjoiningFreeSpaces:
         start_index = graph.add_node(start)
         goal_index = graph.add_node(goal)
         for exit_place, entry_place in self._crossings:
-            self._add_leg(
+            self._add_segment(
                 graph=graph,
                 source=graph.add_node(exit_place),
                 target=graph.add_node(entry_place),
-                leg=Leg(
+                segment=PathSegment(
                     waypoints=[exit_place.position, entry_place.position],
                     length=0.0,
                 ),
@@ -136,7 +136,10 @@ class AdjoiningFreeSpaces:
         self._connect_places_within_each_free_space(graph=graph)
 
         paths = rx.dijkstra_shortest_paths(
-            graph, start_index, target=goal_index, weight_fn=lambda leg: leg.length
+            graph,
+            start_index,
+            target=goal_index,
+            weight_fn=lambda segment: segment.length,
         )
         if goal_index not in paths:
             return None
@@ -193,8 +196,8 @@ class AdjoiningFreeSpaces:
 
     def _connect_places_within_each_free_space(self, *, graph: rx.PyDiGraph) -> None:
         """
-        Add a leg between every two places of `graph` that lie in the same free space
-        and are connected through it.
+        Add a segment between every two places of `graph` that lie in the same free
+        space and are connected through it.
         """
         for free_space in self.free_spaces:
             indices = [
@@ -208,17 +211,21 @@ class AdjoiningFreeSpaces:
                 )
                 if waypoints is None:
                     continue
-                self._add_leg(
+                self._add_segment(
                     graph=graph,
                     source=source,
                     target=target,
-                    leg=Leg.from_waypoints(waypoints=waypoints, world=self.world),
+                    segment=PathSegment.from_waypoints(
+                        waypoints=waypoints, world=self.world
+                    ),
                 )
 
     @staticmethod
-    def _add_leg(*, graph: rx.PyDiGraph, source: int, target: int, leg: Leg) -> None:
+    def _add_segment(
+        *, graph: rx.PyDiGraph, source: int, target: int, segment: PathSegment
+    ) -> None:
         """
-        Add `leg` from `source` to `target` to `graph`, and the leg back.
+        Add `segment` from `source` to `target` to `graph`, and the segment back.
         """
-        graph.add_edge(source, target, leg)
-        graph.add_edge(target, source, leg.reversed())
+        graph.add_edge(source, target, segment)
+        graph.add_edge(target, source, segment.reversed())

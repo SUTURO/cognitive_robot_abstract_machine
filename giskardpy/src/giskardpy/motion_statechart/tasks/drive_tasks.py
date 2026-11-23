@@ -122,14 +122,15 @@ class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
         super().set_up()
         self._parent_T_start_binding = ForwardKinematicsBinding(
             name=PrefixedName("parent_T_start", str(self.name)),
-            root=self.drive_parent,
-            tip=self.base,
+            kinematic_chain=KinematicChain(
+                root=self.drive_parent, tip=self.driven_body
+            ),
             float_variable_data=self.context.float_variable_data,
         )
-        self._parent_T_start_binding.bind(self.context.world)
+        self._parent_T_start_binding.bind(world=self.context.world)
 
     def on_start(self) -> None:
-        self._parent_T_start_binding.bind(self.context.world)
+        self._parent_T_start_binding.bind(world=self.context.world)
 
     @property
     def parent_P_start(self) -> Point3:
@@ -138,9 +139,9 @@ class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
             parent, expressed relative to the drive's new parent if the drive was moved
             under another parent.
         """
-        if self._parent_T_start_binding.root is not self.drive_parent:
+        if self._parent_T_start_binding.kinematic_chain.root is not self.drive_parent:
             self._parent_T_start_binding.change_root(
-                self.drive_parent, self.context.world
+                root=self.drive_parent, world=self.context.world
             )
         return self._parent_T_start_binding.root_T_tip.position
 
@@ -265,40 +266,6 @@ class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
     where the base stood when the task started, so that driving does not bring the base
     closer to facing it.
     """
-
-    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
-    """
-    Fixes the pose of the base relative to the drive's parent when the task starts.
-    """
-
-    def set_up(self) -> None:
-        """
-        Bind the pose of the base, which the base faces the goal position from.
-        """
-        super().set_up()
-        self._parent_T_start_binding = ForwardKinematicsBinding(
-            name=PrefixedName("parent_T_start", str(self.name)),
-            kinematic_chain=KinematicChain(
-                root=self.drive_parent, tip=self.driven_body
-            ),
-            float_variable_data=self.context.float_variable_data,
-        )
-        self._parent_T_start_binding.bind(world=self.context.world)
-
-    def on_start(self) -> None:
-        self._parent_T_start_binding.bind(world=self.context.world)
-
-    def build_artifacts(self) -> MotionNodeArtifacts:
-        """
-        Differs from :meth:`DrivenBaseRotation.build_artifacts` in first expressing the
-        bound start pose relative to the drive's new parent, if the drive was moved
-        under another parent.
-        """
-        if self._parent_T_start_binding.kinematic_chain.root is not self.drive_parent:
-            self._parent_T_start_binding.change_root(
-                root=self.drive_parent, world=self.context.world
-            )
-        return super().build_artifacts()
 
     def parent_P_viewpoint(
         self, *, parent_T_base: HomogeneousTransformationMatrix

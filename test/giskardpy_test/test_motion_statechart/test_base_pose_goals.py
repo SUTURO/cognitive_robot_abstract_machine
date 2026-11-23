@@ -275,7 +275,9 @@ def test_a_straight_line_base_goal_reaches_its_target(
 ) -> None:
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
 
     executor.tick_until_end()
@@ -297,7 +299,9 @@ def test_a_straight_line_base_goal_faces_the_way_the_base_moves(
     """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     start = robot.root.global_pose
     direction_to_target = np.arctan2(
@@ -324,7 +328,9 @@ def test_a_straight_line_base_goal_stays_on_the_line_to_its_target(
     """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     start = robot.root.global_pose
     line = np.array([float(target.x - start.x), float(target.y - start.y)])
@@ -344,7 +350,9 @@ def test_a_straight_line_base_goal_returns_to_the_line_after_being_pushed_off_it
 ) -> None:
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = Pose.from_xyz_rpy(2, 0, 0, reference_frame=cylinder_bot_world.root)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     for _ in range(1_000):
         executor.tick()
