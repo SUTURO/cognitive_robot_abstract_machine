@@ -6,11 +6,11 @@ from __future__ import annotations
 from collections import Counter
 from enum import StrEnum
 from importlib.util import find_spec
-from typing import Any
 
 from py_trees.common import Status
 from rclpy.publisher import Publisher
 from rosidl_runtime_py.utilities import get_message
+from typing_extensions import Any
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.exceptions import RobotVoiceMessagesUnavailable
@@ -114,14 +114,14 @@ class DetectedObjectsAnnouncer(BaseAnnotator):
             return "I do not see any objects."
 
         phrases = [
-            self._count_phrase(classname, count)
+            self._count_phrase(classname=classname, count=count)
             for classname, count in class_counts.items()
         ]
         if len(phrases) == 1:
             return f"I see {phrases[0]}."
         return f"I see {', '.join(phrases[:-1])} and {phrases[-1]}."
 
-    def _count_phrase(self, classname: str, count: int) -> str:
+    def _count_phrase(self, *, classname: str, count: int) -> str:
         """
         :return: The class name with its English article or count, such as "an apple"
             or "2 bottles".

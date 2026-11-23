@@ -21,7 +21,7 @@ from robokudo.io.camera_without_depth_interface import (
 
 
 # %% frame source mimic
-@dataclass
+@dataclass(kw_only=True)
 class Clock:
     """
     Monotonic time the frame source advances while it grabs.
@@ -33,7 +33,7 @@ class Clock:
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class TimedFrameSource:
     """
     A capture whose grabs take the given durations, as buffered and freshly captured
@@ -64,7 +64,7 @@ class TimedFrameSource:
         return True
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ReaderWithSource:
     """
     An OpenCV reader together with the frame source it reads from.

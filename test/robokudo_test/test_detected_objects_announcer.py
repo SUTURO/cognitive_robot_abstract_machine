@@ -2,6 +2,8 @@
 Tests of the annotator that has the robot say which objects it detected.
 """
 
+from __future__ import annotations
+
 # %% imports
 import pytest
 import rclpy

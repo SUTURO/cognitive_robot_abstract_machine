@@ -149,7 +149,7 @@ class ImageResolutionMismatch(RoboKudoError, ValueError):
 # %% robot voice
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RobotVoiceMessagesUnavailable(RoboKudoError, ImportError):
     """
     Raised when the message package of the robot's speech engine cannot be found.

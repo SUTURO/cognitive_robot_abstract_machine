@@ -2,6 +2,8 @@
 YOLO object detection on request, answering with the detected objects and saying them.
 """
 
+from __future__ import annotations
+
 # %% imports
 from dataclasses import dataclass
 
@@ -20,7 +22,7 @@ from robokudo.pipeline import Pipeline
 
 
 # %% analysis engine
-@dataclass
+@dataclass(kw_only=True)
 class AnalysisEngine(AnalysisEngineInterface):
     """
     Detect objects in the current frame of the HSR head camera for each query, reply

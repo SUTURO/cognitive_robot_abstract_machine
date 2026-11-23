@@ -124,8 +124,13 @@ class OpenCVCameraWithoutDepthInterface(CameraInterface):
 
     def set_data(self, cas: CAS) -> None:
         """
-        Put the next frame, optionally normalized, and the camera data into the CAS,
-        restarting a file source as its loop mode allows.
+        Update the Common Analysis Structure with latest frame data.
+
+        This method:
+        * Retrieves the next frame from video/camera or backup
+        * Handles looping behavior for videos and images
+        * Applies optional contrast/brightness normalization
+        * Updates the CAS with frame and camera data
 
         :param cas: Common Analysis Structure to update
         """
