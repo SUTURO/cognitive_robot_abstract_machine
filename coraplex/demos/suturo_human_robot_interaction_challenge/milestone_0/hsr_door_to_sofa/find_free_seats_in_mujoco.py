@@ -8,7 +8,7 @@ Run it from this folder, naming the seat places a person sits on::
 
 from __future__ import annotations
 
-from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
+from coraplex.plans.executors import ForwardDrivingPlanExecutor
 from free_seats_demonstration import (
     DoorToSofaDemonstration,
     main,
@@ -20,7 +20,7 @@ from free_seats_demonstration import (
 if __name__ == "__main__":
     main(
         DoorToSofaDemonstration(
-            executor_type=PhysicallySimulatedPlanExecutor,
+            executor_type=ForwardDrivingPlanExecutor,
             occupied_seats=occupied_seats_from_command_line(),
         )
     )

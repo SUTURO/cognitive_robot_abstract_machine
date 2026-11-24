@@ -18,7 +18,7 @@ The plan:
 ParkArmsAction(all arms)
 LookAtAction(sofa)
 NavigateAndLookAtAction(
-    PathPlanningNavigateAcrossFloorsAction(1.5 m in front of the sofa, facing it),
+    PathPlanningNavigateAction(1.5 m in front of the sofa, facing it),
     LookAtWhileDrivingAction(sofa))
 ```
 
@@ -28,6 +28,6 @@ The scene, the drive and the physics settings are shared with the milestone 0 de
 | Measured in MuJoCo, without a viewer | |
 |---|---|
 | Camera off the sofa's origin | at most 0.005 rad |
-| Driving direction off the front of the base | at most 0.01 rad |
+| Driving direction off the front of the base | at most 0.02 rad |
 
 Never run on the real robot.

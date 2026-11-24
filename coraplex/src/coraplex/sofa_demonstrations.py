@@ -11,13 +11,11 @@ import mujoco
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
 from coraplex.pumas_navigation import PumasNavigation
 from coraplex.robot_plans.actions.core.navigation import (
-    PathPlanningNavigateAcrossFloorsAction,
+    PathPlanningNavigateAction,
 )
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
-from coraplex.robot_plans.plan_transformations import DriveForwards
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
@@ -28,6 +26,9 @@ from krrood_spatial_math.spatial_types import (
     Pose2D,
 )
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowCollisionBetweenGroups,
+)
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
@@ -38,7 +39,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import Floo
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 
 # %% driving to the sofa
 
@@ -46,8 +46,7 @@ from semantic_digital_twin.world_description.shape_collection import ShapeCollec
 @dataclass(kw_only=True)
 class SofaDemonstration(RobotDemonstration, ABC):
     """
-    The HSR drives through the kitchen lab to the sofa, forwards and around the
-    furniture.
+    The HSR drives through the kitchen lab to the sofa, around the furniture.
     """
 
     used_robot: type[AbstractRobot] = HSRB
@@ -106,14 +105,24 @@ class SofaDemonstration(RobotDemonstration, ABC):
             for seat in SofaSeat
         )
 
-    def populate_scene(self, world: World) -> None:
+    def acquire_world(self) -> World:
         """
-        Let the floors not collide, since the robot's base is always closer to them than
-        collision avoidance allows, and its wheels, which sit slightly inside them,
-        would catch on the edge between two of them in MuJoCo.
+        As :meth:`RobotDemonstration.acquire_world`, where the whole robot may touch the
+        floors, which its base is always closer to than collision avoidance allows.
         """
-        for floor in world.get_semantic_annotations_by_type(Floor):
-            floor.root.collision = ShapeCollection()
+        world = super().acquire_world()
+        [robot] = world.get_semantic_annotations_by_type(self.used_robot)
+        with world.modify_world():
+            world.collision_manager.add_ignore_collision_rule(
+                AllowCollisionBetweenGroups(
+                    body_group_a=robot.bodies_with_collision,
+                    body_group_b=[
+                        floor.root
+                        for floor in world.get_semantic_annotations_by_type(Floor)
+                    ],
+                )
+            )
+        return world
 
     def build_simulation(self, world: World) -> MujocoSim:
         """
@@ -123,20 +132,11 @@ class SofaDemonstration(RobotDemonstration, ABC):
             world=world, headless=self.headless, integrator=self.integrator
         )
 
-    def plan_transformations(self) -> list[PlanTransformation]:
-        """
-        :return: The transformations the plan is rewritten by: every drive goes
-            forwards, so that the lidar at the front of the base faces the way the robot
-            drives.
-        """
-        return [DriveForwards()]
-
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         return [
             RobotAccess(
                 robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
             ),
-            PlanRewriting(transformations=self.plan_transformations()),
         ]
 
     def scanning_pose(self, *, world: World) -> Pose:
@@ -164,15 +164,14 @@ class SofaDemonstration(RobotDemonstration, ABC):
             reference_frame=world.root,
         )
 
-    def drive_to_sofa(self, *, world: World) -> PathPlanningNavigateAcrossFloorsAction:
+    def drive_to_sofa(self, *, world: World) -> PathPlanningNavigateAction:
         """
         :param world: The world holding the sofa.
         :return: The drive to :meth:`scanning_pose` around the furniture.
         """
-        return PathPlanningNavigateAcrossFloorsAction(
+        return PathPlanningNavigateAction(
             planar_goal_pose=Pose2D.from_pose(self.scanning_pose(world=world)),
-            floors=world.get_semantic_annotations_by_type(Floor),
-            clearance=self.clearance,
+            obstacle_clearance=self.clearance,
         )
 
     def departure_nodes(self, *, context: StatechartContext) -> list[StatechartNode]:

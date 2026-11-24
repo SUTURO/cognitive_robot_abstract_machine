@@ -12,7 +12,7 @@ from typing_extensions import Callable
 
 from coraplex import sofa_demonstrations
 from coraplex.robot_plans.actions.core.navigation import (
-    PathPlanningNavigateAcrossFloorsAction,
+    PathPlanningNavigateAction,
 )
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from coraplex.sofa_demonstrations import SofaScanningDemonstration
@@ -21,11 +21,7 @@ from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.datastructures.definitions import TorsoState
-from semantic_digital_twin.predefined_maps.kitchen_environment import (
-    KitchenEnvironment,
-)
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.world import World
 
 pytestmark = pytest.mark.skipif(
@@ -85,7 +81,7 @@ def test_plan_drives_to_the_sofa():
     demonstration.perform_plan(demonstration.build_simulated_world())
 
     assert demonstration.performed == [
-        [ParkArmsAction, PathPlanningNavigateAcrossFloorsAction, MoveTorsoAction]
+        [ParkArmsAction, PathPlanningNavigateAction, MoveTorsoAction]
     ]
 
 
@@ -125,20 +121,3 @@ def test_pumas_drives_between_two_runs(monkeypatch):
         DrivenBy.PUMAS,
         [MoveTorsoAction],
     ]
-
-
-# %% the scene
-
-
-def test_floors_do_not_collide():
-    """
-    The base, which is always close to the floor, can avoid collisions with the rest.
-    """
-    world = RecordingScanningDemonstration().build_simulated_world()
-
-    floors = world.get_semantic_annotations_by_type(Floor)
-
-    assert len(floors) == len(
-        KitchenEnvironment().create_world().get_semantic_annotations_by_type(Floor)
-    )
-    assert all(not floor.root.has_collision() for floor in floors)

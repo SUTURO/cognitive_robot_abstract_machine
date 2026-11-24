@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
+from coraplex.plans.executors import ForwardDrivingPlanExecutor, PlanExecutor
 from coraplex.robot_plans.actions.composite.facing import NavigateAndLookAtAction
 from coraplex.robot_plans.actions.core.navigation import (
     LookAtAction,
@@ -34,7 +34,7 @@ class LookAtSofaWhileDrivingDemonstration(SofaDemonstration):
     keeps looking at the sofa.
     """
 
-    executor_type: type[PlanExecutor] = PhysicallySimulatedPlanExecutor
+    executor_type: type[PlanExecutor] = ForwardDrivingPlanExecutor
     """
     The executor running the plan, by default in MuJoCo.
     """

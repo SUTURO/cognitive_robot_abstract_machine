@@ -7,30 +7,22 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import numpy as np
-import pytest
 
-from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.robot_plans.actions.composite.facing import NavigateAndLookAtAction
 from coraplex.robot_plans.actions.core.navigation import (
     LookAtAction,
     LookAtWhileDrivingAction,
     NavigateAction,
 )
-from coraplex.robot_plans.plan_transformations import (
-    DriveForwards,
-    WriteTheOdometryInsteadOfCommandingAPose,
-)
 from cramph.composites import Sequence
 from cramph.data_types import LifeCycleValue
 from cramph.executor import StatechartExecutor, TickingExecutorExtension
 from giskardpy.motion_statechart.tasks.cartesian_tasks import HoldPose
-from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
-from giskardpy.motion_statechart.tasks.drive_tasks import ForwardBaseGoal
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from krrood_spatial_math.spatial_types import Pose, Pose2D
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from ..conftest import nodes_of_type
-from ...plan_running import expand, run_plan, simulated_executor, statechart_of
+from ...plan_running import expand, run_plan
 
 # %% measuring where the camera points
 
@@ -136,34 +128,3 @@ def test_look_while_driving_leaves_the_base_free(hsr_apartment_context):
 
     assert len(nodes_of_type(action, Pointing)) == 1
     assert nodes_of_type(action, HoldPose) == []
-
-
-# %% driving forwards
-
-
-@pytest.mark.parametrize(
-    ["plan_adaptations", "goal_type"],
-    [
-        [[], ForwardBaseGoal],
-        [[WriteTheOdometryInsteadOfCommandingAPose()], SetOdometry],
-    ],
-)
-def test_base_drives_forwards_where_it_is_driven(
-    hsr_apartment_context, plan_adaptations, goal_type
-):
-    """
-    A drive goes forwards, unless the executor puts the base at its goal without
-    driving.
-    """
-    world, robot, extensions = hsr_apartment_context
-    action = NavigateAction(
-        planar_goal_pose=Pose2D.from_xy_yaw(x=1.5, y=3.0, reference_frame=world.root)
-    )
-    executor = simulated_executor(
-        [*extensions, PlanRewriting(transformations=[DriveForwards()])],
-        plan_adaptations=plan_adaptations,
-    )
-
-    statechart_of(executor, action)
-
-    assert type(action.goal) is goal_type

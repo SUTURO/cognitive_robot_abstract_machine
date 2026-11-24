@@ -10,33 +10,20 @@ def main() -> None:
     """
     Run the door to sofa demo with a person on the right seat place, in kinematic
     simulation and in MuJoCo without a viewer, and exit non-zero with a traceback on
-    failure, if any other seat place than the left one is reported free, if one look
-    does not report the empty sofa free on both seats or if the floors collide in
-    MuJoCo.
+    failure, if any other seat place than the left one is reported free or if one look
+    does not report the empty sofa free on both seats.
     """
     try:
         import free_seats_demonstration
         from coraplex.plans.executors import (
             KinematicallySimulatedPlanExecutor,
-            PhysicallySimulatedPlanExecutor,
+            ForwardDrivingPlanExecutor,
         )
         from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
-        from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-            Floor,
-        )
-
-        demonstration = free_seats_demonstration.DoorToSofaDemonstration(headless=True)
-        world = demonstration.build_simulated_world()
-        demonstration.build_simulation(world)
-        if any(
-            floor.root.collision
-            for floor in world.get_semantic_annotations_by_type(Floor)
-        ):
-            raise AssertionError("The floors collide in MuJoCo")
 
         for executor_type in (
             KinematicallySimulatedPlanExecutor,
-            PhysicallySimulatedPlanExecutor,
+            ForwardDrivingPlanExecutor,
         ):
             free_seats = SofaSeat.free_in(
                 free_seats_demonstration.main(

@@ -166,7 +166,7 @@ the `map_T_scene` in `find_free_seats_on_hsr.py`.
 
 ```
 ParkArmsAction(all arms)
-PathPlanningNavigateAcrossFloorsAction(1.5 m in front of the sofa, facing it)
+PathPlanningNavigateAction(1.5 m in front of the sofa, facing it)
 MoveTorsoAction(HIGH)
 DetectSeatsAction(left seat, right seat)
     for each seat: LookAtAction(seat), then ask for the seats in view
@@ -174,9 +174,8 @@ MoveTorsoAction(LOW)
 ```
 
 The plan is the same in every run; only the executor carrying it out differs. The kitchen's
-doors and drawers are fixed, and its floors do not collide: the base is always closer to
-them than collision avoidance allows, and in MuJoCo the wheels would catch on the edge
-between the kitchen floor and the living room floor.
+doors and drawers are fixed, and the robot may touch the floors, which its base is always
+closer to than collision avoidance allows.
 
 The sofa is built beforehand: each of its seat places is a region above its cushion,
 listed among the sofa's `seat_places` (`SofaSeat` in

@@ -8,14 +8,13 @@ import numpy as np
 import pytest
 
 from coraplex.robot_plans.actions.core.navigation import (
-    PathPlanningNavigateAcrossFloorsAction,
+    PathPlanningNavigateAction,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose2D
 from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
@@ -23,7 +22,6 @@ from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color, Scale
-from semantic_digital_twin.world_description.shape_collection import ShapeCollection
 from ...plan_running import expand, robot_extensions
 
 pytestmark = pytest.mark.skipif(
@@ -54,14 +52,16 @@ def planned_positions(world: World) -> np.ndarray:
         living room goes through.
     """
     [robot] = world.get_semantic_annotations_by_type(HSRB)
-    action = PathPlanningNavigateAcrossFloorsAction(
+    action = PathPlanningNavigateAction(
         planar_goal_pose=Pose2D.from_xy_yaw(x=3.7, y=3.2, reference_frame=world.root),
-        floors=world.get_semantic_annotations_by_type(Floor),
-        clearance=0.05,
+        obstacle_clearance=0.05,
     )
     expand(action, robot_extensions(robot))
     start = robot.root.global_pose.position.to_np()[:2]
-    positions = [pose.position.to_np()[:2] for pose in action._path()]
+    positions = [
+        world.transform(pose.pose, world.root).position.to_np()[:2]
+        for pose in action._path()
+    ]
     return np.array([start, *positions], dtype=float)
 
 
@@ -69,18 +69,6 @@ def planned_positions(world: World) -> np.ndarray:
 
 
 def test_path_leads_from_one_floor_to_another(kitchen_lab):
-    positions = planned_positions(kitchen_lab)
-
-    assert positions[-1] == pytest.approx([3.7, 3.2], abs=0.01)
-
-
-def test_path_is_planned_without_collision_shapes_of_the_floors(kitchen_lab):
-    """
-    Floors that do not collide can still be driven on.
-    """
-    for floor in kitchen_lab.get_semantic_annotations_by_type(Floor):
-        floor.root.collision = ShapeCollection()
-
     positions = planned_positions(kitchen_lab)
 
     assert positions[-1] == pytest.approx([3.7, 3.2], abs=0.01)

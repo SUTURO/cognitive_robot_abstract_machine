@@ -18,8 +18,9 @@ from sensor_msgs.msg import CompressedImage
 from tf2_ros import StaticTransformBroadcaster
 
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor, PlanExecutor
-from coraplex.plans.plan_transformation import PlanTransformation
+from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.robot_plans.plan_transformations import DetectWithRoboKudo
+from cramph.context import ContextExtension
 from free_seats_demonstration import OneLookDoorToSofaDemonstration
 from exceptions import RecordingNotPlaying
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
@@ -313,12 +314,15 @@ class RecordedDoorToSofaDemonstration(OneLookDoorToSofaDemonstration):
         self.replay.start()
         return world
 
-    def plan_transformations(self) -> list[PlanTransformation]:
+    def build_context_extensions(self, world: World) -> list[ContextExtension]:
         """
-        As :meth:`OneLookDoorToSofaDemonstration.plan_transformations`, with the perception
-        answered by RoboKudo.
+        As :meth:`OneLookDoorToSofaDemonstration.build_context_extensions`, with the
+        perception answered by RoboKudo.
         """
-        return [*super().plan_transformations(), DetectWithRoboKudo()]
+        return [
+            *super().build_context_extensions(world),
+            PlanRewriting(transformations=[DetectWithRoboKudo()]),
+        ]
 
     def tear_down(self) -> None:
         """

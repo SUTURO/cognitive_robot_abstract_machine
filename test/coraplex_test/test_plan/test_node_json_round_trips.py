@@ -59,7 +59,6 @@ from coraplex.robot_plans.actions.core.navigation import (
     LookAtAction,
     LookAtWhileDrivingAction,
     NavigateAction,
-    PathPlanningNavigateAcrossFloorsAction,
     PathPlanningNavigateAction,
 )
 from coraplex.robot_plans.actions.core.pick_up import (
@@ -88,7 +87,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     CuttingKnife,
     Door,
     Elevator,
-    Floor,
     GroundFloor,
     Handle,
     Milk,
@@ -392,15 +390,6 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
             lambda world: [
                 PathPlanningNavigateAction(
                     planar_goal_pose=Pose2D.from_pose(_pose(world))
-                )
-            ],
-        ),
-        ActionRoundTripCase(
-            PathPlanningNavigateAcrossFloorsAction,
-            lambda world: [
-                PathPlanningNavigateAcrossFloorsAction(
-                    planar_goal_pose=Pose2D.from_pose(_pose(world)),
-                    floors=world.get_semantic_annotations_by_type(Floor),
                 )
             ],
         ),
