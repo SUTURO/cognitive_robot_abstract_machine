@@ -7,10 +7,7 @@ from __future__ import annotations
 # %% Imports
 from robokudo.annotators.gpsr.belief_state import BeliefEntry, EntityType
 from robokudo.annotators.gpsr.exceptions import MissingObjectClassification
-from robokudo.annotators.gpsr.gpsr_results import (
-    GenerateOpenVocabularyResult,
-    create_camera_header,
-)
+from robokudo.annotators.gpsr.gpsr_results import GenerateOpenVocabularyResult
 from robokudo.annotators.open_vocabulary_object_detection_annotator import (
     OpenVocabularyObjectDetectionAnnotator,
 )
@@ -20,9 +17,7 @@ from robokudo.types.annotation import (
     PositionAnnotation,
 )
 from robokudo.types.cv import Point2D, Rect
-from robokudo.utils.type_conversion import (
-    get_geometry_msgs_pose_stamped_from_position_annotation,
-)
+from robokudo.utils.annotation_conversion import Position2ODConverter
 from robokudo_msgs.msg import ObjectDesignator
 from py_trees.common import Status
 from robokudo.utils.error_handling import get_blackboard_exception
@@ -99,17 +94,15 @@ def test_clothing_answer_includes_person_identity_and_position(
 
     annotator.update()
 
+    answered_position = ObjectDesignator()
+    Position2ODConverter().convert(position, cas, answered_position)
     assert scene.sent_answer().res == [
         ObjectDesignator(
             type="human",
             description=["red shirt"],
             uid=str(belief.id),
-            pose=[
-                get_geometry_msgs_pose_stamped_from_position_annotation(
-                    position, create_camera_header(cas)
-                )
-            ],
-            pose_source=[position.source],
+            pose=answered_position.pose,
+            pose_source=answered_position.pose_source,
         )
     ]
 
@@ -132,16 +125,14 @@ def test_object_answer_includes_position_without_belief_id(scene: GpsrScene) -> 
 
     annotator.update()
 
+    answered_position = ObjectDesignator()
+    Position2ODConverter().convert(position, cas, answered_position)
     assert scene.sent_answer().res == [
         ObjectDesignator(
             type="object",
             description=["cup"],
-            pose=[
-                get_geometry_msgs_pose_stamped_from_position_annotation(
-                    position, create_camera_header(cas)
-                )
-            ],
-            pose_source=[position.source],
+            pose=answered_position.pose,
+            pose_source=answered_position.pose_source,
         )
     ]
 

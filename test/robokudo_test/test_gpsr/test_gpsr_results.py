@@ -8,14 +8,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from py_trees.common import Status
 from robokudo.annotators.gpsr.belief_state import BeliefEntry, EntityType
 from robokudo.annotators.gpsr.gpsr_results import (
     GenerateHumanActivityResult,
-    GenerateHumanPostureResult,
     GeneratePointingResult,
     GenerateVisionLanguageResult,
     GenerateWavingRaisingResult,
+)
+from robokudo.annotators.gpsr.query_answers import (
+    GenerateHumanPostureResult,
     create_camera_header,
 )
 from robokudo.annotators.gpsr.human_activity_annotator import (
@@ -30,9 +33,7 @@ from robokudo.annotators.gpsr.vision_language_annotator import VisionLanguageAnn
 from robokudo.annotators.gpsr.waving import HumanWavingAnnotator
 from robokudo.types.annotation import LocationAnnotation, PositionAnnotation
 from robokudo.types.human import ActivityAnnotation
-from robokudo.utils.type_conversion import (
-    get_geometry_msgs_pose_stamped_from_position_annotation,
-)
+from robokudo.utils.annotation_conversion import Position2ODConverter
 from robokudo_msgs.msg import ObjectDesignator
 from typing_extensions import TYPE_CHECKING, Callable
 
@@ -157,24 +158,28 @@ def test_answered_person_carries_its_belief_id(
     assert object_designator.uid == str(belief.id)
 
 
-def test_answered_person_carries_its_position_in_the_camera_frame(
+def test_answered_person_carries_its_position_in_the_world_frame(
     scene: GpsrScene, answered_query: AnsweredQuery
 ) -> None:
     """
-    The person's position is answered in the camera frame.
+    The person's position is answered in the world frame the camera pose refers to, not
+    relative to the camera.
     """
+    scene.world_T_camera = HomogeneousTransformationMatrix.from_xyz_rpy(x=3.0, y=1.0)
     scene.query.obj.attribute = answered_query.queried_attribute
     annotator = answered_query.result_annotator()
-    cas = scene.place_in_pipeline(annotator)
-    scene.add_human(answered_query.matching_activity(), position=[1.0, 2.0, 3.0])
+    scene.place_in_pipeline(annotator)
+    camera_P_person = [1.0, 2.0, 3.0]
+    scene.add_human(answered_query.matching_activity(), position=camera_P_person)
 
     annotator.update()
 
     [object_designator] = scene.sent_answer().res
     [pose] = object_designator.pose
     position = pose.pose.position
-    assert (position.x, position.y, position.z) == (1.0, 2.0, 3.0)
-    assert pose.header == create_camera_header(cas)
+    world_P_person = scene.world_T_camera.to_np() @ [*camera_P_person, 1.0]
+    assert [position.x, position.y, position.z] == pytest.approx(world_P_person[:3])
+    assert pose.header.frame_id == str(scene.world_body.name)
 
 
 def test_answered_person_preserves_position_order_and_sources(
@@ -195,12 +200,11 @@ def test_answered_person_preserves_position_order_and_sources(
     annotator.update()
 
     [object_designator] = scene.sent_answer().res
-    assert object_designator.pose == [
-        get_geometry_msgs_pose_stamped_from_position_annotation(
-            position, create_camera_header(cas)
-        )
-        for position in positions
-    ]
+    answered_positions = ObjectDesignator()
+    converter = Position2ODConverter()
+    for position in positions:
+        converter.convert(position, cas, answered_positions)
+    assert object_designator.pose == answered_positions.pose
     assert object_designator.pose_source == [position.source for position in positions]
 
 
