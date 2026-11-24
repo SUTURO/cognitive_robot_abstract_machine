@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import time
 
 import mujoco
@@ -694,3 +696,29 @@ class TestOffscreenRenderingAvailability:
         monkeypatch.setenv(MujocoEnvironmentVariable.DISPLAY, ":1")
 
         assert MujocoSimulator.offscreen_rendering_available()
+
+
+# %% closing the viewer
+
+
+@pytest.mark.skipif(
+    headless or MujocoEnvironmentVariable.DISPLAY not in os.environ,
+    reason="Needs a display to open the viewer on.",
+)
+def test_a_process_ends_cleanly_right_after_stopping_a_simulation_with_a_viewer():
+    script = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "scripts",
+        "stop_a_simulation_with_a_viewer.py",
+    )
+
+    finished = subprocess.run(
+        [
+            sys.executable,
+            script,
+            os.path.join(resources_path, "mjx_single_cube_no_mesh.xml"),
+        ],
+        timeout=120,
+    )
+
+    assert finished.returncode == 0

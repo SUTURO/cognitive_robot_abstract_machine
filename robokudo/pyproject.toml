@@ -42,6 +42,7 @@ dependencies = [
     "ultralytics",
     "face-recognition",
     "llama-cpp-python",
+    "huggingface-hub",
     "trimesh",
 ]
 
