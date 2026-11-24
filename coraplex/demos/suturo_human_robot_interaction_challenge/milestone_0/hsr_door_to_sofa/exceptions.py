@@ -1,5 +1,5 @@
 """
-The errors of the kitchen to sofa demo.
+The errors of the door to sofa demo.
 """
 
 from __future__ import annotations

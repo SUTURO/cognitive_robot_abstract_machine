@@ -12,9 +12,9 @@ the perception pipeline sees.
 from __future__ import annotations
 
 from coraplex.plans.executors import RealRobotPlanExecutor
-from demo import main
+from demo import DoorToSofaDemonstration, main
 
 # %% running it
 
 if __name__ == "__main__":
-    main(executor_type=RealRobotPlanExecutor)
+    main(DoorToSofaDemonstration(executor_type=RealRobotPlanExecutor))

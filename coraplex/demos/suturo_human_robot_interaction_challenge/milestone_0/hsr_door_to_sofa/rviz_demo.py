@@ -19,7 +19,11 @@ import threading
 import rclpy
 
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor
-from demo import main, occupied_seats_from_command_line
+from demo import (
+    DoorToSofaDemonstration,
+    main,
+    occupied_seats_from_command_line,
+)
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -29,8 +33,10 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 
 if __name__ == "__main__":
     world = main(
-        executor_type=KinematicallySimulatedPlanExecutor,
-        occupied_seats=occupied_seats_from_command_line(),
+        DoorToSofaDemonstration(
+            executor_type=KinematicallySimulatedPlanExecutor,
+            occupied_seats=occupied_seats_from_command_line(),
+        )
     )
     rclpy.init()
     node = rclpy.create_node("hsr_door_to_sofa_demo_result")
