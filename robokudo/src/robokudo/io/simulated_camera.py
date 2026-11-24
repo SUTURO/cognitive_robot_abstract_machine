@@ -216,6 +216,16 @@ class SimulatedCameraPublisher:
         """
         return self
 
+    def destroy_publishers(self) -> None:
+        """
+        Remove the publishers of the images, the calibration and the camera pose from
+        :attr:`node`; the camera publishes nothing afterwards.
+        """
+        self.node.destroy_publisher(self._color_publisher)
+        self.node.destroy_publisher(self._depth_publisher)
+        self.node.destroy_publisher(self._camera_info_publisher)
+        self.node.destroy_publisher(self._transform_broadcaster.pub_tf)
+
     def publish(self) -> None:
         """
         Publish what the camera sees now.

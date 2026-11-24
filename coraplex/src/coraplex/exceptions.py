@@ -371,6 +371,44 @@ class SimulatedPerceptionNotStarted(PerceptionException):
 
 
 @dataclass
+class SimulatedPerceptionAlreadyStarted(PerceptionException):
+    """
+    Raised when a simulated perception is started again while it runs.
+    """
+
+    def error_message(self) -> str:
+        return "The simulated perception already runs."
+
+    def suggest_correction(self) -> str:
+        return "stop the simulated perception before starting it again."
+
+
+@dataclass
+class NoSingleHsrHeadCamera(PerceptionException):
+    """
+    Raised when a world does not hold exactly one head camera of an HSR to perceive
+    through.
+    """
+
+    number_of_cameras: int
+    """
+    How many head cameras of an HSR the world holds.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The world holds {self.number_of_cameras} head cameras of an HSR "
+            "instead of one."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "put exactly one HSR into the scene through RobotSpecification(HSRB), "
+            "which gives it its head camera."
+        )
+
+
+@dataclass
 class NoFloorBelowRobot(DataclassException):
     """
     Raised when a robot that has to plan its way over a floor stands over none.

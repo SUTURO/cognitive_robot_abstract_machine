@@ -12,10 +12,15 @@ from datetime import timedelta
 import pytest
 from typing_extensions import Iterator
 
-from coraplex.exceptions import SimulatedPerceptionNotStarted
+from coraplex.exceptions import (
+    NoSingleHsrHeadCamera,
+    SimulatedPerceptionAlreadyStarted,
+    SimulatedPerceptionNotStarted,
+)
 from coraplex.perception import CameraFrameCapture, PerceptionWorldFrame
 from coraplex.simulated_perception import SimulatedHsrHeadCameraPerception
 from robokudo.analysis_engine_process import AnalysisEngineProcess
+from robokudo.exceptions import AnalysisEngineDidNotStart
 from semantic_digital_twin.adapters.multi_sim import MujocoCamera, MujocoSim
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.hsrb import HSRB, HSRBHeadRGBDCamera
@@ -46,15 +51,39 @@ class RecordedAnalysisEngine(AnalysisEngineProcess):
     process.
     """
 
+    fails_to_start: bool = False
+    """
+    Whether starting the engine fails as if it never announced that it runs.
+    """
+
     runs: bool = field(init=False, default=False)
     """
     Whether the engine was started and not stopped since.
     """
 
+    start_count: int = field(init=False, default=0)
+    """
+    How often the engine was asked to start.
+    """
+
     def start(self, timeout: timedelta = timedelta(minutes=2)) -> None:
+        """
+        Record the start instead of starting a process as
+        :meth:`AnalysisEngineProcess.start` does, or fail if :attr:`fails_to_start`.
+        """
+        self.start_count += 1
+        if self.fails_to_start:
+            raise AnalysisEngineDidNotStart(
+                analysis_engine=self.analysis_engine,
+                timeout_seconds=timeout.total_seconds(),
+            )
         self.runs = True
 
     def stop(self) -> None:
+        """
+        Record the stop instead of stopping a process as
+        :meth:`AnalysisEngineProcess.stop` does.
+        """
         self.runs = False
 
 
@@ -169,3 +198,77 @@ def test_stop_before_start_leaves_the_engine_alone(
 ) -> None:
     perception.stop()
     assert not perception.analysis_engine.runs
+
+
+# %% Refusing to start
+
+
+def test_starting_twice_is_refused(
+    perception: SimulatedHsrHeadCameraPerception,
+    hsr_world: World,
+    hsr_head_camera_simulation: MujocoSim,
+    rclpy_node,
+) -> None:
+    """
+    A running perception refuses to start again instead of starting a second engine.
+    """
+    perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
+    with pytest.raises(SimulatedPerceptionAlreadyStarted):
+        perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
+    assert perception.analysis_engine.start_count == 1
+
+
+def test_world_without_an_hsr_head_camera_is_refused(
+    perception: SimulatedHsrHeadCameraPerception,
+    hsr_head_camera_simulation: MujocoSim,
+    rclpy_node,
+) -> None:
+    """
+    A world without the head camera of an HSR leaves nothing to perceive through, so the
+    engine is not started.
+    """
+    with pytest.raises(NoSingleHsrHeadCamera) as raised:
+        perception.start(World(), hsr_head_camera_simulation, rclpy_node)
+    assert raised.value.number_of_cameras == 0
+    assert perception.analysis_engine.start_count == 0
+
+
+def test_failed_engine_start_leaves_the_perception_stopped(
+    hsr_world: World, hsr_head_camera_simulation: MujocoSim, rclpy_node
+) -> None:
+    """
+    An engine that fails to start leaves the perception unable to serve a plan.
+    """
+    perception = SimulatedHsrHeadCameraPerception(
+        analysis_engine=RecordedAnalysisEngine(
+            analysis_engine="human_detection", fails_to_start=True
+        )
+    )
+    with pytest.raises(AnalysisEngineDidNotStart):
+        perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
+    with pytest.raises(SimulatedPerceptionNotStarted):
+        perception.build_context_extensions(hsr_world)
+
+
+# %% Releasing the camera topics
+
+
+def test_stop_releases_the_head_camera_topics(
+    perception: SimulatedHsrHeadCameraPerception,
+    hsr_world: World,
+    hsr_head_camera_simulation: MujocoSim,
+    rclpy_node,
+) -> None:
+    """
+    After stopping, the node publishes on none of the head camera's topics any more.
+    """
+    configuration = perception.camera_configuration
+    camera_topics = {
+        configuration.topic_color,
+        configuration.topic_depth,
+        configuration.topic_camera_info,
+    }
+    perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
+    perception.stop()
+    published_topics = {publisher.topic_name for publisher in rclpy_node.publishers}
+    assert published_topics.isdisjoint(camera_topics)

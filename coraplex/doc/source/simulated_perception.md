@@ -129,7 +129,7 @@ After the run, the task's `answer` holds everything RoboKudo reported.
         super().tear_down()
 ```
 
-`stop` does nothing if the perception was never started, so it is safe to call after a failed run.
+`stop` also removes the camera's publishers from the node. It does nothing if the perception was never started, so it is safe to call after a failed run.
 
 ### 7. Choose the analysis engine when running the demonstration
 
@@ -226,7 +226,9 @@ with a file from the `robokudo_suturo` package. Both have to be installed, other
 
 | Symptom | Cause |
 |---|---|
-| `ValueError: not enough values to unpack (expected 1, got 0)` in `mount_hsr_head` or `start` | The world holds no `HSRBHeadRGBDCamera`. Put the HSR into the scene through `RobotSpecification(HSRB)`, not by loading its URDF directly. |
+| `NoSingleHsrHeadCamera` in `start` | The world does not hold exactly one `HSRBHeadRGBDCamera`. Put one HSR into the scene through `RobotSpecification(HSRB)`, not by loading its URDF directly. |
+| `ValueError: not enough values to unpack (expected 1, got 0)` in `mount_hsr_head` | The same cause, found while mounting the camera, before the simulation is built. |
+| `SimulatedPerceptionAlreadyStarted` | `start` ran a second time without `stop` in between. Stop the perception first; a second start would run a second analysis engine. |
 | `SimulatedPerceptionNotStarted` | `build_context_extensions` ran before `start`, usually because the executor is not physically simulated, so `start_simulation` never started the perception. |
 | Reading `perceived_objects` fails while looking up a frame | The pipeline reported a pose in a frame the world has no body or frame of that name for. Compare the reported `header.frame_id` in `answer` with the world's frame names. |
 | `AnalysisEngineDidNotStart` | The analysis engine did not announce that it runs within the timeout. Check its output, which is forwarded to the demonstration's output, for an import error or a wrong `analysis_engine` name. |

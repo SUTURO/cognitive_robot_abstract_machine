@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 
 from typing_extensions import TYPE_CHECKING
 
-from coraplex.exceptions import SimulatedPerceptionNotStarted
+from coraplex.exceptions import (
+    NoSingleHsrHeadCamera,
+    SimulatedPerceptionAlreadyStarted,
+    SimulatedPerceptionNotStarted,
+)
 from coraplex.perception import CameraFrameCapture, PerceptionWorldFrame
 from robokudo.analysis_engine_process import AnalysisEngineProcess
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
@@ -55,14 +59,23 @@ class SimulatedHsrHeadCameraPerception:
 
     def start(self, world: World, simulation: MujocoSim, node: Node) -> None:
         """
-        Publish the head camera of the one HSR in ``world`` and start
-        :attr:`analysis_engine`, waiting until it runs.
+        Start :attr:`analysis_engine`, waiting until it runs, and then prepare
+        publishing the head camera of the one HSR in ``world``.
 
         :param world: The world holding the HSR.
         :param simulation: The running simulation the head camera is mounted in.
         :param node: The node to publish the head camera through.
+        :raises SimulatedPerceptionAlreadyStarted: If this perception already runs.
+        :raises NoSingleHsrHeadCamera: If ``world`` does not hold exactly one head
+            camera of an HSR.
         """
-        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
+        if self.camera_publisher is not None:
+            raise SimulatedPerceptionAlreadyStarted()
+        cameras = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
+        if len(cameras) != 1:
+            raise NoSingleHsrHeadCamera(number_of_cameras=len(cameras))
+        [camera] = cameras
+        self.analysis_engine.start()
         self.camera_publisher = SimulatedCameraPublisher(
             camera=camera,
             simulation=simulation,
@@ -70,7 +83,6 @@ class SimulatedHsrHeadCameraPerception:
             topics=self.camera_configuration,
             frames=self.camera_configuration,
         )
-        self.analysis_engine.start()
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         """
@@ -97,4 +109,5 @@ class SimulatedHsrHeadCameraPerception:
         if self.camera_publisher is None:
             return
         self.analysis_engine.stop()
+        self.camera_publisher.destroy_publishers()
         self.camera_publisher = None
