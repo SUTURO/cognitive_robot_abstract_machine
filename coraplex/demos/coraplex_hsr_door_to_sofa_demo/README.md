@@ -31,6 +31,7 @@ lacks the workspace packages.
 |---|---|---|---|
 | `$PY rviz_demo.py [LEFT] [RIGHT]` | kinematically simulated | ROS 2, RViz2 | The robot moving in RViz, see below. |
 | `$PY mujoco_demo.py [LEFT] [RIGHT]` | physically simulated | `mujoco` | A MuJoCo viewer. |
+| `$PY look_while_driving_demo.py` | physically simulated | `mujoco` | A MuJoCo viewer: the robot only drives to the sofa, its camera on the sofa all the way. |
 | `$PY real_demo.py` | real | The HSR, its ROS stack and RoboKudo | The real robot driving to the sofa. |
 | `$PY test_demo.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if only the left seat is reported free with a person on the right seat. |
 
@@ -103,6 +104,7 @@ assumed to share.
 | `demo.py` | What every run shares: `DoorToSofaDemonstration`, which builds the scene and the plan, and `main`, which runs it and prints the free seats. |
 | `rviz_demo.py` | Kinematic run, published for RViz. |
 | `mujoco_demo.py` | Physics run in MuJoCo. |
+| `look_while_driving_demo.py` | Physics run in MuJoCo of the drive alone, looking at the sofa meanwhile. |
 | `real_demo.py` | Real robot. |
 | `test_demo.py` | The check CI runs, see `.github/workflows/examples_and_demos.yml`. |
 
@@ -152,4 +154,5 @@ lab's door is that one, change `robot_start` in `demo.py`.
 |---|---|
 | Kinematically simulated | A person on the right seat: `Free seats: LEFT`. |
 | Physically simulated (headless) | A person on the right seat: `Free seats: LEFT`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
+| Looking while driving (headless) | The camera stays within 0.005 rad of the sofa's origin during the whole drive. |
 | Real | **Never run**. |

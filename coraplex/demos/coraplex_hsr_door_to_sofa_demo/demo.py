@@ -156,14 +156,12 @@ class DoorToSofaDemonstration(RobotDemonstration):
             )
         ]
 
-    def build_statechart(self, context: StatechartContext) -> Statechart:
+    def scanning_pose(self, *, world: World) -> Pose2D:
         """
-        Park the arm, drive :attr:`scanning_distance` in front of the sofa's front edge,
-        facing it, raise the torso, look for people on each of its seat places and lower
-        the torso again.
+        :param world: The world holding the sofa.
+        :return: Where the robot's base stands to scan the sofa:
+            :attr:`scanning_distance` in front of its front edge, facing it.
         """
-        world = context.world
-        hsrb = context.require_extension(extension_type=RobotAccess).robot
         [sofa] = world.get_semantic_annotations_by_type(Sofa)
         sofa_front = (
             sofa.root.collision.as_bounding_box_collection_in_frame(sofa.root)
@@ -176,19 +174,27 @@ class DoorToSofaDemonstration(RobotDemonstration):
                 x=sofa_front - self.scanning_distance
             )
         ).pose
+        return Pose2D.from_xy_yaw(
+            x=world_T_scanning_pose.x,
+            y=world_T_scanning_pose.y,
+            yaw=world_T_scanning_pose.yaw,
+            reference_frame=world.root,
+        )
+
+    def build_statechart(self, context: StatechartContext) -> Statechart:
+        """
+        Park the arm, drive :attr:`scanning_distance` in front of the sofa's front edge,
+        facing it, raise the torso, look for people on each of its seat places and lower
+        the torso again.
+        """
+        world = context.world
+        hsrb = context.require_extension(extension_type=RobotAccess).robot
         statechart = Statechart(context=context)
         statechart.add_node(
             node=Sequence(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
-                    NavigateAction(
-                        planar_goal_pose=Pose2D.from_xy_yaw(
-                            x=world_T_scanning_pose.x,
-                            y=world_T_scanning_pose.y,
-                            yaw=world_T_scanning_pose.yaw,
-                            reference_frame=world.root,
-                        )
-                    ),
+                    NavigateAction(planar_goal_pose=self.scanning_pose(world=world)),
                     MoveTorsoAction(torso_state=TorsoState.HIGH),
                     DetectSeatsAction(
                         look_targets=[
