@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import ParallelAction, SequentialAction
 from coraplex.robot_plans.actions.core.navigation import (
+    DrivesBase,
     FaceAtAction,
     LookAtAction,
     LookAtWhileDrivingAction,
-    NavigateAction,
 )
 
 # %% looking after turning
@@ -47,7 +47,7 @@ class NavigateAndLookAtAction(ParallelAction):
     Drives the robot's base to a pose while its camera keeps looking at a target.
     """
 
-    navigate: NavigateAction
+    navigate: DrivesBase
     """
     The drive.
     """

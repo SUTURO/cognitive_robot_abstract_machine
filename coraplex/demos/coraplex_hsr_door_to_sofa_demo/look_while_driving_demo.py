@@ -17,7 +17,7 @@ from coraplex.robot_plans.actions.composite.facing import NavigateAndLookAtActio
 from coraplex.robot_plans.actions.core.navigation import (
     LookAtAction,
     LookAtWhileDrivingAction,
-    NavigateAction,
+    PathPlanningNavigateAcrossFloorsAction,
 )
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
 from cramph.composites import Sequence
@@ -25,7 +25,7 @@ from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 from demo import DoorToSofaDemonstration
 from krrood_spatial_math.spatial_types import Pose
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Sofa
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor, Sofa
 from semantic_digital_twin.world import World
 
 # %% the demonstration
@@ -53,6 +53,12 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
     Whether the robot keeps away from the furniture and from itself.
     """
 
+    clearance: float = 0.05
+    """
+    How far, beyond its radius, the planned path keeps the base from obstacles, in
+    meters.
+    """
+
     def look_target(self, *, world: World) -> Pose:
         """
         :param world: The world holding the sofa.
@@ -63,8 +69,8 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
-        Park the arm, look at the sofa, and drive to :meth:`scanning_pose` while looking
-        at it.
+        Park the arm, look at the sofa, and drive to :meth:`scanning_pose` along a path
+        around the furniture while looking at it.
         """
         world = context.world
         hsrb = context.require_extension(extension_type=RobotAccess).robot
@@ -76,8 +82,10 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
                     ParkArmsAction(arms=hsrb.all_arms),
                     LookAtAction(look_target=look_target),
                     NavigateAndLookAtAction(
-                        navigate=NavigateAction(
-                            planar_goal_pose=self.scanning_pose(world=world)
+                        navigate=PathPlanningNavigateAcrossFloorsAction(
+                            planar_goal_pose=self.scanning_pose(world=world),
+                            floors=world.get_semantic_annotations_by_type(Floor),
+                            clearance=self.clearance,
                         ),
                         look_at=LookAtWhileDrivingAction(look_target=look_target),
                     ),

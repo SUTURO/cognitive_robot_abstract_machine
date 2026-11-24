@@ -52,7 +52,13 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.graph_of_convex_sets.boxes import (
+    PlanarGraphOfBoundingBoxes,
+)
 from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+)
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
@@ -298,9 +304,73 @@ class PathPlanningNavigateAction(
             target's.
         """
         base_pose = self.robot.root.global_pose
-        free_space = self._floor.navigable_space(robot=self.robot, margin=0.0)
-        return free_space.path_from_to(
+        return self._free_space().path_from_to(
             Point2.from_pose(base_pose), self.planar_goal_pose.position
+        )
+
+    def _free_space(self) -> PlanarGraphOfBoundingBoxes:
+        """
+        :return: The free space the path is laid out in.
+        """
+        return self._floor.navigable_space(robot=self.robot, margin=0.0)
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PathPlanningNavigateAcrossFloorsAction(PathPlanningNavigateAction):
+    """
+    Navigates the robot along a path that may lead over several adjoining floors of one
+    level, such as those of an open-plan kitchen and living room.
+    """
+
+    floors: list[Floor]
+    """
+    The floors the robot may drive on, whose visual shapes say how far they reach.
+    """
+
+    clearance: float = 0.0
+    """
+    How far, beyond its radius, the base keeps from obstacles, in meters.
+    """
+
+    floor_clearance: float = 0.02
+    """
+    How far above a floor something has to reach to be an obstacle, in meters.
+    """
+
+    def _free_space(self) -> PlanarGraphOfBoundingBoxes:
+        """
+        Differs from :meth:`PathPlanningNavigateAction._free_space` in spanning all of
+        :attr:`floors`.
+        """
+        robot_height = (
+            self.robot.as_bounding_box_collection_in_frame(self.robot.root)
+            .bounding_box()
+            .scale.z
+        )
+        search_space = BoundingBoxCollection(
+            [
+                VolumetricBoundingBox(
+                    extent.min_x,
+                    extent.min_y,
+                    extent.max_z + self.floor_clearance,
+                    extent.max_x,
+                    extent.max_y,
+                    extent.max_z + self.floor_clearance + robot_height,
+                    extent.origin,
+                )
+                for extent in (
+                    floor.root.visual.as_bounding_box_collection_in_frame(
+                        self.world.root
+                    ).bounding_box()
+                    for floor in self.floors
+                )
+            ],
+            self.world.root,
+        )
+        return PlanarGraphOfBoundingBoxes.navigation_map_from_world(
+            world=self.world,
+            search_space=search_space,
+            bloat_obstacles=self.robot.mobile_base.base_radius + self.clearance,
         )
 
 

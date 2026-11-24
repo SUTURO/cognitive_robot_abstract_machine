@@ -31,7 +31,7 @@ lacks the workspace packages.
 |---|---|---|---|
 | `$PY rviz_demo.py [LEFT] [RIGHT]` | kinematically simulated | ROS 2, RViz2 | The robot moving in RViz, see below. |
 | `$PY mujoco_demo.py [LEFT] [RIGHT]` | physically simulated | `mujoco` | A MuJoCo viewer. |
-| `$PY look_while_driving_demo.py` | physically simulated | `mujoco` | A MuJoCo viewer: the robot only drives to the sofa, its camera on the sofa all the way. |
+| `$PY look_while_driving_demo.py` | physically simulated | `mujoco` | A MuJoCo viewer: the robot only drives to the sofa, around the furniture, its camera on the sofa all the way. |
 | `$PY real_demo.py` | real | The HSR, its ROS stack and RoboKudo | The real robot driving to the sofa. |
 | `$PY test_demo.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if only the left seat is reported free with a person on the right seat. |
 
@@ -154,5 +154,5 @@ lab's door is that one, change `robot_start` in `demo.py`.
 |---|---|
 | Kinematically simulated | A person on the right seat: `Free seats: LEFT`. |
 | Physically simulated (headless) | A person on the right seat: `Free seats: LEFT`; the robot ends at `(3.70, 3.23)`, facing the sofa. |
-| Looking while driving (headless) | The camera stays within 0.005 rad of the sofa's origin during the whole drive. |
+| Looking while driving (headless) | The camera stays within 0.005 rad of the sofa's origin during the whole drive, also around a box put on the straight line. |
 | Real | **Never run**. |
