@@ -14,7 +14,7 @@ from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.query import GenerateQueryResult, QueryAnnotator
 from robokudo.annotators.yolo_annotator import YoloAnnotator
 from robokudo.behaviours.action_server_checks import ActionServerCheck
-from robokudo.descriptors.analysis_engines.yolo_object_detection import (
+from robokudo.descriptors.analysis_engines.yolo_object_detection_announcer import (
     AnalysisEngine,
 )
 from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
