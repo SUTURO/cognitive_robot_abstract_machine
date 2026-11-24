@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.robot_plans.actions.composite.facing import NavigateAndLookAtAction
 from coraplex.robot_plans.actions.core.navigation import (
@@ -20,8 +21,9 @@ from coraplex.robot_plans.actions.core.navigation import (
     PathPlanningNavigateAcrossFloorsAction,
 )
 from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
+from coraplex.robot_plans.plan_transformations import DriveForwards
 from cramph.composites import Sequence
-from cramph.context import StatechartContext
+from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
 from demo import DoorToSofaDemonstration
 from krrood_spatial_math.spatial_types import Pose
@@ -66,6 +68,17 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
         """
         [sofa] = world.get_semantic_annotations_by_type(Sofa)
         return Pose.from_xyz_rpy(reference_frame=sofa.root)
+
+    def build_context_extensions(self, world: World) -> list[ContextExtension]:
+        """
+        As :meth:`DoorToSofaDemonstration.build_context_extensions`, with every drive
+        going forwards, so that the lidar at the front of the base faces the way the
+        robot drives.
+        """
+        return [
+            *super().build_context_extensions(world),
+            PlanRewriting(transformations=[DriveForwards()]),
+        ]
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """

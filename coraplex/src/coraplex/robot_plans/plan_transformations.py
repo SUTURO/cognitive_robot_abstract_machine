@@ -51,7 +51,10 @@ from coraplex.robot_plans.actions.core.robot_body import (
 from coraplex.robot_plans.mixins import ReattachesBranches
 from cramph.composites import Sequence, StatementNode
 from cramph.node import StatechartNode
-from giskardpy.motion_statechart.tasks.drive_tasks import HolonomicBaseGoal
+from giskardpy.motion_statechart.tasks.drive_tasks import (
+    ForwardBaseGoal,
+    HolonomicBaseGoal,
+)
 from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
 from giskardpy.motion_statechart.tasks.gripper import MoveFingers
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianTask
@@ -69,6 +72,7 @@ from semantic_digital_twin.semantic_annotations.mixins import IsGraspable
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
 from semantic_digital_twin.robots.robot_parts import Arm
 from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
+from semantic_digital_twin.world_description.connections import OmniDrive
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Drawer
 from krrood_spatial_math.spatial_types import Pose, Pose2D
 from coraplex.plans.context_extensions import RobotAccess
@@ -530,6 +534,25 @@ class WriteTheOdometryInsteadOfCommandingAPose(WriteTheOdometryInsteadOfDriving)
 
     def is_applicable(self, plan_node: DrivesBase) -> bool:
         return issubclass(plan_node.base_goal_type, HolonomicBaseGoal)
+
+
+# %% driving forwards only
+
+
+@dataclass
+class DriveForwards(ConfigurationTransformation[DrivesBase]):
+    """
+    Drives a base that could move in any direction forwards along straight lines, so
+    that its front faces the way it drives.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        return isinstance(plan_node.robot.drive, OmniDrive) and issubclass(
+            plan_node.base_goal_type, HolonomicBaseGoal
+        )
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_goal_type = ForwardBaseGoal
 
 
 # %% detecting with the real robot's perception
