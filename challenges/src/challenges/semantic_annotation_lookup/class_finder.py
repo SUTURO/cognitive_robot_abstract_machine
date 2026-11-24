@@ -1,3 +1,7 @@
+"""
+Looking up the semantic annotation class a spoken or written name refers to.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -6,7 +10,7 @@ from dataclasses import dataclass
 
 from krrood.utils import recursive_subclasses
 
-from challenges.semdt_helper_functions.exceptions import (
+from challenges.semantic_annotation_lookup.exceptions import (
     AmbiguousSemanticAnnotationName,
     UnknownSemanticAnnotationName,
 )
@@ -54,13 +58,16 @@ class SemanticAnnotationClassFinder:
 
         :param name: The name of a place, such as ``"kitchen"`` or ``"living room
             table"``.
+        :return: The class with that name, else the room the name contains, else the one
+            concrete class whose name contains it.
+        :raises UnknownSemanticAnnotationName: If no class matches the name.
         :raises AmbiguousSemanticAnnotationName: If the name contains several room
             names.
         """
         return self.select_single_match(
             name,
             self.classes_named(name)
-            or self.rooms_named_in(name)
+            or self.rooms_mentioned(name)
             or self.concrete_classes_containing(name),
         )
 
@@ -69,11 +76,11 @@ class SemanticAnnotationClassFinder:
         :param name: The name of an object.
         :return: The semantic annotation classes with exactly that name.
         """
-        normalized_name = self.normalize(name)
+        comparable_name = self.comparable_name(name)
         return {
             annotation_class
             for annotation_class in recursive_subclasses(SemanticAnnotation)
-            if self.normalize(annotation_class.__name__) == normalized_name
+            if self.comparable_name(annotation_class.__name__) == comparable_name
         }
 
     def concrete_classes_containing(self, name: str) -> set[type[SemanticAnnotation]]:
@@ -81,24 +88,24 @@ class SemanticAnnotationClassFinder:
         :param name: The name of an object.
         :return: The concrete semantic annotation classes whose name contains it.
         """
-        normalized_name = self.normalize(name)
+        comparable_name = self.comparable_name(name)
         return {
             annotation_class
             for annotation_class in recursive_subclasses(SemanticAnnotation)
-            if normalized_name in self.normalize(annotation_class.__name__)
+            if comparable_name in self.comparable_name(annotation_class.__name__)
             and not inspect.isabstract(annotation_class)
         }
 
-    def rooms_named_in(self, name: str) -> set[type[Room]]:
+    def rooms_mentioned(self, name: str) -> set[type[Room]]:
         """
         :param name: The name of a place.
         :return: The concrete room classes whose name the place's name contains.
         """
-        normalized_name = self.normalize(name)
+        comparable_name = self.comparable_name(name)
         return {
             room_class
             for room_class in recursive_subclasses(Room)
-            if self.normalize(room_class.__name__) in normalized_name
+            if self.comparable_name(room_class.__name__) in comparable_name
             and not inspect.isabstract(room_class)
         }
 
@@ -118,7 +125,7 @@ class SemanticAnnotationClassFinder:
             raise AmbiguousSemanticAnnotationName(name=name, matches=list(matches))
         return next(iter(matches))
 
-    def normalize(self, name: str) -> str:
+    def comparable_name(self, name: str) -> str:
         """
         :param name: A class name or object name.
         :return: The name in lower case without word separators.

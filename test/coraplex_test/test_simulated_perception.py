@@ -66,6 +66,11 @@ class RecordedAnalysisEngine(AnalysisEngineProcess):
     How often the engine was asked to start.
     """
 
+    stop_count: int = field(init=False, default=0)
+    """
+    How often the engine was asked to stop.
+    """
+
     def start(self, timeout: timedelta = timedelta(minutes=2)) -> None:
         """
         Record the start instead of starting a process as
@@ -84,6 +89,7 @@ class RecordedAnalysisEngine(AnalysisEngineProcess):
         Record the stop instead of stopping a process as
         :meth:`AnalysisEngineProcess.stop` does.
         """
+        self.stop_count += 1
         self.runs = False
 
 
@@ -196,8 +202,11 @@ def test_context_before_start_is_refused(
 def test_stop_before_start_leaves_the_engine_alone(
     perception: SimulatedHsrHeadCameraPerception,
 ) -> None:
+    """
+    Stopping a perception that never started does not ask the engine to stop.
+    """
     perception.stop()
-    assert not perception.analysis_engine.runs
+    assert perception.analysis_engine.stop_count == 0
 
 
 # %% Refusing to start
@@ -272,3 +281,18 @@ def test_stop_releases_the_head_camera_topics(
     perception.stop()
     published_topics = {publisher.topic_name for publisher in rclpy_node.publishers}
     assert published_topics.isdisjoint(camera_topics)
+
+
+def test_context_after_stop_is_refused(
+    perception: SimulatedHsrHeadCameraPerception,
+    hsr_world: World,
+    hsr_head_camera_simulation: MujocoSim,
+    rclpy_node,
+) -> None:
+    """
+    A stopped perception gives a plan nothing to capture frames with.
+    """
+    perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
+    perception.stop()
+    with pytest.raises(SimulatedPerceptionNotStarted):
+        perception.build_context_extensions(hsr_world)

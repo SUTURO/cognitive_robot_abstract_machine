@@ -1519,7 +1519,11 @@ def test_elevator_without_a_movable_joint_cannot_drive():
 # %% sampling free space on a supporting surface
 
 
-def test_part_below_a_surface_leaves_the_surface_free():
+def test_part_below_a_surface_leaves_the_surface_free() -> None:
+    """
+    A part lying wholly below a surface, such as a shelf under a table top, leaves the
+    whole surface free to sample points on.
+    """
     world = World.create_with_root_body("root")
     with world.modify_world():
         table = Table.create_with_new_body_in_world(
@@ -1533,6 +1537,7 @@ def test_part_below_a_surface_leaves_the_surface_free():
         )
         table.add_object(shelf_below)
 
-    points = table.sample_points_from_surface(amount=10)
+    amount = 10
+    points = table.sample_points_from_surface(amount=amount)
 
-    assert len(points) == 10
+    assert len(points) == amount

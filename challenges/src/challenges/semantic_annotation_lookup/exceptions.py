@@ -1,3 +1,7 @@
+"""
+Exceptions raised when a name refers to no semantic annotation class or to several.
+"""
+
 from __future__ import annotations
 
 # %% Imports

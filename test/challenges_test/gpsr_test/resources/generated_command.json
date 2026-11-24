@@ -13,6 +13,16 @@
         "action": "navigate",
         "location": "living room table"
       }
+    ],
+    [
+      {
+        "action": "say",
+        "text": "I will find the apple"
+      },
+      {
+        "action": "find",
+        "object": "apple"
+      }
     ]
   ]
 }

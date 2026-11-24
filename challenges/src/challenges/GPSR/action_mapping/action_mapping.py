@@ -1,3 +1,8 @@
+"""
+Mapping the plans a command generator writes for a spoken command to the actions the
+robot performs.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -25,7 +30,7 @@ from challenges.GPSR.action_mapping.exceptions import (
     ObjectNotInRoom,
     UnmappedActionType,
 )
-from challenges.semdt_helper_functions.find_class_by_name import (
+from challenges.semantic_annotation_lookup.class_finder import (
     SemanticAnnotationClassFinder,
 )
 
@@ -287,9 +292,9 @@ class PlannedAction:
     The object the step picks up or places.
     """
 
-    person: str | None = None
+    person: Human | None = None
     """
-    The description of the person the step looks for.
+    The person the step looks for.
     """
 
     @property
@@ -379,13 +384,12 @@ class PlannedAction:
             case _:
                 raise UnmappedActionType(action=data[PayloadKey.ACTION])
 
-        # TODO change from strings to semantic annotations
         return cls(
             action_type=action,
             text=data.get(PayloadKey.TEXT),
             location=location,
             object_annotation=searched_object,
-            person=person_description,
+            person=searched_person,
         )
 
     @staticmethod
@@ -768,7 +772,6 @@ def main(
     """
     command = GeneratedCommand.from_json(json.loads(json_plan), instruction, context)
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
     for plan in command.plans:
         for action in plan.actions:
             logger.info(
@@ -778,7 +781,7 @@ def main(
                 None
                 if action.object_annotation is None
                 else type(action.object_annotation).__name__,
-                action.person,
+                None if action.person is None else action.person.name,
             )
             logger.info("%s", action.action_type)
     return command

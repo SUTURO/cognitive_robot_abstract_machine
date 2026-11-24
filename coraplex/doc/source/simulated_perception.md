@@ -6,7 +6,7 @@ MuJoCo simulation. It publishes the simulated head camera on the same ROS topics
 starts the analysis engine in its own process, and hands the plan what it needs to capture a frame before each
 query.
 
-The GPSR demonstration in `challenges/src/challenges/GPSR/action_mapping/mock_world.py` uses it. The steps below
+The GPSR demonstration in `challenges/src/challenges/GPSR/demonstration.py` uses it. The steps below
 add it to a new {class}`~coraplex.demonstrations.RobotDemonstration`.
 
 ## Requirements
@@ -73,7 +73,7 @@ If your demonstration builds its own simulation instead of calling `super()`, as
         self.perception.start(world, self.simulation, self.ros_node)
 ```
 
-`start` blocks until the analysis engine runs, for at most two minutes by default.
+`start` blocks until the analysis engine runs, for at most two minutes.
 
 ### 4. Give the plan the frame capture
 
@@ -230,5 +230,5 @@ with a file from the `robokudo_suturo` package. Both have to be installed, other
 | `ValueError: not enough values to unpack (expected 1, got 0)` in `mount_hsr_head` | The same cause, found while mounting the camera, before the simulation is built. |
 | `SimulatedPerceptionAlreadyStarted` | `start` ran a second time without `stop` in between. Stop the perception first; a second start would run a second analysis engine. |
 | `SimulatedPerceptionNotStarted` | `build_context_extensions` ran before `start`, usually because the executor is not physically simulated, so `start_simulation` never started the perception. |
-| Reading `perceived_objects` fails while looking up a frame | The pipeline reported a pose in a frame the world has no body or frame of that name for. Compare the reported `header.frame_id` in `answer` with the world's frame names. |
+| `RoboKudoQueryTask` fails while it is ticked, looking up a frame | The pipeline reported a pose in a frame the world has no body or frame of that name for. Compare the reported `header.frame_id` in `answer` with the world's frame names. |
 | `AnalysisEngineDidNotStart` | The analysis engine did not announce that it runs within the timeout. Check its output, which is forwarded to the demonstration's output, for an import error or a wrong `analysis_engine` name. |

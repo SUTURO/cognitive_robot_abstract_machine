@@ -1,5 +1,7 @@
-"""The kitchen the generated command of :func:`main` is mapped to actions
-in."""
+"""
+The GPSR demonstration: the HSR carries out a spoken command in a simulated kitchen,
+following the plans a language model writes for it.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import threading
 import weakref
 from dataclasses import dataclass, field
 from datetime import timedelta
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from pathlib import Path
 
 import coraplex
@@ -55,11 +57,8 @@ from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnv
 from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Bedroom,
     Floor,
     Human,
-    Kitchen,
-    LivingRoom,
     Milk,
     Room,
 )
@@ -88,16 +87,36 @@ class SceneName(StrEnum):
     call them."""
 
     COUNTER_TOP = "counter_top"
+    """The counter top the milk stands on."""
+
     OVEN_TOWER = "oven_tower"
+    """The oven tower on one side of the kitchen window."""
+
     SIDEBOARD = "sideboard"
     """The top of the kitchen island."""
+
     KITCHEN = "kitchen"
-    LIVING_ROOM = "living_room"
-    BED_ROOM = "bed_room"
+    """The kitchen, whose floor the person stands on."""
+
     MILK = "milk"
+    """The milk carton the robot can pick up."""
+
     PERSON = "person"
+    """The person the robot can find."""
+
     HUMAN = "human"
     """The body of the human model, as its URDF names it."""
+
+
+class SceneContactCategory(IntFlag):
+    """
+    The MuJoCo contact categories the demonstration adds to the shared default one.
+    """
+
+    ROBOT_BODY = 2
+    """
+    Every part of the robot but its grippers, which collides with nothing outside it.
+    """
 
 
 class SceneFile(PathEnumeration):
@@ -134,7 +153,6 @@ class Person(Human):
 # %% Simulation
 
 
-# MuJoCo Performance improvement
 class OncePerCallSyncedMujocoSim(MujocoSim):
     """
     A MuJoCo simulation that copies its state into the world once per call of
@@ -158,7 +176,6 @@ class OncePerCallSyncedMujocoSim(MujocoSim):
         self.synchronizer.sync_rate_hz = previous_sync_rate
 
 
-# MuJoco Performance improvement
 @dataclass
 class PhysicallySimulatedGraspingPlanExecutor(PhysicallySimulatedPlanExecutor):
     """
@@ -173,8 +190,11 @@ class PhysicallySimulatedGraspingPlanExecutor(PhysicallySimulatedPlanExecutor):
     """
 
     def default_executor_extensions(self) -> list[ExecutorExtension]:
-        """Differs from :meth:`PhysicallySimulatedPlanExecutor.default_executor_ext
-        ensions` in counting the robot as at rest up to :attr:`speed_at_rest`."""
+        """
+        Differs from
+        :meth:`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor.default_executor_extensions`
+        in counting the robot as at rest up to :attr:`speed_at_rest`.
+        """
         extensions = super().default_executor_extensions()
         for extension in extensions:
             if isinstance(extension, MotionControl):
@@ -196,17 +216,19 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     """
 
     used_robot: type[AbstractRobot] = HSRB
+    """The HSR, whose head camera the perception looks through."""
 
     ros_node_name: str = "gpsr_generated_command_demo"
+    """The name of the ROS node of this demonstration."""
 
     executor_type: type[PlanExecutor] = PhysicallySimulatedGraspingPlanExecutor
+    """Runs the plan in MuJoCo, counting fingers that press on the milk as at rest."""
 
     collision_avoidance: bool = True
+    """Whether the robot's motions keep clear of the furniture."""
 
-    # better MuJoCo performance
     scene_joints_movable: bool = False
-
-    """The kind of each of the kitchen's rooms, by the room's name."""
+    """Whether the kitchen's doors and drawers move; fixed, they simulate faster."""
 
     kitchen_environment: KitchenEnvironment = field(default_factory=KitchenEnvironment)
     """The kitchen the scene is built from, whose measurements place the
@@ -228,38 +250,34 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     """Passes spent removing the slip soft contacts leave, so a held carton
     stays where the fingers hold it."""
 
-    # Perception added
     perception: SimulatedHsrHeadCameraPerception | None = None
     """The perception the plan asks to detect people, or ``None`` to find people
     without perception."""
 
-    # Perception added
     query: RoboKudoQuery = field(
         default_factory=lambda: RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     )
     """What the plan asks :attr:`perception` once the robot faces the person."""
 
-    # makes it possible to ignore collision
-    robot_body_contact_category: ContactCategories = ContactCategories(2)
+    robot_body_contact_category: ContactCategories = ContactCategories(
+        SceneContactCategory.ROBOT_BODY
+    )
     """The contact category of every part of the robot but its grippers, which
     collides with nothing outside that category."""
 
-    # NLP added
     json_plan: str = field(kw_only=True)
     """The plan JSON the plan model wrote for the command the robot carries out."""
 
     instruction: str = field(kw_only=True)
     """The instruction the human spoke, recorded via the NLP pipeline."""
 
-    # Not needed because of Kitchen Environment
     def scene_specification(self) -> WorldSpecification:
-        """Never called: :meth:`build_scene` builds the kitchen directly, since
-        :class:`~semantic_digital_twin.predefined_maps.kitchen_environment.Kitc
-        henEnvironment` builds a :class:`~semantic_digital_twin.world.World`,
-        not a :class:`WorldSpecification`."""
+        """
+        Never called: :meth:`build_scene` builds the scene from
+        :attr:`kitchen_environment` instead.
+        """
         raise NotImplementedError
 
-    # build scene via kitchen environment instead of scene_specification
     def build_scene(self) -> World:
         """Differs from :meth:`RobotDemonstration.build_scene` in starting from
         the kitchen instead of :meth:`scene_specification`."""
@@ -269,20 +287,30 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             self.replace_joints_with_fixed_connections(scene)
         return scene
 
-    # specify which robot to spawn
     def robot_specification(self) -> RobotSpecification:
         return RobotSpecification(self.used_robot)
 
-    # ignore furniture collision
     def build_simulated_world(self) -> World:
-        """Differs from :meth:`RobotDemonstration.build_simulated_world` in
-        letting every part of the robot but its grippers pass through the
-        scene in the physics, and in letting the robot touch the floors, which
-        collision avoidance would otherwise keep it from standing on, and the
-        milk, which only friction holds in the gripper, so collision avoidance
-        never counts it as held."""
+        """
+        Differs from :meth:`RobotDemonstration.build_simulated_world` in
+        :meth:`allow_touching_floors_and_milk` and
+        :meth:`let_robot_body_pass_through_scene`.
+        """
         world = super().build_simulated_world()
-        robot = world.get_semantic_annotations_by_type(self.used_robot)[0]
+        [robot] = world.get_semantic_annotations_by_type(self.used_robot)
+        self.allow_touching_floors_and_milk(robot, world)
+        self.let_robot_body_pass_through_scene(robot)
+        return world
+
+    @staticmethod
+    def allow_touching_floors_and_milk(robot: AbstractRobot, world: World) -> None:
+        """
+        Let collision avoidance allow the robot to touch the floors it stands on and
+        the milk, which only friction holds in the gripper.
+
+        :param robot: The robot.
+        :param world: The world holding the robot, the floors and the milk.
+        """
         floor_bodies = [
             body
             for floor in world.get_semantic_annotations_by_type(Floor)
@@ -300,7 +328,14 @@ class GeneratedCommandDemonstration(RobotDemonstration):
                     )
                 )
 
-        # TODO: What happens here
+    def let_robot_body_pass_through_scene(self, robot: AbstractRobot) -> None:
+        """
+        Put every collision shape of the robot but those of its grippers into
+        :attr:`robot_body_contact_category`, so in MuJoCo only the grippers touch the
+        scene.
+
+        :param robot: The robot.
+        """
         gripper_bodies = {
             body
             for arm in robot.all_arms
@@ -316,10 +351,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
                         contact_affinity=self.robot_body_contact_category,
                     )
                 )
-        return world
 
-    # Perception added: add mujoco camera to toyas head, builds the once-per-call synced simulation and sets
-    # the grasp friction parameters (elliptic cone, impedance ratio, no-slip iterations)
     def build_simulation(self, world: World) -> MujocoSim:
         """Differs from :meth:`RobotDemonstration.build_simulation` in contacts
         that let the gripper hold a carton, and in copying the physics into the
@@ -334,17 +366,14 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             noslip_iterations=self.no_slip_iterations,
         )
 
-    # returns milk as kinematic structure
     def is_scene_populated(self, world: World) -> bool:
         return world.is_kinematic_structure_entity_in_world_by_name(SceneName.MILK)
 
-    # adds objects into the world and assigns room types
     def populate_scene(self, world: World) -> None:
         """Puts the milk on the counter top and the person in front of the kitchen window."""
         self.place_milk(world)
         self.place_person(world)
 
-    # starts the simulation and publishes head camera if Robokudo is used
     def start_simulation(self, world: World) -> None:
         """Differs from :meth:`RobotDemonstration.start_simulation` in then
         starting :attr:`perception`, if any."""
@@ -353,41 +382,48 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             return
         self.perception.start(world, self.simulation, self.ros_node)
 
-    # adds frame capture and person detection if Robokudo is used
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        extensions: list[ContextExtension] = [
-            RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
-        ]
+        [robot] = world.get_semantic_annotations_by_type(self.used_robot)
+        extensions: list[ContextExtension] = [RobotAccess(robot)]
         if self.perception is not None:
             extensions.extend(self.perception.build_context_extensions(world))
             extensions.append(PersonDetection(self.query))
         return extensions
 
-    # does not only close the sim but also stops the components for the perception part of the demo
     def tear_down(self) -> None:
-        """Differs from :meth:`RobotDemonstration.tear_down` in first waiting for
-        the viewer to be closed, if there is one, and stopping
-        :attr:`perception`, if any."""
+        """
+        Differs from :meth:`RobotDemonstration.tear_down` in first
+        :meth:`wait_until_viewer_closed` and stopping :attr:`perception`, if any.
+        """
+        self.wait_until_viewer_closed()
+        if self.perception is not None:
+            self.perception.stop()
+        super().tear_down()
+
+    def wait_until_viewer_closed(self) -> None:
+        """
+        Block until the MuJoCo viewer window is closed; return at once if there is
+        none.
+        """
         viewer_window = (
             None
             if self.headless or self.simulation is None
             else self.simulation.simulator.renderer._sim()
         )
-        if viewer_window is not None:
-            viewer_window_destroyed = threading.Event()
-            weakref.finalize(viewer_window, viewer_window_destroyed.set)
-            del viewer_window
-            viewer_window_destroyed.wait()
-        if self.perception is not None:
-            self.perception.stop()
-        super().tear_down()
+        if viewer_window is None:
+            return
+        viewer_window_destroyed = threading.Event()
+        weakref.finalize(viewer_window, viewer_window_destroyed.set)
+        del viewer_window
+        viewer_window_destroyed.wait()
 
-    # builds the plan and transforms it
     def build_statechart(self, context: StatechartContext) -> Statechart:
-        """Perform the actions of every plan of the generated command, room
-        visit by room visit, in the order :meth:`~coraplex.robot_plans.transfor
-        mation_by_room.RoomVisitPlanner.transform_plan_by_rooms` orders them
-        into."""
+        """
+        Perform the actions of every plan of the generated command, room visit by
+        room visit, in the order
+        :meth:`~coraplex.robot_plans.transformation_by_room.RoomVisitPlanner.transform_plan_by_rooms`
+        orders them into.
+        """
         generated_command = action_main(context, self.instruction, self.json_plan)
         any_room = {
             type(room) for room in context.world.get_semantic_annotations_by_type(Room)
@@ -409,7 +445,6 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         )
         return statechart
 
-    # spawns the milk at the edge of the counter top so the robot can easier reach it
     def place_milk(self, world: World) -> Milk:
         """
         :param world: The kitchen.
@@ -427,11 +462,12 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         ).spawn(world)
         ContactParameters.create_for_grasped_object().apply_to([milk.root])
         counter_top = world.get_body_by_name(SceneName.COUNTER_TOP)
-        self.stand_on(milk.root, counter_top, world)
+        milk.root.parent_connection.origin = self.centred_standing_pose(
+            milk.root, counter_top, world
+        )
         self.slide_to_front_edge(milk.root, counter_top, world)
         return milk
 
-    # places the person in front if the kitchen window without colliding with the world
     def place_person(self, world: World) -> Person:
         """
         :param world: The kitchen.
@@ -447,11 +483,8 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             ),
         ).create_world()
         kitchen = world.get_semantic_annotation_by_name(SceneName.KITCHEN)
-        *_, floor_height = (
-            float(coordinate)
-            for coordinate in self.centred_standing_pose(
-                human_world.root, kitchen.floor.root, world
-            ).position.to_np()[:3]
+        floor_height = float(
+            self.centred_standing_pose(human_world.root, kitchen.floor.root, world).z
         )
         window_wall = self.kitchen_environment.measurements.window_wall
         oven_tower_box = (
@@ -498,18 +531,6 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             world.add_semantic_annotation(person)
         return person
 
-    # puts an object onto a surface by attaching it
-    def stand_on(self, body: Body, surface: Body, world: World) -> None:
-        """Move ``body`` to :meth:`centred_standing_pose` on ``surface``.
-
-        :param body: The body to move, attached to the world by a 6DoF
-            connection.
-        :param surface: The body to stand it on.
-        :param world: The world both are in.
-        """
-        body.parent_connection.origin = self.centred_standing_pose(body, surface, world)
-
-    # calculates a centered pose for an object to stand on a surface
     @staticmethod
     def centred_standing_pose(
         body: Body, surface: Body, world: World
@@ -534,7 +555,6 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             reference_frame=world.root,
         )
 
-    # puts an object to the edge of a surface for better reachability
     @staticmethod
     def slide_to_front_edge(body: Body, surface: Body, world: World) -> None:
         """Slide ``body``, standing on ``surface``, along the y-axis until its
@@ -553,19 +573,20 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             body
         ).bounding_box()
         world_root_T_body = body.parent_connection.origin
-        if surface_box.min_y > 0:
+        front_edge_y = min(surface_box.min_y, surface_box.max_y, key=abs)
+        if front_edge_y == surface_box.min_y:
             world_root_T_body.y = surface_box.min_y - body_box.min_y
         else:
             world_root_T_body.y = surface_box.max_y - body_box.max_y
         body.parent_connection.origin = world_root_T_body
 
 
-# runs everything
 def main(
     headless: bool = False,
     perceives: bool = True,
     instruction: str | None = None,
     plan_model_path: Path = "/home/hanna/SUTURO_Master/nlp_llm/plan-q4.gguf",
+    listening_timeout: float = 30.0,
 ) -> World:
     """Run the demonstration.
 
@@ -575,20 +596,21 @@ def main(
         through the microphone.
     :param plan_model_path: The GGUF file of the model that writes the plans for the
         command.
+    :param listening_timeout: How long to wait for the command to be spoken, in
+        seconds.
     :return: The world the command was carried out in.
     """
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
     plan_model = PlanModel(model_path=plan_model_path)
     if instruction is None:
         recognizer = SpeechRecognizer(
             microphone=Microphone(), transcriber=WhisperTranscriber()
         )
         logger.info("Speak now")
-        instruction = recognizer.hear_next_utterance(timeout=30.0).text
+        instruction = recognizer.hear_next_utterance(timeout=listening_timeout).text
     instruction_plans = plan_model.write_plans(instruction)
 
-    json_plan = json.dumps(instruction_plans.to_json(), separators=(",", ":"))
+    json_plan = json.dumps(instruction_plans.to_json())
     logger.info("Generated plan for %r: %s", instruction, json_plan)
 
     return GeneratedCommandDemonstration(
@@ -609,4 +631,6 @@ def main(
 
 
 if __name__ == "__main__":
+    for module_name in (__name__, action_main.__module__):
+        logging.getLogger(module_name).setLevel(logging.INFO)
     main()

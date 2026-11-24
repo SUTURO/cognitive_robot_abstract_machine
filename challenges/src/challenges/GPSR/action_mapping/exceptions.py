@@ -1,3 +1,7 @@
+"""
+Exceptions raised when a generated plan cannot be mapped to robot actions.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -201,8 +205,8 @@ class ObjectNotInRoom(DataclassException):
 
     def suggest_correction(self) -> str:
         return (
-            f"Put a {self.object_type.__name__} into '{self.room.name}', or search for "
-            f"it before the step, once searching is implemented."
+            f"Put a {self.object_type.__name__} into '{self.room.name}', or name the "
+            f"room it is in."
         )
 
 
