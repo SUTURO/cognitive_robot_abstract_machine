@@ -29,11 +29,11 @@ if TYPE_CHECKING:
 @pytest.fixture
 def model_loader(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModelLoader:
     """
-    Make the annotator load the recording model from the files of a stand-in ROS
-    package.
+    Make the annotator load the recording model from the files of a stand-in model
+    repository, without downloading them.
 
     :param monkeypatch: Replaces the model loader.
-    :param tmp_path: Directory of the stand-in package.
+    :param tmp_path: Directory of the stand-in repository.
     :return: The loader.
     """
     loader = ModelLoader()
@@ -42,9 +42,9 @@ def model_loader(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ModelLoader
         vision_language_annotator, "Qwen25VLChatHandler", ProjectorLoader()
     )
     monkeypatch.setattr(
-        vision_language_annotator.FileLoader,
-        "get_path_to_file_in_ros_package",
-        lambda ros_pkg_name, relative_path: tmp_path / ros_pkg_name / relative_path,
+        vision_language_annotator,
+        "hf_hub_download",
+        lambda repo_id, filename: str(tmp_path / repo_id / filename),
     )
     return loader
 
@@ -243,11 +243,11 @@ def test_model_is_loaded_once(scene: GpsrScene, model_loader: ModelLoader) -> No
     assert len(model_loader.load_arguments) == 1
 
 
-def test_model_is_loaded_from_the_ros_package(
+def test_model_is_loaded_from_its_repository(
     scene: GpsrScene, model_loader: ModelLoader, tmp_path: Path
 ) -> None:
     """
-    Model is loaded from the ROS package.
+    Model is loaded from its repository.
     """
     annotator = asking_annotator()
     parameters = annotator.descriptor.parameters
@@ -257,9 +257,9 @@ def test_model_is_loaded_from_the_ros_package(
     annotator.compute()
 
     [arguments] = model_loader.load_arguments
-    package = tmp_path / parameters.ros_package_name
-    assert arguments["model_path"] == str(package / parameters.model_file)
-    assert arguments["chat_handler"] == str(package / parameters.projector_file)
+    repository = tmp_path / parameters.model_repository
+    assert arguments["model_path"] == str(repository / parameters.model_file)
+    assert arguments["chat_handler"] == str(repository / parameters.projector_file)
     assert arguments["n_ctx"] == parameters.context_length
 
 

@@ -316,6 +316,33 @@ def test_real_run_merges_the_scene_into_a_world_that_does_not_have_it(
     assert demonstration.robot.spawned_into == []
 
 
+def test_real_run_places_the_scene_where_it_lies_in_the_map(
+    cylinder_bot_world, monkeypatch
+):
+    serve_from_the_controller(monkeypatch, cylinder_bot_world)
+    map_T_scene = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.4, y=0.1, yaw=-0.06)
+    demonstration = RecordingDemonstration(
+        used_robot=MinimalRobot,
+        executor_type=RealRobotPlanExecutor,
+        map_T_scene=map_T_scene,
+    )
+
+    try:
+        demonstration.acquire_world()
+    finally:
+        demonstration.tear_down()
+
+    [scene_root_id] = demonstration.populated_scene_roots
+    scene_root = cylinder_bot_world.get_kinematic_structure_entity_by_id(scene_root_id)
+    np.testing.assert_allclose(
+        cylinder_bot_world.compute_forward_kinematics_np(
+            cylinder_bot_world.root, scene_root
+        ),
+        map_T_scene.to_np(),
+        atol=1e-9,
+    )
+
+
 def test_real_run_does_not_merge_the_scene_into_a_world_that_has_it(
     cylinder_bot_world, monkeypatch
 ):
@@ -507,6 +534,104 @@ def test_the_physics_of_a_run_stops_when_its_plan_fails(cylinder_bot_world) -> N
         demonstration.run()
 
     assert demonstration.simulation is None
+
+
+# %% performing the plan in parts
+
+
+class PlanPart(StrEnum):
+    """
+    The parts of the plan of :class:`PlanInPartsDemonstration`, in the order they run.
+    """
+
+    FIRST_STATECHART = "first statechart"
+    """
+    The statechart run before the step outside of any executor.
+    """
+
+    STEP_BETWEEN = "step between"
+    """
+    A step done outside of any executor, between the two statecharts.
+    """
+
+    SECOND_STATECHART = "second statechart"
+    """
+    The statechart run after the step outside of any executor.
+    """
+
+
+@dataclass
+class PlanInPartsDemonstration(RecordingDemonstration):
+    """
+    A demonstration performing its plan as two statecharts with a step between them.
+    """
+
+    performed_parts: list[PlanPart] = field(default_factory=list)
+    """
+    The parts of the plan that ran, in order.
+    """
+
+    executors: list[PlanExecutor] = field(default_factory=list)
+    """
+    The executors the statecharts ran with, in order.
+    """
+
+    def perform_plan(self, world: World) -> None:
+        self.execute_statechart(
+            world,
+            lambda context: self.part_statechart(context, PlanPart.FIRST_STATECHART),
+        )
+        self.performed_parts.append(PlanPart.STEP_BETWEEN)
+        self.execute_statechart(
+            world,
+            lambda context: self.part_statechart(context, PlanPart.SECOND_STATECHART),
+        )
+
+    def part_statechart(self, context: StatechartContext, part: PlanPart) -> Statechart:
+        """
+        :param context: The context the statechart is built in.
+        :param part: The part the statechart records when it runs.
+        :return: A statechart recording ``part`` when it runs.
+        """
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            node=FunctionCall(function=lambda: self.performed_parts.append(part))
+        )
+        return statechart
+
+    def create_executor(self, world: World) -> PlanExecutor:
+        """
+        Differs from :meth:`RecordingDemonstration.create_executor` in also recording
+        every executor in :attr:`executors`.
+        """
+        executor = super().create_executor(world)
+        self.executors.append(executor)
+        return executor
+
+
+def test_a_plan_performed_in_parts_runs_them_in_order_every_repetition(
+    cylinder_bot_world,
+):
+    demonstration = PlanInPartsDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot, repetitions=2
+    )
+
+    demonstration.run()
+
+    assert demonstration.performed_parts == list(PlanPart) * 2
+
+
+def test_every_statechart_of_a_plan_performed_in_parts_runs_with_its_own_executor(
+    cylinder_bot_world,
+):
+    demonstration = PlanInPartsDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.run()
+
+    first, second = demonstration.executors
+    assert first is not second
 
 
 # %% event segmentation
