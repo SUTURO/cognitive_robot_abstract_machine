@@ -48,6 +48,11 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
     The name of the ROS node the demonstration runs as.
     """
 
+    collision_avoidance: bool = True
+    """
+    Whether the robot keeps away from the furniture and from itself.
+    """
+
     def look_target(self, *, world: World) -> Pose:
         """
         :param world: The world holding the sofa.
