@@ -200,13 +200,6 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     # better MuJoCo performance
     scene_joints_movable: bool = False
 
-    room_types: dict[SceneName, type[Room]] = field(
-        default_factory=lambda: {
-            SceneName.KITCHEN: Kitchen,
-            SceneName.LIVING_ROOM: LivingRoom,
-            SceneName.BED_ROOM: Bedroom,
-        }
-    )
     """The kind of each of the kitchen's rooms, by the room's name."""
 
     kitchen_environment: KitchenEnvironment = field(default_factory=KitchenEnvironment)
@@ -248,6 +241,9 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     # NLP added
     json_plan: str = ""
     """The plan JSON the plan model wrote for the command the robot carries out."""
+
+    instruction: str = ""
+    """The instruction the human spoke, recorded via the NLP pipeline."""
 
     # Not needed because of Kitchen Environment
     def scene_specification(self) -> WorldSpecification:
@@ -338,9 +334,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
     # adds objects into the world and assigns room types
     def populate_scene(self, world: World) -> None:
-        """Give the kitchen's rooms their kinds, stand the milk on the counter
-        top and the person at the kitchen window."""
-        self.assign_room_types(world)
+        """Puts the milk on the counter top and the person in front of the kitchen window."""
         self.place_milk(world)
         self.place_person(world)
 
@@ -388,7 +382,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         visit by room visit, in the order :meth:`~coraplex.robot_plans.transfor
         mation_by_room.RoomVisitPlanner.transform_plan_by_rooms` orders them
         into."""
-        generated_command = action_main(context, self.json_plan)
+        generated_command = action_main(context, self.instruction, self.json_plan)
         any_room = {
             type(room) for room in context.world.get_semantic_annotations_by_type(Room)
         }
@@ -408,21 +402,6 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             )
         )
         return statechart
-
-    # replaces the rooms from kitchen with their typed subclasses: Room("living_room") -> LivingRoom("livong_room")
-    def assign_room_types(self, world: World) -> None:
-        """Replace each of the kitchen's untyped rooms named in
-        :attr:`room_types` by a room of its kind on the same floor.
-
-        :param world: The kitchen.
-        """
-        with world.modify_world():
-            for room_name, room_type in self.room_types.items():
-                room = world.get_semantic_annotation_by_name(room_name)
-                world.remove_semantic_annotation(room)
-                world.add_semantic_annotation(
-                    room_type(floor=room.floor, name=room.name)
-                )
 
     # spawns the milk at the edge of the counter top so the robot can easier reach it
     def place_milk(self, world: World) -> Milk:
@@ -604,7 +583,7 @@ def main(
     instruction_plans = plan_model.write_plans(instruction)
 
     json_plan = json.dumps(instruction_plans.to_json(), separators=(",", ":"))
-    logger.info("Generated plan: %s", json_plan)
+    logger.info("Generated plan for %r: %s", instruction, json_plan)
 
     return GeneratedCommandDemonstration(
         scene_joints_movable=False,

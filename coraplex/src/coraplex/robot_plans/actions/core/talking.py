@@ -8,7 +8,6 @@ from dataclasses import dataclass
 
 from std_msgs.msg import String
 
-from coraplex.datastructures.enums import SpeechTopic
 from coraplex.robot_plans.actions.base import SequentialAction
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart

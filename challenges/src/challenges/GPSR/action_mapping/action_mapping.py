@@ -11,12 +11,19 @@ from enum import StrEnum
 from typing_extensions import Any, Self
 
 from challenges.GPSR.action_mapping.exceptions import (
+    LocationNotInWorld,
+    LocationWithoutBody,
     MissingActionArgument,
+    NoFreeStandingPose,
     NoFreeSurface,
     NoFreeTableInRoom,
     NoGraspFitsGripper,
+    NoPersonFound,
     NoStandingPoseOnFloor,
+    NothingToFind,
+    ObjectNotGraspable,
     ObjectNotInRoom,
+    UnmappedActionType,
 )
 from challenges.semdt_helper_functions.find_class_by_name import (
     SemanticAnnotationClassFinder,
@@ -25,21 +32,18 @@ from challenges.semdt_helper_functions.find_class_by_name import (
 
 from coraplex.locations.locations import ReachabilityLocation
 from coraplex.perception import RoboKudoQuery, RoboKudoQueryTask
-from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
+from coraplex.plans.context_extensions import RobotAccess
 from coraplex.querying.grasp_closeness import GraspsByCloseness
 from coraplex.robot_plans.actions.base import Action, SequentialAction
 from coraplex.robot_plans.actions.composite.transporting import (
     MoveAndPickUpAction,
     MoveAndPlaceAction,
 )
-from coraplex.robot_plans.actions.composite.searching import SearchAction
 from coraplex.robot_plans.actions.core.navigation import (
     FaceAtAction,
     NavigateAction,
     PathPlanningNavigateAction,
 )
-from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.talking import TalkingAction
 from coraplex.robot_plans.task_definitions import Command, Step
 from cramph.context import ContextExtension, StatechartContext
@@ -49,7 +53,6 @@ from krrood.entity_query_language.query.match import Match
 from krrood_spatial_math.spatial_types import Point3, Pose
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
-from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.queries import (
     find_free_space_in_room,
@@ -57,7 +60,6 @@ from semantic_digital_twin.reasoning.queries import (
     find_objects_in_room,
     find_objects_room,
 )
-from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasGraspCandidates,
     HasRootBody,
@@ -264,10 +266,10 @@ class PlannedAction:
     One step of a generated plan, as the command generator described it.
     """
 
-    action_type: Action | Match | None
+    action_type: Action | Match
     """
     What the robot does in this step, as an action or as a statement grounded when the
-    step starts; ``None`` for a kind of step that is not mapped yet.
+    step starts.
     """
 
     text: str | None = None
@@ -313,101 +315,69 @@ class PlannedAction:
         :param context: The context of the plan the action runs in, whose robot performs
             it in its world.
         :return: The action it describes.
+        :raises MissingActionArgument: If the action lacks an argument its kind needs.
+        :raises UnmappedActionType: If the robot cannot perform this kind of action.
         """
         world = context.world
-        action = None
-        semdt_finder = SemanticAnnotationClassFinder()
-        if data.get(PayloadKey.LOCATION) is not None:
-            semdt_type = semdt_finder.find_place(data.get(PayloadKey.LOCATION))
-            location = world.get_semantic_annotations_by_type(semdt_type)[0]
-        else:
-            location = None
-
-        # -- LOCATION ---------------------------------------------------------------------------------------------------
-        location_coordinates = None
-        if location is not None:
-            if isinstance(location, Room):
-                location_coordinates = find_free_space_in_room(semdt_type, world)
-            else:
-                location_coordinates = find_free_space_next_to(
-                    robot_diameter=0.7, semantic_annotation=location
-                )
-
-        # -- OBJECT -----------------------------------------------------------------------------------------------------
+        location_name = data.get(PayloadKey.LOCATION)
+        location_type = (
+            None
+            if location_name is None
+            else SemanticAnnotationClassFinder().find_place(location_name)
+        )
+        location = (
+            None if location_type is None else cls.first_location(location_type, world)
+        )
+        object_name = data.get(PayloadKey.OBJECT)
         searched_object = (
             None
-            if data.get(PayloadKey.OBJECT) is None
+            if object_name is None
             else cls.find_object_annotation(
-                data[PayloadKey.OBJECT], data[PayloadKey.ACTION], location, world
+                object_name, data[PayloadKey.ACTION], location, world
             )
         )
-
-        # -- PERSON -----------------------------------------------------------------------------------------------------
-        searched_person = None
-        if data.get(PayloadKey.PERSON) is not None:
-            searched_person = world.get_semantic_annotation_by_name(
-                data.get(PayloadKey.PERSON)
-            )
+        person_description = data.get(PayloadKey.PERSON)
+        searched_person = (
+            None
+            if person_description is None
+            else cls.find_person(person_description, location, world)
+        )
 
         match data[PayloadKey.ACTION]:
             case ActionType.SAY:
-                action = TalkingAction(speaking_text=data.get(PayloadKey.TEXT))
-            case ActionType.NAVIGATE:  # DONE
-                if location_coordinates is None:
+                text = data.get(PayloadKey.TEXT)
+                if text is None:
+                    raise MissingActionArgument(
+                        action=ActionType.SAY, argument=PayloadKey.TEXT
+                    )
+                action = TalkingAction(speaking_text=text)
+            case ActionType.NAVIGATE:
+                if location is None:
                     raise MissingActionArgument(
                         action=ActionType.NAVIGATE, argument=PayloadKey.LOCATION
                     )
-                action = a(PathPlanningNavigateAction)(target=location_coordinates)
+                action = a(PathPlanningNavigateAction)(
+                    target=cls.free_standing_pose(location, world)
+                )
             case ActionType.PICK_UP:
                 action = cls.pick_up_from_reachable_standing_pose(
-                    searched_object, context
+                    cls.carried_object(ActionType.PICK_UP, searched_object), context
                 )
             case ActionType.PLACE:
-                if searched_object is None:
-                    raise MissingActionArgument(
-                        action=ActionType.PLACE, argument=PayloadKey.OBJECT
-                    )
-                if location_coordinates is None:
+                held_object = cls.carried_object(ActionType.PLACE, searched_object)
+                if location is None:
                     raise MissingActionArgument(
                         action=ActionType.PLACE, argument=PayloadKey.LOCATION
                     )
-                if isinstance(location, Room):
-                    target_location = cls.free_pose_on_table_in_room(
-                        semdt_type, searched_object, world
-                    )
-                elif isinstance(location, HasSupportingSurface):
-                    target_location = cls.free_pose_on_first_free_surface(
-                        world.get_semantic_annotations_by_type(semdt_type),
-                        searched_object,
-                    )
-                    if target_location is None:
-                        raise NoFreeSurface(
-                            surface_type=semdt_type, placed_object=searched_object
-                        )
-                else:
-                    target_location = location_coordinates
                 action = cls.place_from_reachable_standing_pose(
-                    searched_object, target_location, context
+                    held_object,
+                    cls.placing_pose(location_type, location, held_object, world),
+                    context,
                 )
             case ActionType.FIND:
-                if searched_object is not None:
-                    action = NavigateAction(
-                        target_location=searched_object.root.global_pose
-                    )
-                elif searched_person is not None:
-                    person_detection = context.get_extension(PersonDetection)
-                    action = FindPersonAction(
-                        person=searched_person,
-                        detection=(
-                            None if person_detection is None else person_detection.query
-                        ),
-                    )
-                else:
-                    raise Exception("Nothing to find here.")
-            case ActionType.OPEN:
-                pass
+                action = cls.finding_action(searched_object, searched_person, context)
             case _:
-                action = None
+                raise UnmappedActionType(action=data[PayloadKey.ACTION])
 
         # TODO change from strings to semantic annotations
         return cls(
@@ -415,8 +385,139 @@ class PlannedAction:
             text=data.get(PayloadKey.TEXT),
             location=location,
             object_annotation=searched_object,
-            person=data.get(PayloadKey.PERSON),
+            person=person_description,
         )
+
+    @staticmethod
+    def first_location(
+        location_type: type[SemanticAnnotation], world: World
+    ) -> SemanticAnnotation:
+        """
+        :param location_type: The kind of place a step names.
+        :param world: The world holding the place.
+        :return: The first place of that kind in ``world``.
+        :raises LocationNotInWorld: If ``world`` holds no place of that kind.
+        """
+        locations = world.get_semantic_annotations_by_type(location_type)
+        if not locations:
+            raise LocationNotInWorld(location_type=location_type)
+        return locations[0]
+
+    @staticmethod
+    def free_standing_pose(location: SemanticAnnotation, world: World) -> Pose:
+        """
+        :param location: The place the robot is to stand at.
+        :param world: The world holding the place.
+        :return: A free spot for the robot's base: in ``location`` if it is a room, else
+            next to it.
+        :raises LocationWithoutBody: If ``location`` is neither a room nor has a body.
+        :raises NoFreeStandingPose: If no spot is free.
+        """
+        if isinstance(location, Room):
+            standing_pose = find_free_space_in_room(type(location), world)
+        elif isinstance(location, HasRootBody):
+            standing_pose = find_free_space_next_to(
+                robot_diameter=0.7, semantic_annotation=location
+            )
+        else:
+            raise LocationWithoutBody(location=location)
+        if standing_pose is None:
+            raise NoFreeStandingPose(location=location)
+        return standing_pose
+
+    @staticmethod
+    def carried_object(
+        action: ActionType, named_object: HasRootBody | None
+    ) -> HasGraspCandidates:
+        """
+        :param action: The kind of action that picks up or puts down the object.
+        :param named_object: The object the step names, if any.
+        :return: ``named_object``, which the robot can grasp.
+        :raises MissingActionArgument: If the step names no object.
+        :raises ObjectNotGraspable: If the robot cannot grasp the object.
+        """
+        if named_object is None:
+            raise MissingActionArgument(action=action, argument=PayloadKey.OBJECT)
+        if not isinstance(named_object, HasGraspCandidates):
+            raise ObjectNotGraspable(named_object=named_object)
+        return named_object
+
+    @classmethod
+    def placing_pose(
+        cls,
+        location_type: type[SemanticAnnotation],
+        location: SemanticAnnotation,
+        held_object: HasGraspCandidates,
+        world: World,
+    ) -> Pose:
+        """
+        :param location_type: The kind of place the step names.
+        :param location: The place the step names.
+        :param held_object: The object to put down.
+        :param world: The world holding the place.
+        :return: Where to put the object down: on a table in a room, on the first free
+            surface of the named kind, or else on the spot next to the place.
+        :raises NoFreeTableInRoom: If no table in the named room has space.
+        :raises NoFreeSurface: If no surface of the named kind has space.
+        """
+        if isinstance(location, Room):
+            return cls.free_pose_on_table_in_room(location_type, held_object, world)
+        if not isinstance(location, HasSupportingSurface):
+            return cls.free_standing_pose(location, world)
+        free_pose = cls.free_pose_on_first_free_surface(
+            world.get_semantic_annotations_by_type(location_type), held_object
+        )
+        if free_pose is None:
+            raise NoFreeSurface(surface_type=location_type, placed_object=held_object)
+        return free_pose
+
+    @staticmethod
+    def finding_action(
+        searched_object: HasRootBody | None,
+        searched_person: Human | None,
+        context: StatechartContext,
+    ) -> Action:
+        """
+        :param searched_object: The object the step looks for, if any.
+        :param searched_person: The person the step looks for, if any.
+        :param context: The context of the plan, which may let the robot detect people.
+        :return: An action that drives to the object, else to the person.
+        :raises NothingToFind: If the step looks for neither.
+        """
+        # TODO: FIND currently only a placeholder, only works with objects already in the SemDT, find action has
+        #  to be implemented first to completely implement this feature
+        if searched_object is not None:
+            return NavigateAction(target_location=searched_object.root.global_pose)
+        if searched_person is None:
+            raise NothingToFind()
+        person_detection = context.get_extension(PersonDetection)
+        return FindPersonAction(
+            person=searched_person,
+            detection=None if person_detection is None else person_detection.query,
+        )
+
+    @staticmethod
+    def find_person(
+        description: str, location: SemanticAnnotation | None, world: World
+    ) -> Human:
+        """
+        :param description: The person as the step describes them, such as ``"person
+            pointing to the right"``.
+        :param location: The place the step names; a room restricts the search to it.
+        :param world: The world holding the person.
+        :return: The first person in the named room, or in ``world`` if the step names
+            no room. The description is left for the perception to check.
+        :raises NoPersonFound: If no person is there.
+        """
+        room = location if isinstance(location, Room) else None
+        people = (
+            world.get_semantic_annotations_by_type(Human)
+            if room is None
+            else find_objects_in_room(Human, type(room), world)
+        )
+        if not people:
+            raise NoPersonFound(description=description, room=room)
+        return people[0]
 
     @staticmethod
     def find_object_annotation(
@@ -594,7 +695,7 @@ class GeneratedPlan:
             already is joins the step around it, or the first step if it leads.
         """
         steps: list[Step] = []
-        leading_actions: list[Action | Match | None] = []
+        leading_actions: list[Action | Match] = []
         for planned_action in self.actions:
             room_type = planned_action.room_type
             if steps and (room_type is None or steps[-1].rooms == {room_type}):
@@ -654,37 +755,17 @@ class GeneratedCommand:
         )
 
 
-def main(context: StatechartContext, json_plan: str) -> GeneratedCommand:
-    instruction = "Bring the cup from the kitchen to the living room. Ask what the person in the kitchen what their favorite drink is."
-    #     json_ms0_mock = """
-    # {"plans":[[{"action":"say","text":"I will pick up the milk from the kitchen and put it on the table"},{"action":"navigate","location":"kitchen"},{"action":"pick_up","object":"milk"},{"action":"navigate","location":"table"},{"action":"place","object":"milk","location":"table"}],
-    # [{"action":"say","text":"I will find the person in the kitchen and ask what their favorite drink is"},{"action":"navigate","location":"kitchen"},{"action":"find","person":"person"},{"action":"say","text":"What is your favorite drink?"}]
-    # ]}
-    #     """
-    #     json_string = """
-    # {
-    #   "plans": [
-    #     [
-    #       { "action": "say", "text": "I will pick up butter from the storage rack and put it on the laundry room trashcan" },
-    #       { "action": "navigate", "location": "storage rack" },
-    #       { "action": "pick_up", "object": "butter" },
-    #       { "action": "navigate", "location": "laundry room trashcan" },
-    #       { "action": "place", "object": "butter", "location": "laundry room trashcan" }
-    #     ],
-    #     [
-    #       { "action": "say", "text": "I will go to the book shelf, find the person pointing to the right and tell them my team's name" },
-    #       { "action": "navigate", "location": "book shelf" },
-    #       { "action": "find", "person": "person pointing to the right" },
-    #       { "action": "say", "text": "<team name>" }
-    #     ],
-    #     [
-    #       { "action": "say", "text": "I will open the cupboard" },
-    #       { "action": "navigate", "location": "cupboard" },
-    #       { "action": "open", "location": "cupboard" }
-    #     ]
-    #   ]
-    # }
-    # """
+def main(
+    context: StatechartContext, instruction: str, json_plan: str
+) -> GeneratedCommand:
+    """
+    Map a command generator's plans to the actions the robot performs, and log them.
+
+    :param context: The context of the plan the command runs in.
+    :param instruction: The command as the operator spoke it.
+    :param json_plan: The command generator's JSON payload.
+    :return: The command with its plans of actions.
+    """
     command = GeneratedCommand.from_json(json.loads(json_plan), instruction, context)
     logger = logging.getLogger(__name__)
     logger.setLevel(logging.INFO)
@@ -701,7 +782,3 @@ def main(context: StatechartContext, json_plan: str) -> GeneratedCommand:
             )
             logger.info("%s", action.action_type)
     return command
-
-
-if __name__ == "__main__":
-    main()
