@@ -20,7 +20,7 @@ virtual environment:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
-cd ~/workspace/src/cognitive_robot_abstract_machine/coraplex/demos/coraplex_hsr_kitchen_to_sofa_demo
+cd ~/workspace/src/cognitive_robot_abstract_machine/coraplex/demos/suturo_human_robot_interaction_challenge/milestone_0/hsr_kitchen_to_sofa
 PY=~/.virtualenvs/cram-env/bin/python
 ```
 
