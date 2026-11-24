@@ -145,11 +145,17 @@ class OncePerCallSyncedMujocoSim(MujocoSim):
         """Differs from :meth:`MujocoSim.step_simulation` in copying the
         physics back into the world only after the last physics step of the
         call."""
-        last_step = timedelta(seconds=self.simulator.step_size)
+        physics_step = timedelta(seconds=self.simulator.step_size)
+        number_of_steps = round(duration / physics_step)
+        if number_of_steps == 0:
+            super().step_simulation(duration)
+            return
+        previous_sync_rate = self.synchronizer.sync_rate_hz
         self.synchronizer.sync_rate_hz = 0
-        super().step_simulation(duration - last_step)
+        super().step_simulation(physics_step * (number_of_steps - 1))
         self.synchronizer.sync_rate_hz = MujocoSynchronizer.UNTHROTTLED_SYNC_RATE_HZ
-        super().step_simulation(last_step)
+        super().step_simulation(physics_step)
+        self.synchronizer.sync_rate_hz = previous_sync_rate
 
 
 # MuJoco Performance improvement
@@ -239,10 +245,10 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     collides with nothing outside that category."""
 
     # NLP added
-    json_plan: str = ""
+    json_plan: str = field(kw_only=True)
     """The plan JSON the plan model wrote for the command the robot carries out."""
 
-    instruction: str = ""
+    instruction: str = field(kw_only=True)
     """The instruction the human spoke, recorded via the NLP pipeline."""
 
     # Not needed because of Kitchen Environment
@@ -589,6 +595,7 @@ def main(
         scene_joints_movable=False,
         headless=headless,
         json_plan=json_plan,
+        instruction=instruction,
         perception=(
             SimulatedHsrHeadCameraPerception(
                 AnalysisEngineProcess(
