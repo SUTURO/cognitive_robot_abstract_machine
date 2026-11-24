@@ -5,7 +5,7 @@ Start AMCL and Pumas on the map ``apartment_master1``, Giskard and RoboKudo, put
 robot at the door, then run it from this folder::
 
     source ~/ros_clean_env.sh
-    python find_free_seats_on_hsr_with_pumas.py
+    python find_free_seats_on_hsr.py
 """
 
 from __future__ import annotations

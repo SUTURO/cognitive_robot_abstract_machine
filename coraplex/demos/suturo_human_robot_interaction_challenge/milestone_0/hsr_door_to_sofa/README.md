@@ -31,9 +31,8 @@ lacks the workspace packages.
 |---|---|---|---|
 | `$PY find_free_seats_in_rviz.py [LEFT] [RIGHT]` | kinematically simulated | ROS 2, RViz2 | The robot moving in RViz, see below. |
 | `$PY find_free_seats_in_mujoco.py [LEFT] [RIGHT]` | physically simulated | `mujoco` | A MuJoCo viewer. |
-| `$PY find_free_seats_on_hsr_with_giskard.py` | real | The HSR, its ROS stack and RoboKudo | The real robot driving to the sofa. |
 | `$PY find_free_seats_in_recording.py <recording>` | kinematically simulated, one look | ROS 2, RoboKudo, a recording | The free seats RoboKudo sees in the recording. |
-| `$PY find_free_seats_on_hsr_with_pumas.py` | real, one look | The HSR, its ROS stack, Pumas and RoboKudo | The real robot driven by Pumas. |
+| `$PY find_free_seats_on_hsr.py` | real, one look | The HSR, its ROS stack, Pumas and RoboKudo | The real robot driven by Pumas. |
 | `$PY test_find_free_seats.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if only the left seat is reported free with a person on the right seat. |
 
 ### People on the sofa in simulation
@@ -66,37 +65,6 @@ The run itself takes only a moment: the kinematic simulation puts the base strai
 each pose it drives to, so the robot jumps rather than drives. Afterwards the world stays
 shown, with the robot in front of the sofa, until you press Ctrl+C; RViz may be started
 before or after. To watch the robot drive, use `find_free_seats_in_mujoco.py`.
-
-### On the real robot
-
-Never run so far. Each step runs in its own terminal with ROS sourced and the robot's
-`ROS_DOMAIN_ID`; the HSR localizes in the `map` frame, which the kitchen of the demo is
-assumed to share.
-
-1. Bring up the HSR's ROS stack: drivers, localization in the kitchen lab's map and the
-   head camera.
-2. Start Giskard for the HSR. It commands the robot and serves the world everyone else
-   fetches:
-
-   ```bash
-   $PY -m giskardpy.middleware.ros2.scripts.iai_robots.hsr.hsr_velocity
-   ```
-
-3. Start the perception pipeline that checks the sofa's seat places for people sitting
-   on them; it detects no chairs:
-
-   ```bash
-   $PY -m robokudo.scripts.main _ae seat_place_occupancy
-   ```
-
-   To add detected chairs, start `_ae free_seat_detection` instead, after putting the
-   YOLO weights `chairs.pt` into `robokudo/src/robokudo/models/` (not part of the
-   repository).
-
-4. Put the robot at the door of the kitchen lab. The real robot starts wherever it
-   stands; the start pose of the simulations is not used.
-5. Run `$PY find_free_seats_on_hsr_with_giskard.py`. The demo adds the kitchen, sofa seat places included, to the
-   world Giskard serves; RoboKudo fetches that world on the first query.
 
 ### Simulation from a recording
 
@@ -148,7 +116,7 @@ looks at the sofa from straight in front, about as far away as in 05 to 09, so
 recordings taken from elsewhere (13A, 14) do not line up with the seat places of the
 map.
 
-### On the real robot with Pumas
+### On the real robot
 
 Never run so far. The base is driven by the lab's Pumas navigation, which plans its path
 on the laser map, so the robot goes around the kitchen island by itself. Follow the
@@ -161,7 +129,9 @@ of `apartment3`, in the start scripts' `map_name:=` and as the robot's `MAP_PATH
    robot's RMW, then start Giskard:
    `$PY -m giskardpy.middleware.ros2.scripts.iai_robots.hsr.hsr_velocity`
 3. Start RoboKudo: `$PY -m robokudo.scripts.main _ae seat_place_occupancy`
-4. Put the robot at the door and run `$PY find_free_seats_on_hsr_with_pumas.py`.
+   To add detected chairs, start `_ae free_seat_detection` instead, after putting the YOLO
+   weights `chairs.pt` into `robokudo/src/robokudo/models/` (not part of the repository).
+4. Put the robot at the door and run `$PY find_free_seats_on_hsr.py`.
 
 The run has three parts:
 
@@ -178,7 +148,7 @@ sentence is printed.
 
 The scanning pose comes from the sofa in `KitchenEnvironment`, whose frame does not line
 up with the `map` frame of `apartment_master1`: the kitchen is placed in it at
-the `map_T_scene` in `find_free_seats_on_hsr_with_pumas.py`.
+the `map_T_scene` in `find_free_seats_on_hsr.py`.
 
 ## File layout
 
@@ -188,9 +158,8 @@ the `map_T_scene` in `find_free_seats_on_hsr_with_pumas.py`.
 | `coraplex/src/coraplex/sofa_demonstrations.py` | What all sofa demos share: the scene, the drive around the furniture and the physics settings. |
 | `find_free_seats_in_rviz.py` | Kinematic run, published for RViz. |
 | `find_free_seats_in_mujoco.py` | Physics run in MuJoCo. |
-| `find_free_seats_on_hsr_with_giskard.py` | Real robot. |
 | `find_free_seats_in_recording.py`, `camera_recording.py`, `exceptions.py` | Run on a recording of the head camera. |
-| `find_free_seats_on_hsr_with_pumas.py` | Real robot, driven by Pumas. |
+| `find_free_seats_on_hsr.py` | Real robot, driven by Pumas. |
 | `test_find_free_seats.py` | The check CI runs, see `.github/workflows/examples_and_demos.yml`. |
 
 ## What the plan does
@@ -232,7 +201,7 @@ afterwards, and the demo names the free seat places of the sofa.
 | `scanning_distance = 1.8` | `free_seats_demonstration.py` | Puts the camera about 2.15 m from the seat cushions, the distance measured in the depth images of recordings 05 and 07. |
 | `scanning_torso_state = LOW` | `free_seats_demonstration.py` | Not measured; the camera height of the recordings is unknown. |
 | `position_threshold = 0.3`, `orientation_threshold = 0.1`, `timeout = 3 min` | `coraplex/src/coraplex/pumas_navigation.py` | Not measured; Pumas reports no outcome, so arriving is judged by these and by the base having stood still for `stillness_duration = 0.5 s` (within 1 cm and 0.01 rad, also not measured). The position threshold allows for Pumas stopping about 0.24 m short of the goal when an obstacle is near it. |
-| `map_T_scene = (0.44, 0.14, yaw -0.058)` | `find_free_seats_on_hsr_with_pumas.py` | Fitted to three room corners clicked on the laser map: the far wall at the bedroom end, the kitchen wall at the fridge end and the window wall at the oven end, taking the window wall at its cable channel. The corners still differ by 7 to 15 cm after the fit, since the room is 4.72 m by 9.05 m in the laser map and 4.86 m by 8.79 m in the model. |
+| `map_T_scene = (0.44, 0.14, yaw -0.058)` | `find_free_seats_on_hsr.py` | Fitted to three room corners clicked on the laser map: the far wall at the bedroom end, the kitchen wall at the fridge end and the window wall at the oven end, taking the window wall at its cable channel. The corners still differ by 7 to 15 cm after the fit, since the room is 4.72 m by 9.05 m in the laser map and 4.86 m by 8.79 m in the model. |
 | `images_before_start = 30` | `camera_recording.py` | About one second of images at 30 Hz before the plan starts. |
 | `chair_seat_place_size = 0.5 × 0.5 × 0.5` | `SeatPerceptionTask` | The seat place of a chair added to the world. Estimated, not measured. |
 | `chair_matching_distance = 0.5` | `SeatPerceptionTask` | How close a detected chair must be to a chair of the world to be that chair. Estimated. |
