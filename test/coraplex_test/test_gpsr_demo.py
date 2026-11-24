@@ -1,22 +1,22 @@
 """
-Tests for the simulation of the GPSR demonstration.
+Tests for the scene and the simulation of the GPSR demonstration.
 """
 
 from __future__ import annotations
 
 # %% Imports
+import importlib.util
+import sys
 from datetime import timedelta
+from pathlib import Path
+from types import ModuleType
 
 import pytest
 from typing_extensions import Iterator
 
-from challenges.GPSR.demonstration import (
-    GeneratedCommandDemonstration,
-    OncePerCallSyncedMujocoSim,
-    SceneContactCategory,
-    SceneName,
-)
+from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
+from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoGeom
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -30,6 +30,23 @@ from semantic_digital_twin.world_description.world_entity import Body
 
 
 # %% Fixtures
+
+
+@pytest.fixture(scope="module")
+def gpsr_demo() -> ModuleType:
+    """
+    The GPSR demonstration, loaded from its directory.
+    """
+    folder = Path(__file__).parents[2] / "coraplex" / "demos" / "coraplex_gpsr_demo"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.syspath_prepend(str(folder))
+        specification = importlib.util.spec_from_file_location(
+            "gpsr_demo", folder / "demo.py"
+        )
+        module = importlib.util.module_from_spec(specification)
+        patch.setitem(sys.modules, specification.name, module)
+        specification.loader.exec_module(module)
+    return module
 
 
 @pytest.fixture
@@ -61,12 +78,14 @@ def falling_box_world() -> World:
 
 @pytest.fixture
 def falling_box_simulation(
-    falling_box_world: World,
-) -> Iterator[OncePerCallSyncedMujocoSim]:
+    gpsr_demo: ModuleType, falling_box_world: World
+) -> Iterator[MujocoSim]:
     """
     A started, stepped and headless simulation of a box falling from one metre.
     """
-    simulation = OncePerCallSyncedMujocoSim(world=falling_box_world, headless=True)
+    simulation = gpsr_demo.OncePerCallSyncedMujocoSim(
+        world=falling_box_world, headless=True
+    )
     simulation.start_stepped_simulation()
     yield simulation
     simulation.stop_simulation()
@@ -76,7 +95,7 @@ def falling_box_simulation(
 
 
 def test_stepping_keeps_the_synchronizers_rate(
-    falling_box_simulation: OncePerCallSyncedMujocoSim,
+    falling_box_simulation: MujocoSim,
 ) -> None:
     """
     Stepping leaves the rate the synchronizer copies the physics into the world at as it
@@ -91,7 +110,7 @@ def test_stepping_keeps_the_synchronizers_rate(
 
 
 def test_stepping_shorter_than_half_a_physics_step_advances_no_time(
-    falling_box_simulation: OncePerCallSyncedMujocoSim,
+    falling_box_simulation: MujocoSim,
 ) -> None:
     """
     A duration that rounds to no physics step advances the simulation by none, as
@@ -106,7 +125,7 @@ def test_stepping_shorter_than_half_a_physics_step_advances_no_time(
 
 
 def test_the_world_holds_the_physics_after_a_call(
-    falling_box_simulation: OncePerCallSyncedMujocoSim, falling_box_world: World
+    falling_box_simulation: MujocoSim, falling_box_world: World
 ) -> None:
     """
     After a call, the world holds where the physics moved the box to.
@@ -123,37 +142,37 @@ def test_the_world_holds_the_physics_after_a_call(
 # %% Setting up the demonstration
 
 
-def test_demonstration_needs_a_plan() -> None:
+def test_demonstration_needs_a_plan(gpsr_demo: ModuleType) -> None:
     """
     A demonstration cannot be set up without the plan it carries out.
     """
     with pytest.raises(TypeError):
-        GeneratedCommandDemonstration()
+        gpsr_demo.GeneratedCommandDemonstration()
 
 
-def test_demonstration_needs_the_spoken_instruction() -> None:
+def test_demonstration_needs_the_spoken_instruction(gpsr_demo: ModuleType) -> None:
     """
     A demonstration cannot be set up without the instruction its plan was written for.
     """
     with pytest.raises(TypeError):
-        GeneratedCommandDemonstration(json_plan='{"plans": []}')
+        gpsr_demo.GeneratedCommandDemonstration(json_plan='{"plans": []}')
 
 
 # %% The scene of the demonstration
 
 
 @pytest.fixture(scope="module")
-def demonstration() -> GeneratedCommandDemonstration:
+def demonstration(gpsr_demo: ModuleType) -> RobotDemonstration:
     """
     The demonstration of a command without plans, run without a viewer or perception.
     """
-    return GeneratedCommandDemonstration(
+    return gpsr_demo.GeneratedCommandDemonstration(
         json_plan='{"plans": []}', instruction="", headless=True
     )
 
 
 @pytest.fixture(scope="module")
-def demonstration_world(demonstration: GeneratedCommandDemonstration) -> World:
+def demonstration_world(demonstration: RobotDemonstration) -> World:
     """
     The kitchen of the demonstration with the milk, the person and the HSR in it.
     """
@@ -161,6 +180,7 @@ def demonstration_world(demonstration: GeneratedCommandDemonstration) -> World:
 
 
 def test_milk_stands_at_the_front_edge_of_the_counter_top(
+    gpsr_demo: ModuleType,
     demonstration_world: World,
 ) -> None:
     """
@@ -168,12 +188,12 @@ def test_milk_stands_at_the_front_edge_of_the_counter_top(
     """
     root = demonstration_world.root
     milk_box = (
-        demonstration_world.get_body_by_name(SceneName.MILK)
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.MILK)
         .collision.as_bounding_box_collection_in_frame(root)
         .bounding_box()
     )
     counter_box = (
-        demonstration_world.get_body_by_name(SceneName.COUNTER_TOP)
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.COUNTER_TOP)
         .collision.as_bounding_box_collection_in_frame(root)
         .bounding_box()
     )
@@ -186,13 +206,13 @@ def test_milk_stands_at_the_front_edge_of_the_counter_top(
 
 
 def test_person_stands_with_their_back_at_the_distance_from_the_window_sill(
-    demonstration: GeneratedCommandDemonstration, demonstration_world: World
+    gpsr_demo: ModuleType, demonstration: RobotDemonstration, demonstration_world: World
 ) -> None:
     """
     The person's back keeps :attr:`person_distance_to_window` from the window sill.
     """
     human_box = (
-        demonstration_world.get_body_by_name(SceneName.HUMAN)
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.HUMAN)
         .collision.as_bounding_box_collection_in_frame(demonstration_world.root)
         .bounding_box()
     )
@@ -203,16 +223,20 @@ def test_person_stands_with_their_back_at_the_distance_from_the_window_sill(
 
 
 def test_the_person_is_a_human_named_as_the_command_names_them(
+    gpsr_demo: ModuleType,
     demonstration_world: World,
 ) -> None:
     """
     The person is a human the command can name with ``"person"``.
     """
-    person = demonstration_world.get_semantic_annotation_by_name(SceneName.PERSON)
+    person = demonstration_world.get_semantic_annotation_by_name(
+        gpsr_demo.SceneName.PERSON
+    )
     assert isinstance(person, Human)
 
 
 def test_only_the_grippers_of_the_robot_touch_the_scene_in_mujoco(
+    gpsr_demo: ModuleType,
     demonstration_world: World,
 ) -> None:
     """
@@ -231,11 +255,11 @@ def test_only_the_grippers_of_the_robot_touch_the_scene_in_mujoco(
             if body in gripper_bodies:
                 assert contact is None
             else:
-                assert contact.contact_type == SceneContactCategory.ROBOT_BODY
+                assert contact.contact_type == gpsr_demo.SceneContactCategory.ROBOT_BODY
 
 
 def test_context_without_perception_gives_the_plan_its_robot(
-    demonstration: GeneratedCommandDemonstration, demonstration_world: World
+    demonstration: RobotDemonstration, demonstration_world: World
 ) -> None:
     """
     Without perception, the plan's context only gives access to the robot.

@@ -6,8 +6,6 @@ robot performs.
 from __future__ import annotations
 
 # %% Imports
-import json
-import logging
 
 import numpy
 from dataclasses import dataclass
@@ -15,7 +13,7 @@ from enum import StrEnum
 
 from typing_extensions import TYPE_CHECKING, Any, Self
 
-from challenges.GPSR.action_mapping.exceptions import (
+from coraplex.exceptions import (
     LocationNotInWorld,
     LocationWithoutBody,
     MissingActionArgument,
@@ -30,7 +28,7 @@ from challenges.GPSR.action_mapping.exceptions import (
     ObjectNotInRoom,
     UnmappedActionType,
 )
-from challenges.semantic_annotation_lookup.class_finder import (
+from semantic_digital_twin.semantic_annotations.class_finder import (
     SemanticAnnotationClassFinder,
 )
 
@@ -840,31 +838,3 @@ class GeneratedCommand:
                 for plan in data[PayloadKey.PLANS]
             ],
         )
-
-
-def main(
-    context: StatechartContext, instruction: str, json_plan: str
-) -> GeneratedCommand:
-    """
-    Map a command generator's plans to the actions the robot performs, and log them.
-
-    :param context: The context of the plan the command runs in.
-    :param instruction: The command as the operator spoke it.
-    :param json_plan: The command generator's JSON payload.
-    :return: The command with its plans of actions.
-    """
-    command = GeneratedCommand.from_json(json.loads(json_plan), instruction, context)
-    logger = logging.getLogger(__name__)
-    for plan in command.plans:
-        for action in plan.actions:
-            logger.info(
-                "%s | location: %s | object: %s | person: %s",
-                type(action.action).__name__,
-                None if action.location is None else type(action.location).__name__,
-                None
-                if action.object_annotation is None
-                else type(action.object_annotation).__name__,
-                None if action.person is None else action.person.name,
-            )
-            logger.info("%s", action.action)
-    return command

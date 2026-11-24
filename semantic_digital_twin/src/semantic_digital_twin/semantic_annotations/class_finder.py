@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from krrood.utils import recursive_subclasses
 
-from challenges.semantic_annotation_lookup.exceptions import (
+from semantic_digital_twin.exceptions import (
     AmbiguousSemanticAnnotationName,
     UnknownSemanticAnnotationName,
 )

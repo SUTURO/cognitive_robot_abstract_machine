@@ -15,8 +15,8 @@ from typing_extensions import Any, Iterator
 
 from krrood.patterns.path_enumeration import PathEnumeration
 
-from challenges.GPSR.action_mapping import action_mapping
-from challenges.GPSR.action_mapping.exceptions import (
+from coraplex.robot_plans import generated_commands
+from coraplex.exceptions import (
     LocationNotInWorld,
     LocationWithoutBody,
     MissingActionArgument,
@@ -29,7 +29,7 @@ from challenges.GPSR.action_mapping.exceptions import (
     ObjectNotInRoom,
     UnmappedActionType,
 )
-from challenges.GPSR.action_mapping.action_mapping import (
+from coraplex.robot_plans.generated_commands import (
     ActionType,
     CollisionAllowingAction,
     DetectedObjectType,
@@ -86,7 +86,7 @@ class CommandGeneratorAnswer(PathEnumeration):
     Answers of the command generator, kept as the JSON files it writes.
     """
 
-    TWO_TASKS = Path(__file__).parent / "resources" / "generated_command.json"
+    TWO_TASKS = Path(__file__).parents[2] / "dataset" / "generated_command.json"
     """
     Driving to the kitchen and to the living room table, and finding the apple.
     """
@@ -319,7 +319,7 @@ def test_placing_in_a_room_needs_no_free_standing_spot(
     the robot to stand on, instead of reporting the named room as missing.
     """
     monkeypatch.setattr(
-        action_mapping, "find_free_space_in_room", lambda room_type, world: None
+        generated_commands, "find_free_space_in_room", lambda room_type, world: None
     )
     with pytest.raises(NoFreeTableInRoom):
         PlannedAction.from_json(

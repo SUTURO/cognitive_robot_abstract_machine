@@ -10,11 +10,11 @@ from dataclasses import dataclass
 
 import pytest
 
-from challenges.semantic_annotation_lookup.exceptions import (
+from semantic_digital_twin.exceptions import (
     AmbiguousSemanticAnnotationName,
     UnknownSemanticAnnotationName,
 )
-from challenges.semantic_annotation_lookup.class_finder import (
+from semantic_digital_twin.semantic_annotations.class_finder import (
     SemanticAnnotationClassFinder,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (

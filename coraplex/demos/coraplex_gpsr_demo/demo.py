@@ -18,10 +18,10 @@ from pathlib import Path
 import coraplex
 import mujoco
 import numpy
-from challenges.GPSR.action_mapping.action_mapping import (
+from coraplex.robot_plans.generated_commands import (
     DetectedObjectType,
+    GeneratedCommand,
     PersonDetection,
-    main as action_main,
 )
 from cramspeech.inference.plan_model import PlanModel
 from cramspeech.microphone import Microphone
@@ -200,7 +200,7 @@ class PhysicallySimulatedGraspingPlanExecutor(PhysicallySimulatedPlanExecutor):
 class GeneratedCommandDemonstration(RobotDemonstration):
     """
     The robot carries out the actions mapped from the generated command of
-    :func:`~challenges.GPSR.action_mapping.action_mapping.main`, in the kitchen of
+    :attr:`json_plan`, in the kitchen of
     :class:`~semantic_digital_twin.predefined_maps.kitchen_environment.KitchenEnvironment`
     with rooms of their kind, a milk carton on its counter top and a person at its
     kitchen window.
@@ -415,7 +415,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         :meth:`~coraplex.robot_plans.transformation_by_room.RoomVisitPlanner.transform_plan_by_rooms`
         orders them into.
         """
-        generated_command = action_main(context, self.instruction, self.json_plan)
+        generated_command = self.map_generated_command(context)
         fallback_room_types = {
             type(room) for room in context.world.get_semantic_annotations_by_type(Room)
         }
@@ -435,6 +435,31 @@ class GeneratedCommandDemonstration(RobotDemonstration):
             )
         )
         return statechart
+
+    def map_generated_command(self, context: StatechartContext) -> GeneratedCommand:
+        """
+        Map :attr:`json_plan` to the actions the robot performs, and log each of them.
+
+        :param context: The context of the plan the command runs in.
+        :return: The command with its plans of actions.
+        """
+        command = GeneratedCommand.from_json(
+            json.loads(self.json_plan), self.instruction, context
+        )
+        logger = logging.getLogger(__name__)
+        for plan in command.plans:
+            for action in plan.actions:
+                logger.info(
+                    "%s | location: %s | object: %s | person: %s",
+                    type(action.action).__name__,
+                    None if action.location is None else type(action.location).__name__,
+                    None
+                    if action.object_annotation is None
+                    else type(action.object_annotation).__name__,
+                    None if action.person is None else action.person.name,
+                )
+                logger.info("%s", action.action)
+        return command
 
     def place_milk(self, world: World) -> Milk:
         """
@@ -621,6 +646,5 @@ def main(
 
 
 if __name__ == "__main__":
-    for module_name in (__name__, action_main.__module__):
-        logging.getLogger(module_name).setLevel(logging.INFO)
+    logging.getLogger(__name__).setLevel(logging.INFO)
     main()

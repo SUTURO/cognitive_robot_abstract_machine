@@ -6,7 +6,8 @@ MuJoCo simulation. It publishes the simulated head camera on the same ROS topics
 starts the analysis engine in its own process, and hands the plan what it needs to capture a frame before each
 query.
 
-The steps below add it to a new {class}`~coraplex.demonstrations.RobotDemonstration`.
+The GPSR demonstration in `coraplex/demos/coraplex_gpsr_demo/demo.py` uses it. The steps below add it to a
+new {class}`~coraplex.demonstrations.RobotDemonstration`.
 
 ## Requirements
 
