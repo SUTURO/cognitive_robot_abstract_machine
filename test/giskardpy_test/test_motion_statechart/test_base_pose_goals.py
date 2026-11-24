@@ -80,6 +80,9 @@ def test_a_differential_drive_goal_drives_the_drive_of_the_robot(
 def test_a_drive_goal_cannot_move_a_robot_without_a_mobile_base(
     self_collision_bot_world: World, goal_type: type[MobileBasePoseGoal]
 ) -> None:
+    """
+    No drive goal can be made for a robot without a mobile base.
+    """
     robot = self_collision_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
 
     with pytest.raises(RobotWithoutMobileBaseError) as raised:
@@ -273,6 +276,10 @@ def _base_poses_until_end(
 def test_a_straight_line_base_goal_reaches_its_target(
     cylinder_bot_world: World,
 ) -> None:
+    """
+    A straight-line base goal ends with the base at the target's position and
+    orientation.
+    """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
     goal = StraightLineBaseGoal.moving_base_of(
@@ -348,6 +355,10 @@ def test_a_straight_line_base_goal_stays_on_the_line_to_its_target(
 def test_a_straight_line_base_goal_returns_to_the_line_after_being_pushed_off_it(
     cylinder_bot_world: World,
 ) -> None:
+    """
+    A base pushed off the straight line to its goal returns to the line and drives the
+    rest of the way along it.
+    """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = Pose.from_xyz_rpy(2, 0, 0, reference_frame=cylinder_bot_world.root)
     goal = StraightLineBaseGoal.moving_base_of(

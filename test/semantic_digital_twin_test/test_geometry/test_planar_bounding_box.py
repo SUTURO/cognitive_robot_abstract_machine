@@ -1,3 +1,9 @@
+"""
+Tests of :class:`~semantic_digital_twin.world_description.geometry.PlanarBoundingBox`.
+"""
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 from random_events.interval import closed

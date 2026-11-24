@@ -75,6 +75,10 @@ def _free_space(
 
 @pytest.fixture
 def two_rooms() -> TwoRooms:
+    """
+    :return: Two rooms side by side, joined by a doorway in the wall at x = 2 between
+        y = 1 and y = 1.5.
+    """
     world = World()
     with world.modify_world():
         world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
@@ -137,6 +141,9 @@ def test_a_path_into_the_next_room_leads_through_the_doorway(
 def test_there_is_no_path_between_rooms_whose_free_spaces_do_not_touch(
     two_rooms: TwoRooms,
 ) -> None:
+    """
+    Rooms whose free spaces leave a gap between them have no path from one to the other.
+    """
     origin = HomogeneousTransformationMatrix(reference_frame=two_rooms.world.root)
     walled_off_room = _free_space(
         world=two_rooms.world,
@@ -162,6 +169,10 @@ def test_there_is_no_path_between_rooms_whose_free_spaces_do_not_touch(
 
 
 def test_a_path_within_one_room_is_that_rooms_own_path(two_rooms: TwoRooms) -> None:
+    """
+    A start and goal in the same room are joined by the path that room's free space
+    plans on its own.
+    """
     joined = AdjoiningFreeSpaces(
         world=two_rooms.world,
         free_spaces=[two_rooms.left_room, two_rooms.right_room],

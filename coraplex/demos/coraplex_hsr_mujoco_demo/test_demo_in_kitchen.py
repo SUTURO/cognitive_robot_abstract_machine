@@ -1,11 +1,17 @@
 #!/usr/bin/env python
+"""
+Runs the HSR kitchen navigation demo without a viewer, failing with a traceback.
+"""
+
+from __future__ import annotations
+
 import traceback
 
 
 def main() -> None:
     """
-    Run the HSR MuJoCo kitchen navigation demo without a viewer and exit non-zero
-    with a traceback on failure.
+    Run the HSR MuJoCo kitchen navigation demo without a viewer and exit non-zero with a
+    traceback on failure.
     """
     try:
         import demo_in_kitchen

@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from semantic_digital_twin.world import World
 
 
-@dataclass
+@dataclass(kw_only=True)
 class KitchenNavigationDemonstration(RobotDemonstration):
     """
     The HSR parks its arm, turns its head to the front of its base and drives from

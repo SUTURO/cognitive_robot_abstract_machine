@@ -172,15 +172,10 @@ class PathPlanningNavigateAction(
     DrivesBase, SequentialAction, HasPlanarGoalPoseParameter
 ):
     """
-    Navigates the robot to a pose along a path through the environment's free space.
+    Navigates the robot to a pose around the known furniture and walls, through the
+    free space of the floors of its storey, so also into rooms other than its own.
 
-    The free space is decomposed into a graph of convex sets, so the robot drives around
-    the furniture and walls between it and the target instead of straight at them. When
-    the target lies on another floor of the same storey, such as the floor of another
-    room, the path passes from floor to floor where their free spaces touch.
-
-    This works for obstacles which are known in the environment beforehand, not for
-    those added during navigation.
+    .. note:: Obstacles added during navigation are not avoided.
     """
 
     start: Pose2D | None = None

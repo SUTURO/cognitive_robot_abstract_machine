@@ -1,3 +1,8 @@
+"""
+Executors that perform plans in simulation or on a real robot, and the adaptations they
+make to a plan first.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +28,11 @@ from coraplex.plans.failures import (
     MotionWasInfeasible,
     PlanFailure,
 )
-from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation, ConfigurationTransformation
+from coraplex.plans.plan_transformation import (
+    PlanRewriting,
+    PlanTransformation,
+    ConfigurationTransformation,
+)
 from coraplex.plans.underspecified import UnderspecifiedChildChooser
 from coraplex.robot_plans.actions.base import Action
 from coraplex.robot_plans.actions.core.navigation import DrivesBase
@@ -661,9 +670,10 @@ class RealRobotPlanExecutor(PlanExecutor):
 
 @dataclass(kw_only=True)
 class DriveFacingTheWayToTheGoal(ConfigurationTransformation[DrivesBase]):
-    """Lets the base turn towards each goal, drive there facing forwards and
-    only then turn to the goal's orientation, instead of moving sideways while
-    turning."""
+    """
+    Lets the base turn towards each goal, drive there facing forwards and only then turn
+    to the goal's orientation, instead of moving sideways while turning.
+    """
 
     def is_applicable(self, plan_node: DrivesBase) -> bool:
         return True
@@ -680,6 +690,10 @@ class ForwardDrivingPlanExecutor(PhysicallySimulatedPlanExecutor):
     """
 
     def __post_init__(self) -> None:
+        """
+        Add :class:`DriveFacingTheWayToTheGoal` to :attr:`plan_adaptations` before the
+        executor is set up.
+        """
         self.plan_adaptations = [
             *self.plan_adaptations,
             DriveFacingTheWayToTheGoal(),

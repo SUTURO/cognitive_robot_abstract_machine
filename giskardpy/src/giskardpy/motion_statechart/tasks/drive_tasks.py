@@ -130,6 +130,10 @@ class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
         self._parent_T_start_binding.bind(world=self.context.world)
 
     def on_start(self) -> None:
+        """
+        Read where the base stands again, so a task that starts anew measures from
+        there.
+        """
         self._parent_T_start_binding.bind(world=self.context.world)
 
     @property
@@ -270,6 +274,10 @@ class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
     def parent_P_viewpoint(
         self, *, parent_T_base: HomogeneousTransformationMatrix
     ) -> Point3:
+        """
+        Differs from :meth:`BaseHeading.parent_P_viewpoint` in looking from where the
+        base stood when this task started.
+        """
         return self.parent_P_start
 
 
@@ -518,12 +526,10 @@ class HolonomicBaseGoal(DrivenBaseGoal):
 @dataclass(eq=False, repr=False, kw_only=True)
 class TravelFacingBaseGoal(DrivenBaseGoal, ABC):
     """
-    Moves the base to a goal pose while it faces the way it travels, running these steps
-    in one :class:`~cramph.composites.Sequence`:
-
-    1. Turn towards the goal position, without driving
-    2. Drive to the goal position, with the tasks :meth:`create_driving_tasks` creates
-    3. Orient to the goal orientation
+    Moves the base to a goal pose facing the way it travels: in one
+    :class:`~cramph.composites.Sequence`, it turns towards the goal position, drives
+    there with the tasks :meth:`create_driving_tasks` creates, and turns to the goal
+    orientation.
     """
 
     sequence: Sequence = expanded_child_field()
