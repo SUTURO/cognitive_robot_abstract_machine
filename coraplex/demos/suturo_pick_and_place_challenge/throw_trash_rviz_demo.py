@@ -23,7 +23,6 @@ from coraplex.plans.executors import (
     KinematicallySimulatedPlanExecutor,
     PlanExecutor,
 )
-from coraplex.plans.plan_transformation import PlanTransformation
 from coraplex.querying.grasp_closeness import GraspsByCloseness
 from coraplex.robot_plans.actions.composite.carrying import CarryAction
 from coraplex.robot_plans.actions.composite.facing import FaceAndLookAtAction
@@ -106,26 +105,6 @@ class SceneBody(StrEnum):
     MILK = "milk"
 
 
-# %% driving the base in a world without a drive
-
-
-@dataclass
-class DrivingKinematicallySimulatedPlanExecutor(KinematicallySimulatedPlanExecutor):
-    """
-    Simulates the plan kinematically, like
-    :class:`~coraplex.plans.executors.KinematicallySimulatedPlanExecutor`, but drives the
-    base to every pose it navigates to instead of putting it there, so the drive can be
-    watched.
-    """
-
-    plan_adaptations: list[PlanTransformation] = field(
-        default_factory=list, kw_only=True
-    )
-    """
-    No plan transformations, so that no drive is replaced by setting the base's pose.
-    """
-
-
 # %% the demonstration
 
 
@@ -158,14 +137,15 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
     Name of the ROS node the demo registers.
     """
 
-    executor_type: type[PlanExecutor] = DrivingKinematicallySimulatedPlanExecutor
-    """
-    The executor running the plan; by default a kinematic simulation whose base drives.
-    """
-
     collision_avoidance: bool = True
     """
     Whether the robot keeps away from the furniture, from itself and from what it holds.
+    """
+
+    robot_teleports_instead_of_driving: bool = True
+    """
+    Whether a kinematic simulation puts the HSR at every pose it navigates to; off, so
+    the drive can be watched.
     """
 
     robot_start: Pose2D = field(
@@ -300,7 +280,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         [trash_can] = world.get_semantic_annotations_by_type(TrashCan)
         [grasp] = GraspsByCloseness(
             graspable=milk,
-            standing_position=Pose(reference_frame=hsrb.root),
+            standing_position=Pose2D(reference_frame=hsrb.root),
             number_of_grasps=1,
         )()
         drop_pose = self._compute_drop_pose(trash_can=trash_can.root, grasp=grasp)
@@ -323,41 +303,47 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         steps: list[StatechartNode] = [
             ParkArmsAction(arms=hsrb.all_arms),
             FaceAndLookAtAction(
-                face_at=FaceAtAction(target=search_pose),
-                look_at=LookAtAction(target=search_pose),
+                face_at=FaceAtAction(look_target=search_pose),
+                look_at=LookAtAction(look_target=search_pose),
             ),
             DetectAction(
                 technique=DetectionTechnique.TYPES, object_sem_annotation=Milk
             ),
             a(MoveAndPickUpAction)(
                 navigate=a(NavigateAction)(
-                    target_location=self._leave_standing_pose_open(
+                    planar_goal_pose=self._leave_standing_pose_open(
                         milk_pose, arm, context
                     )
                 ),
                 face_and_look_at=self._face_and_look_at(milk_pose),
-                pick_up=a(PickUpAction)(grasp=grasp, arm=arm),
+                pick_up=a(PickUpAction)(grasp_candidate=grasp, arm=arm),
             ),
             ParkArmsAction(arms=hsrb.all_arms),
-            FaceAtAction(target=passage_pose),
+            FaceAtAction(look_target=passage_pose),
             CarryAction(
-                navigate=NavigateAction(target_location=passage_pose),
-                holding_arms=[arm],
-            ),
-            CarryAction(
-                navigate=NavigateAction(target_location=approach_pose),
+                navigate=NavigateAction(
+                    planar_goal_pose=Pose2D.from_pose(pose=passage_pose)
+                ),
                 holding_arms=[arm],
             ),
             CarryAction(
                 navigate=NavigateAction(
-                    target_location=self._compute_standing_pose_before(
-                        drop_pose, self.drop_distance
+                    planar_goal_pose=Pose2D.from_pose(pose=approach_pose)
+                ),
+                holding_arms=[arm],
+            ),
+            CarryAction(
+                navigate=NavigateAction(
+                    planar_goal_pose=Pose2D.from_pose(
+                        pose=self._compute_standing_pose_before(
+                            drop_pose, self.drop_distance
+                        )
                     )
                 ),
                 holding_arms=[arm],
             ),
-            FaceAtAction(target=drop_pose),
-            a(PlaceAction)(object_designator=milk, target_location=drop_pose),
+            FaceAtAction(look_target=drop_pose),
+            a(PlaceAction)(arm=arm, graspable=milk, goal_pose=drop_pose),
             Parallel(
                 nodes=[
                     ParkArmsAction(arms=hsrb.all_arms),
@@ -431,7 +417,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
     @staticmethod
     def _leave_standing_pose_open(
         target: Pose, arm: Arm, context: StatechartContext
-    ) -> Variable[Pose]:
+    ) -> Variable[Pose2D]:
         """
         :param target: What the arm is to reach once the robot stands.
         :param arm: The arm that reaches.
@@ -440,7 +426,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
             each is tried in a copy of the world, and the first that works is taken.
         """
         return variable(
-            Pose,
+            Pose2D,
             domain=ReachabilityLocation(target_pose=target, arm=arm, context=context),
         )
 
@@ -451,8 +437,8 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         :return: The turn of the base towards `target`, then the look at it.
         """
         return a(FaceAndLookAtAction)(
-            face_at=a(FaceAtAction)(target=target),
-            look_at=a(LookAtAction)(target=target),
+            face_at=a(FaceAtAction)(look_target=target),
+            look_at=a(LookAtAction)(look_target=target),
         )
 
     def _compute_standing_pose_before(self, drop_pose: Pose, distance: float) -> Pose:
@@ -525,7 +511,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
 
 
 def main(
-    executor_type: type[PlanExecutor] = DrivingKinematicallySimulatedPlanExecutor,
+    executor_type: type[PlanExecutor] = KinematicallySimulatedPlanExecutor,
 ) -> World:
     """
     Run the demonstration.
