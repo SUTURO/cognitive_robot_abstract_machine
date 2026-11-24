@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 @dataclass
 class SimulatedHsrHeadCameraPerception:
     """
-    A RoboKudo analysis engine that perceives through the head camera of an HSR in a
-    MuJoCo simulation, published the way the real HSR publishes it.
+    Perception of an HSR in a MuJoCo simulation: its head camera, published the way the
+    real HSR publishes it, and a RoboKudo analysis engine asked about what it sees.
 
     .. note:: The head camera has to be mounted in the simulation with
         :meth:`~semantic_digital_twin.adapters.multi_sim.MujocoCamera.mount_hsr_head`
@@ -84,11 +84,10 @@ class SimulatedHsrHeadCameraPerception:
             frames=self.camera_configuration,
         )
 
-    def build_context_extensions(self, world: World) -> list[ContextExtension]:
+    def build_context_extensions(self) -> list[ContextExtension]:
         """
-        :param world: The world the head camera is published from.
         :return: What a plan needs to capture the frame :attr:`analysis_engine` is
-            asked about, and to place what it reports in ``world``.
+            asked about, and to place what it reports in the simulated world.
         :raises SimulatedPerceptionNotStarted: If called outside :meth:`start` and
             :meth:`stop`.
         """
@@ -97,7 +96,8 @@ class SimulatedHsrHeadCameraPerception:
         return [
             CameraFrameCapture(self.camera_publisher.publish),
             PerceptionWorldFrame(
-                reported_name=self.camera_configuration.tf_to, entity=world.root
+                reported_name=self.camera_configuration.tf_to,
+                entity=self.camera_publisher.simulation.world.root,
             ),
         ]
 

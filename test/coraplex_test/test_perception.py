@@ -600,13 +600,13 @@ def query_server_reporting(rclpy_node):
     started = []
 
     def start(
-        reports: list[ReportedObject], frame_id: str = "map"
+        reports: list[ReportedObject], **server_options: str
     ) -> RecordedQueryServer:
         server = RecordedQueryServer(
             node_name="robokudo_stand_in",
             action_name="robokudo/query",
             reports=reports,
-            frame_id=frame_id,
+            **server_options,
         )
         started.append(server)
         return server
@@ -1163,7 +1163,8 @@ def test_robokudo_query_task_keeps_the_answer(
 @pytest.fixture
 def query_for_every_object() -> RoboKudoQuery:
     """
-    A query for everything the pipeline detects, as the GPSR object pipeline reads it.
+    A query for everything the pipeline detects, as the GPSR object pipeline reads it;
+    ``"object"`` is robokudo's ``QueryType.OBJECT``, which robokudo_msgs alone lacks.
     """
     return RoboKudoQuery(object_type="object")
 
@@ -1231,6 +1232,7 @@ def test_robokudo_query_task_forgets_the_perceived_objects_when_restarted(
     task = RoboKudoQueryTask(query=query_for_every_object)
     build_perception_task(task, world, rclpy_node)
     run_perception_task(task)
+    assert task.perceived_objects
 
     task.on_start()
 
@@ -1261,6 +1263,29 @@ def test_robokudo_query_task_places_objects_reported_in_the_pipelines_world_fram
         report.position,
         atol=1e-9,
     )
+
+
+def test_robokudo_query_task_looks_up_a_frame_the_world_frame_does_not_name(
+    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
+) -> None:
+    """
+    A pose reported in a frame other than the pipeline's world frame is placed in the
+    world's entity of that name.
+    """
+    world, view, extensions = pr2_apartment_context
+    world_frame = PerceptionWorldFrame(
+        reported_name="sensor_world", entity=view.root
+    )
+    report = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
+    query_server_reporting([report], frame_id=world.root.name.name)
+    task = RoboKudoQueryTask(query=query_for_every_object)
+    chart = build_perception_task(task, world, rclpy_node)
+    chart.context.add_extension(world_frame)
+
+    run_perception_task(task)
+
+    [perceived_object] = task.perceived_objects
+    assert perceived_object.pose.reference_frame is world.root
 
 
 def test_query_requests_one_frame_before_sending(

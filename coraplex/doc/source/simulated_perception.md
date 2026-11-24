@@ -6,8 +6,7 @@ MuJoCo simulation. It publishes the simulated head camera on the same ROS topics
 starts the analysis engine in its own process, and hands the plan what it needs to capture a frame before each
 query.
 
-The GPSR demonstration in `challenges/src/challenges/GPSR/demonstration.py` uses it. The steps below
-add it to a new {class}`~coraplex.demonstrations.RobotDemonstration`.
+The steps below add it to a new {class}`~coraplex.demonstrations.RobotDemonstration`.
 
 ## Requirements
 
@@ -27,8 +26,14 @@ add it to a new {class}`~coraplex.demonstrations.RobotDemonstration`.
 ### 1. Add the perception and the query as fields
 
 ```python
+from dataclasses import dataclass, field
+
+from coraplex.demonstrations import RobotDemonstration
 from coraplex.perception import RoboKudoQuery
+from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.simulated_perception import SimulatedHsrHeadCameraPerception
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.robots.robot_parts import AbstractRobot
 
 
 @dataclass
@@ -53,6 +58,7 @@ The camera has to be mounted on the head before the MuJoCo simulation is built, 
 
 ```python
 from semantic_digital_twin.adapters.multi_sim import MujocoCamera, MujocoSim
+from semantic_digital_twin.world import World
 
 
     def build_simulation(self, world: World) -> MujocoSim:
@@ -87,7 +93,7 @@ from coraplex.plans.context_extensions import RobotAccess
             RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
         ]
         if self.perception is not None:
-            extensions.extend(self.perception.build_context_extensions(world))
+            extensions.extend(self.perception.build_context_extensions())
         return extensions
 ```
 
@@ -97,11 +103,18 @@ HSR configuration) is the root of the simulated world.
 
 ### 5. Ask the query in the plan
 
-`RoboKudoQueryTask` publishes a camera frame, sends the query and observes `TRUE` if RoboKudo found something. Turn
-the robot towards what it should see first:
+`RoboKudoQueryTask` publishes a camera frame if the context has a `CameraFrameCapture`, which step 4 gives it,
+sends the query and observes `TRUE` if RoboKudo found something. Turn the robot towards what it should see first:
 
 ```python
 from coraplex.perception import RoboKudoQueryTask
+from coraplex.robot_plans.actions.core.navigation import FaceAtAction
+from coraplex.robot_plans.actions.core.robot_body import ParkArmsAction
+from cramph.composites import Sequence
+from cramph.context import StatechartContext
+from cramph.node import StatechartNode
+from cramph.statechart import Statechart
+from krrood_spatial_math.spatial_types import Pose
 
 
     def build_statechart(self, context: StatechartContext) -> Statechart:

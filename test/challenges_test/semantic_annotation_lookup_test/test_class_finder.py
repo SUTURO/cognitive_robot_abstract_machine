@@ -155,7 +155,7 @@ def test_place_without_a_room_name_finds_class_like_find(
     """
     A place whose name contains no room's name is found as :meth:`find` finds it.
     """
-    assert finder.find_place("milk") is finder.find("milk")
+    assert finder.find_place("milk") is Milk
 
 
 def test_place_containing_two_room_names_raises(

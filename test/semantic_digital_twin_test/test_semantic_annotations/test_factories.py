@@ -1541,3 +1541,31 @@ def test_part_below_a_surface_leaves_the_surface_free() -> None:
     points = table.sample_points_from_surface(amount=amount)
 
     assert len(points) == amount
+
+
+def test_part_resting_on_a_surface_keeps_its_footprint_occupied() -> None:
+    """
+    A part standing on a surface, unlike one below it, leaves no free point under its
+    footprint.
+    """
+    world = World.create_with_root_body("root")
+    footprint_half_width = 0.2
+    with world.modify_world():
+        table = Table.create_with_new_body_in_world(
+            name="table", world=world, scale=Scale(1.0, 1.0, 0.1)
+        )
+        resting_part = ShelfLayer.create_with_new_body_in_world(
+            name="resting_part",
+            world=world,
+            scale=Scale(2 * footprint_half_width, 2 * footprint_half_width, 0.02),
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(z=0.06),
+        )
+        table.add_object(resting_part)
+
+    points = table.sample_points_from_surface(amount=200)
+
+    assert not any(
+        abs(float(point.x)) < footprint_half_width
+        and abs(float(point.y)) < footprint_half_width
+        for point in points
+    )

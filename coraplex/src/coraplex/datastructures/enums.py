@@ -232,3 +232,14 @@ class MixingPattern(Enum):
     """
     Mix along circular stirring laps.
     """
+
+
+class SpeechTopic(StrEnum):
+    """
+    The ROS topics the robot's speech goes through.
+    """
+
+    TEXT_TO_SAY = "/tts_text"
+    """
+    The robot's text-to-speech node says every ``std_msgs/String`` sent on it out loud.
+    """

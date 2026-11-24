@@ -330,6 +330,25 @@ class PerceivedObject:
             for, if ``world`` calls it differently.
         :return: The object at the first pose the designator holds.
         """
+        return cls(
+            object_type=designator.type,
+            pose=cls.reported_pose(designator, world, world_frame),
+        )
+
+    @staticmethod
+    def reported_pose(
+        designator: ObjectDesignator,
+        world: World,
+        world_frame: PerceptionWorldFrame | None = None,
+    ) -> Pose:
+        """
+        :param designator: An object designator the pipeline reported with at least one
+            pose.
+        :param world: The world holding the frame of the reported pose.
+        :param world_frame: The entity of ``world`` the pipeline's world frame stands
+            for, if ``world`` calls it differently.
+        :return: The first pose the designator holds, in its frame in ``world``.
+        """
         pose_stamped = designator.pose[0]
         frame_id = pose_stamped.header.frame_id
         reference_frame = (
@@ -337,18 +356,15 @@ class PerceivedObject:
             if world_frame is not None and world_frame.reported_name == frame_id
             else world.get_kinematic_structure_entity_by_name(frame_id)
         )
-        return cls(
-            object_type=designator.type,
-            pose=Pose.from_xyz_quaternion(
-                pose_stamped.pose.position.x,
-                pose_stamped.pose.position.y,
-                pose_stamped.pose.position.z,
-                pose_stamped.pose.orientation.x,
-                pose_stamped.pose.orientation.y,
-                pose_stamped.pose.orientation.z,
-                pose_stamped.pose.orientation.w,
-                reference_frame=reference_frame,
-            ),
+        return Pose.from_xyz_quaternion(
+            pose_stamped.pose.position.x,
+            pose_stamped.pose.position.y,
+            pose_stamped.pose.position.z,
+            pose_stamped.pose.orientation.x,
+            pose_stamped.pose.orientation.y,
+            pose_stamped.pose.orientation.z,
+            pose_stamped.pose.orientation.w,
+            reference_frame=reference_frame,
         )
 
 
@@ -528,7 +544,7 @@ class RoboKudoPerception(PerceptionInterface):
         """
         return Detection(
             semantic_annotation=query.semantic_annotation,
-            pose=PerceivedObject.from_designator(designator, query.world).pose,
+            pose=PerceivedObject.reported_pose(designator, query.world),
         )
 
 
@@ -693,20 +709,27 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
         :return: The observation indicating whether the answer contains results.
         """
         if self.answer is None:
-            camera = self.context.extensions.get(CameraFrameCapture)
-            if camera is not None:
-                camera.capture_frame()
-            ros_node = self.context.require_extension(RosContextExtension).ros_node
-            self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
-            self.perceived_objects = [
-                PerceivedObject.from_designator(
-                    designator,
-                    self.context.world,
-                    self.context.extensions.get(PerceptionWorldFrame),
-                )
-                for designator in self.answer.res
-                if designator.pose
-            ]
+            self._ask_query()
         if self.answer.res:
             return ObservationStateValues.TRUE
         return ObservationStateValues.FALSE
+
+    def _ask_query(self) -> None:
+        """
+        Capture a camera frame if the context can, ask :attr:`query` and keep the
+        answer in :attr:`answer` and :attr:`perceived_objects`.
+        """
+        camera = self.context.extensions.get(CameraFrameCapture)
+        if camera is not None:
+            camera.capture_frame()
+        ros_node = self.context.require_extension(RosContextExtension).ros_node
+        self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
+        self.perceived_objects = [
+            PerceivedObject.from_designator(
+                designator,
+                self.context.world,
+                self.context.extensions.get(PerceptionWorldFrame),
+            )
+            for designator in self.answer.res
+            if designator.pose
+        ]

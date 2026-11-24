@@ -141,15 +141,6 @@ class SceneFile(PathEnumeration):
     """The rigid human model, whose meshes lie beside it."""
 
 
-# %% Classes of the named objects
-
-
-@dataclass(eq=False)
-class Person(Human):
-    """A person, named so that the generated command's ``"person"`` finds this
-    class."""
-
-
 # %% Simulation
 
 
@@ -386,7 +377,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         [robot] = world.get_semantic_annotations_by_type(self.used_robot)
         extensions: list[ContextExtension] = [RobotAccess(robot)]
         if self.perception is not None:
-            extensions.extend(self.perception.build_context_extensions(world))
+            extensions.extend(self.perception.build_context_extensions())
             extensions.append(PersonDetection(self.query))
         return extensions
 
@@ -425,11 +416,11 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         orders them into.
         """
         generated_command = action_main(context, self.instruction, self.json_plan)
-        any_room = {
+        fallback_room_types = {
             type(room) for room in context.world.get_semantic_annotations_by_type(Room)
         }
         commands = [
-            plan.rewrap_into_command(generated_command.instruction, any_room)
+            plan.to_command(generated_command.instruction, fallback_room_types)
             for plan in generated_command.plans
         ]
         room_visits = RoomVisitPlanner().transform_plan_by_rooms(commands)
@@ -468,7 +459,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         self.slide_to_front_edge(milk.root, counter_top, world)
         return milk
 
-    def place_person(self, world: World) -> Person:
+    def place_person(self, world: World) -> Human:
         """
         :param world: The kitchen.
         :return: A new human standing on the kitchen floor with their back to the
@@ -526,7 +517,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
                     contact_affinity=ContactCategories.NONE,
                 )
             )
-        person = Person(root=human_body, name=PrefixedName(SceneName.PERSON))
+        person = Human(root=human_body, name=PrefixedName(SceneName.PERSON))
         with world.modify_world():
             world.add_semantic_annotation(person)
         return person
@@ -614,7 +605,6 @@ def main(
     logger.info("Generated plan for %r: %s", instruction, json_plan)
 
     return GeneratedCommandDemonstration(
-        scene_joints_movable=False,
         headless=headless,
         json_plan=json_plan,
         instruction=instruction,

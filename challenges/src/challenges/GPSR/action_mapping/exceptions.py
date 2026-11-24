@@ -230,7 +230,10 @@ class NoFreeTableInRoom(DataclassException):
     """
 
     def error_message(self) -> str:
-        return f"No table in the {self.room_type.__name__} has space for '{self.placed_object.name}'."
+        return (
+            f"No table in the {self.room_type.__name__} has space for "
+            f"'{self.placed_object.name}'."
+        )
 
     def suggest_correction(self) -> str:
         return (

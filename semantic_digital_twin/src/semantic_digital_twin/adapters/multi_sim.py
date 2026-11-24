@@ -4745,7 +4745,7 @@ class MujocoSim(MultiSim):
 
         Every servo is handed the position its joint currently holds in the world, so
         nothing rushes towards zero the moment the physics starts. The viewer, if any,
-        keeps showing the current state also while nothing steps the physics.
+        keeps showing the state of the last physics step also while nothing steps it.
 
         :raises SimulationAlreadyRunningError: If the simulation is already running.
         """

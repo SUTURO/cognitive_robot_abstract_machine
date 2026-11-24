@@ -4,10 +4,12 @@ Actions that let the robot speak.
 
 from __future__ import annotations
 
+# %% imports
 from dataclasses import dataclass
 
 from std_msgs.msg import String
 
+from coraplex.datastructures.enums import SpeechTopic
 from coraplex.robot_plans.actions.base import SequentialAction
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart
@@ -31,7 +33,7 @@ class TalkingAction(SequentialAction):
     def create_steps(self) -> list[StatechartNode]:
         return [
             PublishOnStart(
-                topic_name="/tts_text",
+                topic_name=SpeechTopic.TEXT_TO_SAY,
                 msg=String(data=self.speaking_text),
             )
         ]

@@ -64,4 +64,7 @@ class AmbiguousSemanticAnnotationName(DataclassException):
         )
 
     def suggest_correction(self) -> str:
-        return "Rename one of the classes so that their names differ."
+        return (
+            "Use the full name of one of the classes, or rename one of the classes so "
+            "that their names differ."
+        )

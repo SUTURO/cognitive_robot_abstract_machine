@@ -13,7 +13,7 @@ import numpy
 from dataclasses import dataclass
 from enum import StrEnum
 
-from typing_extensions import Any, Self
+from typing_extensions import TYPE_CHECKING, Any, Self
 
 from challenges.GPSR.action_mapping.exceptions import (
     LocationNotInWorld,
@@ -55,7 +55,7 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.query.match import Match
-from krrood_spatial_math.spatial_types import Point3, Pose
+from krrood_spatial_math.spatial_types import Pose, Vector3
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
@@ -79,6 +79,10 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
+
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.robots.robot_parts import Arm
 
 
 # %% Payload vocabulary
@@ -231,35 +235,415 @@ class ManipulationAtStandingPoseAction(SequentialAction):
     """
 
     def create_steps(self) -> list[StatechartNode | Match]:
+        # A standing pose right at the manipulated location leaves no direction to
+        # step back in; the step back then has no length and the robot drives there.
         root = self.world.root
         world_T_standing = self.world.transform(self.standing_pose, root)
+        world_P_standing = world_T_standing.position
         world_P_manipulated = self.world.transform(
             self.manipulated_location, root
         ).position
-        away_from_manipulated = numpy.array(
-            [
-                float(world_T_standing.x) - float(world_P_manipulated.x),
-                float(world_T_standing.y) - float(world_P_manipulated.y),
-            ]
+        world_V_step_back = Vector3(
+            x=world_P_standing.x - world_P_manipulated.x,
+            y=world_P_standing.y - world_P_manipulated.y,
+            z=0,
+            reference_frame=root,
         )
-        step_back = (
-            self.robot.mobile_base.base_radius
-            * away_from_manipulated
-            / numpy.linalg.norm(away_from_manipulated)
-        )
-        approach_pose = Pose(
-            Point3(
-                x=float(world_T_standing.x) + step_back[0],
-                y=float(world_T_standing.y) + step_back[1],
-                z=float(world_T_standing.z),
-            ),
+        world_V_step_back.scale(self.robot.mobile_base.base_radius)
+        world_T_approach = Pose(
+            world_P_standing + world_V_step_back,
             world_T_standing.orientation,
             reference_frame=root,
         )
         return [
-            a(PathPlanningNavigateAction)(target=approach_pose),
+            a(PathPlanningNavigateAction)(target=world_T_approach),
             CollisionAllowingAction(performed_action=self.manipulation),
         ]
+
+
+# %% Resolving what a step names
+
+
+@dataclass
+class WorldReferenceResolver:
+    """
+    Finds the places, objects and people the steps of a generated plan name in a world.
+    """
+
+    world: World
+    """
+    The world holding what the steps name.
+    """
+
+    def resolve_location(
+        self, location_type: type[SemanticAnnotation]
+    ) -> SemanticAnnotation:
+        """
+        :param location_type: The kind of place a step names.
+        :return: The first place of that kind in :attr:`world`.
+        :raises LocationNotInWorld: If :attr:`world` holds no place of that kind.
+        """
+        locations = self.world.get_semantic_annotations_by_type(location_type)
+        if not locations:
+            raise LocationNotInWorld(location_type=location_type)
+        return locations[0]
+
+    def resolve_object(
+        self,
+        object_name: str,
+        action_type: ActionType,
+        location: SemanticAnnotation | None,
+    ) -> HasRootBody:
+        """
+        :param object_name: The name of the object as the step names it.
+        :param action_type: The kind of action the step performs.
+        :param location: The place the step names.
+        :return: The object the step names: the first of its kind in the room the step
+            names, unless the step places it there; else the one with that name.
+        :raises ObjectNotInRoom: If the room holds no object of that kind.
+        """
+        if not isinstance(location, Room) or action_type == ActionType.PLACE:
+            return self.world.get_semantic_annotation_by_name(object_name)
+        object_type = SemanticAnnotationClassFinder().find(object_name)
+        objects_in_room = find_objects_in_room(object_type, type(location), self.world)
+        if not objects_in_room:
+            raise ObjectNotInRoom(object_type=object_type, room=location)
+        return objects_in_room[0]
+
+    def resolve_person(
+        self, description: str, location: SemanticAnnotation | None
+    ) -> Human:
+        """
+        :param description: The person as the step describes them, such as ``"person
+            pointing to the right"``.
+        :param location: The place the step names; a room restricts the search to it.
+        :return: The first person in the named room, or in :attr:`world` if the step
+            names no room. The description is left for the perception to check.
+        :raises NoPersonFound: If no person is there.
+        """
+        room = location if isinstance(location, Room) else None
+        people = (
+            self.world.get_semantic_annotations_by_type(Human)
+            if room is None
+            else find_objects_in_room(Human, type(room), self.world)
+        )
+        if not people:
+            raise NoPersonFound(description=description, room=room)
+        return people[0]
+
+
+# %% Finding free space
+
+
+@dataclass
+class FreeSpaceFinder:
+    """
+    Finds free spots in a world for the robot to stand on and to put objects down on.
+    """
+
+    world: World
+    """
+    The world to find the free spots in.
+    """
+
+    def standing_pose(self, location: SemanticAnnotation) -> Pose:
+        """
+        :param location: The place the robot is to stand at.
+        :return: A free spot for the robot's base: in ``location`` if it is a room, else
+            next to it.
+        :raises LocationWithoutBody: If ``location`` is neither a room nor has a body.
+        :raises NoFreeStandingPose: If no spot is free.
+        """
+        if isinstance(location, Room):
+            standing_pose = find_free_space_in_room(type(location), self.world)
+        elif isinstance(location, HasRootBody):
+            standing_pose = find_free_space_next_to(
+                robot_diameter=0.7, semantic_annotation=location
+            )
+        else:
+            raise LocationWithoutBody(location=location)
+        if standing_pose is None:
+            raise NoFreeStandingPose(location=location)
+        return standing_pose
+
+    def placing_pose(
+        self,
+        location_type: type[SemanticAnnotation],
+        location: SemanticAnnotation,
+        placed_object: HasRootBody,
+    ) -> Pose:
+        """
+        :param location_type: The kind of place the step names.
+        :param location: The place the step names.
+        :param placed_object: The object to put down.
+        :return: Where to put the object down: on a table in a room, on the first free
+            surface of the named kind, or else on the spot next to the place.
+        :raises NoFreeTableInRoom: If no table in the named room has space.
+        :raises NoFreeSurface: If no surface of the named kind has space.
+        """
+        if isinstance(location, Room):
+            return self.pose_on_table_in_room(location_type, placed_object)
+        if not isinstance(location, HasSupportingSurface):
+            return self.standing_pose(location)
+        free_pose = self.pose_on_first_free_surface(
+            self.world.get_semantic_annotations_by_type(location_type), placed_object
+        )
+        if free_pose is None:
+            raise NoFreeSurface(surface_type=location_type, placed_object=placed_object)
+        return free_pose
+
+    def pose_on_table_in_room(
+        self, room_type: type[Room], placed_object: HasRootBody
+    ) -> Pose:
+        """
+        :param room_type: The kind of room to put the object down in.
+        :param placed_object: The object to put down.
+        :return: A pose on the first table in the room where the object fits, as
+            :meth:`pose_on_first_free_surface` samples it.
+        :raises NoFreeTableInRoom: If no table in the room has space for the object.
+        """
+        free_pose = self.pose_on_first_free_surface(
+            find_objects_in_room(Table, room_type, self.world), placed_object
+        )
+        if free_pose is None:
+            raise NoFreeTableInRoom(room_type=room_type, placed_object=placed_object)
+        return free_pose
+
+    @staticmethod
+    def pose_on_first_free_surface(
+        surfaces: list[HasSupportingSurface], placed_object: HasRootBody
+    ) -> Pose | None:
+        """
+        :param surfaces: The surfaces to put the object down on, in order of preference.
+        :param placed_object: The object to put down.
+        :return: The most likely sampled pose where ``placed_object`` fits without
+            touching other objects, on the first of ``surfaces`` that has one; ``None``
+            if none has.
+        """
+        for surface in surfaces:
+            free_points = surface.sample_points_from_surface(
+                body_to_sample_for=placed_object
+            )
+            if free_points:
+                return Pose(
+                    position=free_points[0],
+                    reference_frame=free_points[0].reference_frame,
+                )
+        return None
+
+
+# %% Manipulating at a reachable standing pose
+
+
+@dataclass
+class ManipulationPlanner:
+    """
+    Plans picking objects up and putting them down from where the robot of a plan can
+    reach them, with the robot's first arm.
+    """
+
+    context: StatechartContext
+    """
+    The context of the plan, whose robot manipulates the objects.
+    """
+
+    @property
+    def arm(self) -> Arm:
+        """
+        :return: The arm the robot manipulates with: its first one.
+        """
+        return self.context.require_extension(RobotAccess).robot.all_arms[0]
+
+    def pick_up(
+        self, graspable: HasGraspCandidates
+    ) -> ManipulationAtStandingPoseAction:
+        """
+        :param graspable: The object to pick up.
+        :return: A pick-up that drives to the first standing pose the reachability
+            costmap offers, and takes the object by the grasp closest to the robot
+            standing there that the gripper opens wide enough for, touching anything
+            while it does.
+        :raises NoGraspFitsGripper: If every grasp is wider than the gripper opens.
+        """
+        arm = self.arm
+        standing_pose = self.standing_pose_on_floor(
+            ReachabilityLocation(
+                target_pose=Pose(reference_frame=graspable.root),
+                arm=arm,
+                context=self.context,
+            )
+        )
+        grasps_closest_first = GraspsByCloseness(
+            graspable, standing_pose, number_of_grasps=None
+        )()
+        fitting_grasp = next(
+            (
+                grasp
+                for grasp in grasps_closest_first
+                if grasp.width_along_closing_axis
+                <= arm.end_effector.separation_when_open
+            ),
+            None,
+        )
+        if fitting_grasp is None:
+            raise NoGraspFitsGripper(graspable=graspable, gripper=arm.end_effector)
+        return ManipulationAtStandingPoseAction(
+            standing_pose=standing_pose,
+            manipulated_location=Pose(reference_frame=graspable.root),
+            manipulation=MoveAndPickUpAction.from_standing_position(
+                standing_pose, fitting_grasp, arm
+            ),
+        )
+
+    def place(
+        self, held_object: HasGraspCandidates, target_location: Pose
+    ) -> ManipulationAtStandingPoseAction:
+        """
+        :param held_object: The object to put down, held by :attr:`arm`.
+        :param target_location: Where to put the object down.
+        :return: A placing that carries the object to the first standing pose the
+            reachability costmap offers for ``target_location`` and puts it down there,
+            touching anything while it does.
+        """
+        arm = self.arm
+        standing_pose = self.standing_pose_on_floor(
+            ReachabilityLocation(
+                target_pose=target_location, arm=arm, context=self.context
+            )
+        )
+        return ManipulationAtStandingPoseAction(
+            standing_pose=standing_pose,
+            manipulated_location=target_location,
+            manipulation=MoveAndPlaceAction.from_standing_position(
+                standing_pose, target_location, held_object, arm
+            ),
+        )
+
+    def standing_pose_on_floor(self, location: ReachabilityLocation) -> Pose:
+        """
+        :param location: Where the robot can stand to reach its target.
+        :return: The first candidate of ``location`` that lies over a floor.
+        :raises NoStandingPoseOnFloor: If no candidate lies over a floor.
+        """
+        floors = self.context.world.get_semantic_annotations_by_type(Floor)
+        for candidate in location:
+            if any(
+                OverFloorPlan(pose=candidate, floor=floor.root)() for floor in floors
+            ):
+                return candidate
+        raise NoStandingPoseOnFloor(target_pose=location.target_pose)
+
+
+# %% Mapping each kind of step to an action
+
+
+@dataclass
+class ActionMapper:
+    """
+    Creates the action the robot performs for each kind of step of a generated plan.
+    """
+
+    context: StatechartContext
+    """
+    The context of the plan the actions run in.
+    """
+
+    def create_saying(self, text: str | None) -> TalkingAction:
+        """
+        :param text: What the step says.
+        :return: The robot saying ``text``.
+        :raises MissingActionArgument: If the step says nothing.
+        """
+        if text is None:
+            raise MissingActionArgument(action=ActionType.SAY, argument=PayloadKey.TEXT)
+        return TalkingAction(speaking_text=text)
+
+    def create_navigation(self, location: SemanticAnnotation | None) -> Match:
+        """
+        :param location: The place the step goes to.
+        :return: Driving to a free spot for the robot at ``location``, around the
+            furniture and walls.
+        :raises MissingActionArgument: If the step names no place.
+        """
+        if location is None:
+            raise MissingActionArgument(
+                action=ActionType.NAVIGATE, argument=PayloadKey.LOCATION
+            )
+        return a(PathPlanningNavigateAction)(
+            target=FreeSpaceFinder(self.context.world).standing_pose(location)
+        )
+
+    def create_pick_up(
+        self, named_object: HasRootBody | None
+    ) -> ManipulationAtStandingPoseAction:
+        """
+        :param named_object: The object the step picks up.
+        :return: Picking ``named_object`` up from where the robot reaches it.
+        """
+        graspable = self.carried_object(ActionType.PICK_UP, named_object)
+        return ManipulationPlanner(self.context).pick_up(graspable)
+
+    def create_placing(
+        self,
+        named_object: HasRootBody | None,
+        location_type: type[SemanticAnnotation] | None,
+        location: SemanticAnnotation | None,
+    ) -> ManipulationAtStandingPoseAction:
+        """
+        :param named_object: The object the step puts down.
+        :param location_type: The kind of place the step names.
+        :param location: The place the step puts the object down at.
+        :return: Putting ``named_object`` down at a free spot at ``location``.
+        :raises MissingActionArgument: If the step names no place.
+        """
+        held_object = self.carried_object(ActionType.PLACE, named_object)
+        if location is None:
+            raise MissingActionArgument(
+                action=ActionType.PLACE, argument=PayloadKey.LOCATION
+            )
+        target_location = FreeSpaceFinder(self.context.world).placing_pose(
+            location_type, location, held_object
+        )
+        return ManipulationPlanner(self.context).place(held_object, target_location)
+
+    def create_finding(
+        self, named_object: HasRootBody | None, person: Human | None
+    ) -> Action:
+        """
+        :param named_object: The object the step looks for, if any.
+        :param person: The person the step looks for, if any.
+        :return: Driving to the object, else to the person, asking the perception to
+            detect them if the context lets it.
+        :raises NothingToFind: If the step looks for neither.
+        """
+        # TODO: FIND currently only a placeholder, only works with objects already in the SemDT, find action has
+        #  to be implemented first to completely implement this feature
+        if named_object is not None:
+            return NavigateAction(target_location=named_object.root.global_pose)
+        if person is None:
+            raise NothingToFind()
+        person_detection = self.context.get_extension(PersonDetection)
+        return FindPersonAction(
+            person=person,
+            detection=None if person_detection is None else person_detection.query,
+        )
+
+    @staticmethod
+    def carried_object(
+        action_type: ActionType, named_object: HasRootBody | None
+    ) -> HasGraspCandidates:
+        """
+        :param action_type: The kind of action that picks up or puts down the object.
+        :param named_object: The object the step names, if any.
+        :return: ``named_object``, which the robot can grasp.
+        :raises MissingActionArgument: If the step names no object.
+        :raises ObjectNotGraspable: If the robot cannot grasp the object.
+        """
+        if named_object is None:
+            raise MissingActionArgument(action=action_type, argument=PayloadKey.OBJECT)
+        if not isinstance(named_object, HasGraspCandidates):
+            raise ObjectNotGraspable(named_object=named_object)
+        return named_object
 
 
 # %% Plans
@@ -271,7 +655,7 @@ class PlannedAction:
     One step of a generated plan, as the command generator described it.
     """
 
-    action_type: Action | Match
+    action: Action | Match
     """
     What the robot does in this step, as an action or as a statement grounded when the
     step starts.
@@ -323,7 +707,11 @@ class PlannedAction:
         :raises MissingActionArgument: If the action lacks an argument its kind needs.
         :raises UnmappedActionType: If the robot cannot perform this kind of action.
         """
-        world = context.world
+        action_name = data[PayloadKey.ACTION]
+        if action_name not in ActionType:
+            raise UnmappedActionType(action=action_name)
+        action_type = ActionType(action_name)
+        resolver = WorldReferenceResolver(context.world)
         location_name = data.get(PayloadKey.LOCATION)
         location_type = (
             None
@@ -331,350 +719,44 @@ class PlannedAction:
             else SemanticAnnotationClassFinder().find_place(location_name)
         )
         location = (
-            None if location_type is None else cls.first_location(location_type, world)
+            None if location_type is None else resolver.resolve_location(location_type)
         )
         object_name = data.get(PayloadKey.OBJECT)
-        searched_object = (
+        named_object = (
             None
             if object_name is None
-            else cls.find_object_annotation(
-                object_name, data[PayloadKey.ACTION], location, world
-            )
+            else resolver.resolve_object(object_name, action_type, location)
         )
         person_description = data.get(PayloadKey.PERSON)
-        searched_person = (
+        person = (
             None
             if person_description is None
-            else cls.find_person(person_description, location, world)
+            else resolver.resolve_person(person_description, location)
         )
+        text = data.get(PayloadKey.TEXT)
 
-        match data[PayloadKey.ACTION]:
+        mapper = ActionMapper(context)
+        match action_type:
             case ActionType.SAY:
-                text = data.get(PayloadKey.TEXT)
-                if text is None:
-                    raise MissingActionArgument(
-                        action=ActionType.SAY, argument=PayloadKey.TEXT
-                    )
-                action = TalkingAction(speaking_text=text)
+                action = mapper.create_saying(text)
             case ActionType.NAVIGATE:
-                if location is None:
-                    raise MissingActionArgument(
-                        action=ActionType.NAVIGATE, argument=PayloadKey.LOCATION
-                    )
-                action = a(PathPlanningNavigateAction)(
-                    target=cls.free_standing_pose(location, world)
-                )
+                action = mapper.create_navigation(location)
             case ActionType.PICK_UP:
-                action = cls.pick_up_from_reachable_standing_pose(
-                    cls.carried_object(ActionType.PICK_UP, searched_object), context
-                )
+                action = mapper.create_pick_up(named_object)
             case ActionType.PLACE:
-                held_object = cls.carried_object(ActionType.PLACE, searched_object)
-                if location is None:
-                    raise MissingActionArgument(
-                        action=ActionType.PLACE, argument=PayloadKey.LOCATION
-                    )
-                action = cls.place_from_reachable_standing_pose(
-                    held_object,
-                    cls.placing_pose(location_type, location, held_object, world),
-                    context,
-                )
+                action = mapper.create_placing(named_object, location_type, location)
             case ActionType.FIND:
-                action = cls.finding_action(searched_object, searched_person, context)
+                action = mapper.create_finding(named_object, person)
             case _:
-                raise UnmappedActionType(action=data[PayloadKey.ACTION])
+                raise UnmappedActionType(action=action_name)
 
         return cls(
-            action_type=action,
-            text=data.get(PayloadKey.TEXT),
+            action=action,
+            text=text,
             location=location,
-            object_annotation=searched_object,
-            person=searched_person,
+            object_annotation=named_object,
+            person=person,
         )
-
-    @staticmethod
-    def first_location(
-        location_type: type[SemanticAnnotation], world: World
-    ) -> SemanticAnnotation:
-        """
-        :param location_type: The kind of place a step names.
-        :param world: The world holding the place.
-        :return: The first place of that kind in ``world``.
-        :raises LocationNotInWorld: If ``world`` holds no place of that kind.
-        """
-        locations = world.get_semantic_annotations_by_type(location_type)
-        if not locations:
-            raise LocationNotInWorld(location_type=location_type)
-        return locations[0]
-
-    @staticmethod
-    def free_standing_pose(location: SemanticAnnotation, world: World) -> Pose:
-        """
-        :param location: The place the robot is to stand at.
-        :param world: The world holding the place.
-        :return: A free spot for the robot's base: in ``location`` if it is a room, else
-            next to it.
-        :raises LocationWithoutBody: If ``location`` is neither a room nor has a body.
-        :raises NoFreeStandingPose: If no spot is free.
-        """
-        if isinstance(location, Room):
-            standing_pose = find_free_space_in_room(type(location), world)
-        elif isinstance(location, HasRootBody):
-            standing_pose = find_free_space_next_to(
-                robot_diameter=0.7, semantic_annotation=location
-            )
-        else:
-            raise LocationWithoutBody(location=location)
-        if standing_pose is None:
-            raise NoFreeStandingPose(location=location)
-        return standing_pose
-
-    @staticmethod
-    def carried_object(
-        action: ActionType, named_object: HasRootBody | None
-    ) -> HasGraspCandidates:
-        """
-        :param action: The kind of action that picks up or puts down the object.
-        :param named_object: The object the step names, if any.
-        :return: ``named_object``, which the robot can grasp.
-        :raises MissingActionArgument: If the step names no object.
-        :raises ObjectNotGraspable: If the robot cannot grasp the object.
-        """
-        if named_object is None:
-            raise MissingActionArgument(action=action, argument=PayloadKey.OBJECT)
-        if not isinstance(named_object, HasGraspCandidates):
-            raise ObjectNotGraspable(named_object=named_object)
-        return named_object
-
-    @classmethod
-    def placing_pose(
-        cls,
-        location_type: type[SemanticAnnotation],
-        location: SemanticAnnotation,
-        held_object: HasGraspCandidates,
-        world: World,
-    ) -> Pose:
-        """
-        :param location_type: The kind of place the step names.
-        :param location: The place the step names.
-        :param held_object: The object to put down.
-        :param world: The world holding the place.
-        :return: Where to put the object down: on a table in a room, on the first free
-            surface of the named kind, or else on the spot next to the place.
-        :raises NoFreeTableInRoom: If no table in the named room has space.
-        :raises NoFreeSurface: If no surface of the named kind has space.
-        """
-        if isinstance(location, Room):
-            return cls.free_pose_on_table_in_room(location_type, held_object, world)
-        if not isinstance(location, HasSupportingSurface):
-            return cls.free_standing_pose(location, world)
-        free_pose = cls.free_pose_on_first_free_surface(
-            world.get_semantic_annotations_by_type(location_type), held_object
-        )
-        if free_pose is None:
-            raise NoFreeSurface(surface_type=location_type, placed_object=held_object)
-        return free_pose
-
-    @staticmethod
-    def finding_action(
-        searched_object: HasRootBody | None,
-        searched_person: Human | None,
-        context: StatechartContext,
-    ) -> Action:
-        """
-        :param searched_object: The object the step looks for, if any.
-        :param searched_person: The person the step looks for, if any.
-        :param context: The context of the plan, which may let the robot detect people.
-        :return: An action that drives to the object, else to the person.
-        :raises NothingToFind: If the step looks for neither.
-        """
-        # TODO: FIND currently only a placeholder, only works with objects already in the SemDT, find action has
-        #  to be implemented first to completely implement this feature
-        if searched_object is not None:
-            return NavigateAction(target_location=searched_object.root.global_pose)
-        if searched_person is None:
-            raise NothingToFind()
-        person_detection = context.get_extension(PersonDetection)
-        return FindPersonAction(
-            person=searched_person,
-            detection=None if person_detection is None else person_detection.query,
-        )
-
-    @staticmethod
-    def find_person(
-        description: str, location: SemanticAnnotation | None, world: World
-    ) -> Human:
-        """
-        :param description: The person as the step describes them, such as ``"person
-            pointing to the right"``.
-        :param location: The place the step names; a room restricts the search to it.
-        :param world: The world holding the person.
-        :return: The first person in the named room, or in ``world`` if the step names
-            no room. The description is left for the perception to check.
-        :raises NoPersonFound: If no person is there.
-        """
-        room = location if isinstance(location, Room) else None
-        people = (
-            world.get_semantic_annotations_by_type(Human)
-            if room is None
-            else find_objects_in_room(Human, type(room), world)
-        )
-        if not people:
-            raise NoPersonFound(description=description, room=room)
-        return people[0]
-
-    @staticmethod
-    def find_object_annotation(
-        object_name: str,
-        action: ActionType,
-        location: SemanticAnnotation | None,
-        world: World,
-    ) -> HasRootBody:
-        """
-        :param object_name: The name of the object as the step names it.
-        :param action: The kind of action the step performs.
-        :param location: The place the step names.
-        :param world: The world holding the object.
-        :return: The object the step names: the first of its kind in the room the step
-            names, unless the step places it there; else the one with that name.
-        :raises ObjectNotInRoom: If the room holds no object of that kind.
-        """
-        if not isinstance(location, Room) or action == ActionType.PLACE:
-            return world.get_semantic_annotation_by_name(object_name)
-        object_type = SemanticAnnotationClassFinder().find(object_name)
-        objects_in_room = find_objects_in_room(object_type, type(location), world)
-        if not objects_in_room:
-            raise ObjectNotInRoom(object_type=object_type, room=location)
-        return objects_in_room[0]
-
-    @staticmethod
-    def pick_up_from_reachable_standing_pose(
-        graspable: HasGraspCandidates, context: StatechartContext
-    ) -> ManipulationAtStandingPoseAction:
-        """
-        :param graspable: The object to pick up.
-        :param context: The context of the plan, whose robot picks the object up with
-            its first arm.
-        :return: A pick-up that drives to the first standing pose the reachability
-            costmap offers, and takes the object by the grasp closest to the robot
-            standing there that the gripper opens wide enough for, touching anything
-            while it does.
-        :raises NoGraspFitsGripper: If every grasp is wider than the gripper opens.
-        """
-        arm = context.require_extension(RobotAccess).robot.all_arms[0]
-        standing_pose = PlannedAction.standing_pose_on_floor(
-            ReachabilityLocation(
-                target_pose=Pose(reference_frame=graspable.root),
-                arm=arm,
-                context=context,
-            ),
-            context.world,
-        )
-        grasps_closest_first = GraspsByCloseness(
-            graspable, standing_pose, number_of_grasps=None
-        )()
-        fitting_grasp = next(
-            (
-                grasp
-                for grasp in grasps_closest_first
-                if grasp.width_along_closing_axis
-                <= arm.end_effector.separation_when_open
-            ),
-            None,
-        )
-        if fitting_grasp is None:
-            raise NoGraspFitsGripper(graspable=graspable, gripper=arm.end_effector)
-        return ManipulationAtStandingPoseAction(
-            standing_pose=standing_pose,
-            manipulated_location=Pose(reference_frame=graspable.root),
-            manipulation=MoveAndPickUpAction.from_standing_position(
-                standing_pose, fitting_grasp, arm
-            ),
-        )
-
-    @staticmethod
-    def place_from_reachable_standing_pose(
-        held_object: HasGraspCandidates,
-        target_location: Pose,
-        context: StatechartContext,
-    ) -> ManipulationAtStandingPoseAction:
-        """
-        :param held_object: The object to put down, held by the robot's first arm.
-        :param target_location: Where to put the object down.
-        :param context: The context of the plan, whose robot places the object.
-        :return: A placing that carries the object to the first standing pose the
-            reachability costmap offers for ``target_location`` and puts it down there,
-            touching anything while it does.
-        """
-        arm = context.require_extension(RobotAccess).robot.all_arms[0]
-        standing_pose = PlannedAction.standing_pose_on_floor(
-            ReachabilityLocation(target_pose=target_location, arm=arm, context=context),
-            context.world,
-        )
-        return ManipulationAtStandingPoseAction(
-            standing_pose=standing_pose,
-            manipulated_location=target_location,
-            manipulation=MoveAndPlaceAction.from_standing_position(
-                standing_pose, target_location, held_object, arm
-            ),
-        )
-
-    @staticmethod
-    def standing_pose_on_floor(location: ReachabilityLocation, world: World) -> Pose:
-        """
-        :param location: Where the robot can stand to reach its target.
-        :param world: The world the robot stands in.
-        :return: The first candidate of ``location`` that lies over a floor.
-        :raises NoStandingPoseOnFloor: If no candidate lies over a floor.
-        """
-        floors = world.get_semantic_annotations_by_type(Floor)
-        for candidate in location:
-            if any(
-                OverFloorPlan(pose=candidate, floor=floor.root)() for floor in floors
-            ):
-                return candidate
-        raise NoStandingPoseOnFloor(target_pose=location.target_pose)
-
-    @staticmethod
-    def free_pose_on_table_in_room(
-        room_type: type[Room], placed_object: HasRootBody, world: World
-    ) -> Pose:
-        """
-        :param room_type: The kind of room to put the object down in.
-        :param placed_object: The object to put down.
-        :param world: The world the room is part of.
-        :return: A pose on the first table in the room where the object fits, as
-            :meth:`free_pose_on_first_free_surface` samples it.
-        :raises NoFreeTableInRoom: If no table in the room has space for the object.
-        """
-        free_pose = PlannedAction.free_pose_on_first_free_surface(
-            find_objects_in_room(Table, room_type, world), placed_object
-        )
-        if free_pose is None:
-            raise NoFreeTableInRoom(room_type=room_type, placed_object=placed_object)
-        return free_pose
-
-    @staticmethod
-    def free_pose_on_first_free_surface(
-        surfaces: list[HasSupportingSurface], placed_object: HasRootBody
-    ) -> Pose | None:
-        """
-        :param surfaces: The surfaces to put the object down on, in order of preference.
-        :param placed_object: The object to put down.
-        :return: The most likely sampled pose where ``placed_object`` fits without
-            touching other objects, on the first of ``surfaces`` that has one; ``None``
-            if none has.
-        """
-        for surface in surfaces:
-            free_points = surface.sample_points_from_surface(
-                body_to_sample_for=placed_object
-            )
-            if free_points:
-                return Pose(
-                    position=free_points[0],
-                    reference_frame=free_points[0].reference_frame,
-                )
-        return None
 
 
 @dataclass
@@ -688,12 +770,13 @@ class GeneratedPlan:
     The actions in the order the robot performs them.
     """
 
-    def rewrap_into_command(
-        self, instruction: str, any_room: set[type[Room]]
+    def to_command(
+        self, instruction: str, fallback_room_types: set[type[Room]]
     ) -> Command:
         """
         :param instruction: The command as the operator spoke it.
-        :param any_room: The kinds of room a step that names no room may be performed in.
+        :param fallback_room_types: The kinds of room a plan that names no room may be
+            performed in.
         :return: This plan as a command whose steps each hold the consecutive actions
             performed in one kind of room; an action performed wherever the robot
             already is joins the step around it, or the first step if it leads.
@@ -703,20 +786,20 @@ class GeneratedPlan:
         for planned_action in self.actions:
             room_type = planned_action.room_type
             if steps and (room_type is None or steps[-1].rooms == {room_type}):
-                steps[-1].actions.append(planned_action.action_type)
+                steps[-1].actions.append(planned_action.action)
                 continue
             if room_type is None:
-                leading_actions.append(planned_action.action_type)
+                leading_actions.append(planned_action.action)
                 continue
             steps.append(
                 Step(
                     rooms={room_type},
-                    actions=[*leading_actions, planned_action.action_type],
+                    actions=[*leading_actions, planned_action.action],
                 )
             )
             leading_actions = []
         if leading_actions:
-            steps.append(Step(rooms=any_room, actions=leading_actions))
+            steps.append(Step(rooms=fallback_room_types, actions=leading_actions))
         return Command(instruction=instruction, steps=steps)
 
 
@@ -776,12 +859,12 @@ def main(
         for action in plan.actions:
             logger.info(
                 "%s | location: %s | object: %s | person: %s",
-                type(action.action_type).__name__,
+                type(action.action).__name__,
                 None if action.location is None else type(action.location).__name__,
                 None
                 if action.object_annotation is None
                 else type(action.object_annotation).__name__,
                 None if action.person is None else action.person.name,
             )
-            logger.info("%s", action.action_type)
+            logger.info("%s", action.action)
     return command

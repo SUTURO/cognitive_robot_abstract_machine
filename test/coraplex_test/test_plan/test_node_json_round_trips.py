@@ -487,15 +487,6 @@ def _tool_cases() -> list[ActionRoundTripCase]:
     ]
 
 
-def _speech_cases() -> list[ActionRoundTripCase]:
-    return [
-        ActionRoundTripCase(
-            TalkingAction,
-            lambda world: [TalkingAction(speaking_text="I will bring you the milk")],
-        ),
-    ]
-
-
 def _cases() -> list[ActionRoundTripCase]:
     """
     :return: One case per action and perception node class, each in the apartment of
@@ -508,7 +499,6 @@ def _cases() -> list[ActionRoundTripCase]:
             *_navigation_and_perception_cases(),
             *_manipulation_cases(),
             *_tool_cases(),
-            *_speech_cases(),
         )
     ]
 
@@ -528,6 +518,10 @@ def cases() -> list[ActionRoundTripCase]:
 
 @pytest.fixture()
 def node_types_needing_a_case() -> set[type[StatechartNode]]:
+    """
+    :return: The action and perception node classes that compile without a ROS node;
+        :class:`TalkingAction` publishes through one and is tested on its own.
+    """
     return set().union(
         *(
             concrete_node_types(package)
@@ -540,7 +534,7 @@ def node_types_needing_a_case() -> set[type[StatechartNode]]:
                 perception,
             )
         )
-    )
+    ) - {TalkingAction}
 
 
 @pytest.fixture()

@@ -37,8 +37,11 @@ from challenges.GPSR.action_mapping.action_mapping import (
     GeneratedCommand,
     GeneratedPlan,
     ManipulationAtStandingPoseAction,
+    FreeSpaceFinder,
+    ManipulationPlanner,
     PayloadKey,
     PlannedAction,
+    WorldReferenceResolver,
 )
 from coraplex.perception import RoboKudoQuery, RoboKudoQueryTask
 from coraplex.robot_plans.actions.composite.transporting import (
@@ -113,26 +116,6 @@ def pr2_context(
     return StatechartContext.with_extensions(world, extensions)
 
 
-@dataclass
-class FixedStandingCandidates:
-    """
-    Stands in for a reachability costmap by offering fixed standing poses for a target.
-    """
-
-    target_pose: Pose
-    """
-    The pose the robot is to reach.
-    """
-
-    candidates: list[Pose]
-    """
-    The poses the robot could stand at, best first.
-    """
-
-    def __iter__(self) -> Iterator[Pose]:
-        return iter(self.candidates)
-
-
 @pytest.fixture
 def context(kitchen_environment_with_rooms: World) -> StatechartContext:
     """
@@ -164,11 +147,34 @@ def living_room() -> LivingRoom:
 
 
 @pytest.fixture
-def any_room() -> set[type[Room]]:
+def fallback_room_types() -> set[type[Room]]:
     """
     The kinds of room a step that names no room may be performed in.
     """
     return {Kitchen, LivingRoom}
+
+
+# %% Test helpers
+
+
+@dataclass
+class FixedStandingCandidates:
+    """
+    Stands in for a reachability costmap by offering fixed standing poses for a target.
+    """
+
+    target_pose: Pose
+    """
+    The pose the robot is to reach.
+    """
+
+    candidates: list[Pose]
+    """
+    The poses the robot could stand at, best first.
+    """
+
+    def __iter__(self) -> Iterator[Pose]:
+        return iter(self.candidates)
 
 
 def saying(text: str, location: Room | None = None) -> PlannedAction:
@@ -178,7 +184,7 @@ def saying(text: str, location: Room | None = None) -> PlannedAction:
     :return: A step that says ``text``, performed in ``location``.
     """
     return PlannedAction(
-        action_type=TalkingAction(speaking_text=text), text=text, location=location
+        action=TalkingAction(speaking_text=text), text=text, location=location
     )
 
 
@@ -194,19 +200,21 @@ def test_actions_keep_their_order_and_fields(
     command = GeneratedCommand.from_json(payload, "go there", context)
     plan = command.plans[0]
     say = payload[PayloadKey.PLANS][0][0]
-    [kitchen_room] = context.world.get_semantic_annotations_by_type(Kitchen)
-    [living_room_room] = context.world.get_semantic_annotations_by_type(LivingRoom)
-    talking, *drives = [action.action_type for action in plan.actions]
+    [kitchen_annotation] = context.world.get_semantic_annotations_by_type(Kitchen)
+    [living_room_annotation] = context.world.get_semantic_annotations_by_type(
+        LivingRoom
+    )
+    talking, *drives = [action.action for action in plan.actions]
     assert type(talking) is TalkingAction
     assert [drive._type_ for drive in drives] == [
         PathPlanningNavigateAction,
         PathPlanningNavigateAction,
     ]
-    assert plan.actions[0].action_type.speaking_text == say[PayloadKey.TEXT]
+    assert plan.actions[0].action.speaking_text == say[PayloadKey.TEXT]
     assert [action.location for action in plan.actions] == [
         None,
-        kitchen_room,
-        living_room_room,
+        kitchen_annotation,
+        living_room_annotation,
     ]
 
 
@@ -229,10 +237,8 @@ def test_navigation_drives_to_a_free_standing_pose_at_each_location(
     command = GeneratedCommand.from_json(payload, "go there", context)
     drives = command.plans[0].actions[1:]
     for drive in drives:
-        expected_target = PlannedAction.free_standing_pose(
-            drive.location, context.world
-        )
-        target = drive.action_type._kwargs_["target"]
+        expected_target = FreeSpaceFinder(context.world).standing_pose(drive.location)
+        target = drive.action._kwargs_["target"]
         assert numpy.allclose(target.to_np(), expected_target.to_np())
 
 
@@ -245,10 +251,10 @@ def test_finding_an_object_drives_to_the_object(
     command = GeneratedCommand.from_json(payload, "go there", context)
     finding = command.plans[1].actions[1]
     apple = context.world.get_semantic_annotation_by_name("apple")
-    assert isinstance(finding.action_type, NavigateAction)
+    assert isinstance(finding.action, NavigateAction)
     assert finding.object_annotation is apple
     assert numpy.allclose(
-        finding.action_type.target_location.to_np(), apple.root.global_pose.to_np()
+        finding.action.target_location.to_np(), apple.root.global_pose.to_np()
     )
 
 
@@ -366,7 +372,7 @@ def test_standing_next_to_a_location_without_a_body_raises(
     """
     location = SemanticAnnotation(name=PrefixedName("somewhere"))
     with pytest.raises(LocationWithoutBody):
-        PlannedAction.free_standing_pose(location, kitchen_environment_with_rooms)
+        FreeSpaceFinder(kitchen_environment_with_rooms).standing_pose(location)
 
 
 # %% Finding the person a step names
@@ -392,8 +398,8 @@ def test_person_is_found_whatever_the_description_says(
         },
         context,
     )
-    assert isinstance(action.action_type, FindPersonAction)
-    assert action.action_type.person is person
+    assert isinstance(action.action, FindPersonAction)
+    assert action.action.person is person
 
 
 def test_finding_a_person_in_a_world_without_people_raises(
@@ -417,12 +423,12 @@ def test_object_to_place_is_found_outside_the_target_room(
     """
     An object to place is found by its name, wherever it stands.
     """
-    [living_room_room] = (
+    [living_room_annotation] = (
         kitchen_environment_with_rooms.get_semantic_annotations_by_type(LivingRoom)
     )
     apple = kitchen_environment_with_rooms.get_semantic_annotation_by_name("apple")
-    found = PlannedAction.find_object_annotation(
-        "apple", ActionType.PLACE, living_room_room, kitchen_environment_with_rooms
+    found = WorldReferenceResolver(kitchen_environment_with_rooms).resolve_object(
+        "apple", ActionType.PLACE, living_room_annotation
     )
     assert found is apple
 
@@ -433,12 +439,12 @@ def test_object_to_pick_up_is_found_in_the_named_room(
     """
     An object to pick up is found in the room the step names.
     """
-    [kitchen_room] = kitchen_environment_with_rooms.get_semantic_annotations_by_type(
-        Kitchen
+    [kitchen_annotation] = (
+        kitchen_environment_with_rooms.get_semantic_annotations_by_type(Kitchen)
     )
     apple = kitchen_environment_with_rooms.get_semantic_annotation_by_name("apple")
-    found = PlannedAction.find_object_annotation(
-        "apple", ActionType.PICK_UP, kitchen_room, kitchen_environment_with_rooms
+    found = WorldReferenceResolver(kitchen_environment_with_rooms).resolve_object(
+        "apple", ActionType.PICK_UP, kitchen_annotation
     )
     assert found is apple
 
@@ -449,15 +455,12 @@ def test_object_to_pick_up_missing_from_the_named_room_raises(
     """
     An object to pick up that the named room does not hold is not found.
     """
-    [living_room_room] = (
+    [living_room_annotation] = (
         kitchen_environment_with_rooms.get_semantic_annotations_by_type(LivingRoom)
     )
     with pytest.raises(ObjectNotInRoom):
-        PlannedAction.find_object_annotation(
-            "apple",
-            ActionType.PICK_UP,
-            living_room_room,
-            kitchen_environment_with_rooms,
+        WorldReferenceResolver(kitchen_environment_with_rooms).resolve_object(
+            "apple", ActionType.PICK_UP, living_room_annotation
         )
 
 
@@ -468,14 +471,14 @@ def test_object_to_pick_up_is_the_one_in_the_named_room_not_the_one_of_its_name(
     Of two bananas, the one in the named room is picked up, not the one whose name the
     step gives.
     """
-    [kitchen_room] = kitchen_environment_with_rooms.get_semantic_annotations_by_type(
-        Kitchen
+    [kitchen_annotation] = (
+        kitchen_environment_with_rooms.get_semantic_annotations_by_type(Kitchen)
     )
     banana_in_kitchen = kitchen_environment_with_rooms.get_semantic_annotation_by_name(
         "banana1"
     )
-    found = PlannedAction.find_object_annotation(
-        "banana", ActionType.PICK_UP, kitchen_room, kitchen_environment_with_rooms
+    found = WorldReferenceResolver(kitchen_environment_with_rooms).resolve_object(
+        "banana", ActionType.PICK_UP, kitchen_annotation
     )
     assert found is banana_in_kitchen
 
@@ -487,8 +490,8 @@ def test_step_naming_a_room_is_performed_there(context: StatechartContext) -> No
     """
     A step naming a room is performed in that kind of room.
     """
-    [kitchen_room] = context.world.get_semantic_annotations_by_type(Kitchen)
-    assert saying("go", kitchen_room).room_type is Kitchen
+    [kitchen_annotation] = context.world.get_semantic_annotations_by_type(Kitchen)
+    assert saying("go", kitchen_annotation).room_type is Kitchen
 
 
 def test_step_naming_an_object_is_performed_in_its_room(
@@ -499,7 +502,7 @@ def test_step_naming_an_object_is_performed_in_its_room(
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
     step = PlannedAction(
-        action_type=TalkingAction(speaking_text="take"), object_annotation=apple
+        action=TalkingAction(speaking_text="take"), object_annotation=apple
     )
     assert step.room_type is Kitchen
 
@@ -597,6 +600,32 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
     assert allowing_collisions.performed_action is performed
 
 
+def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    A standing pose right at the manipulated location leaves no direction to step back
+    in, so the robot approaches the standing pose itself.
+    """
+    world, robot, extensions = apartment_world_pr2_copy_with_context
+    statechart = Statechart(
+        context=StatechartContext.with_extensions(world, extensions)
+    )
+    standing_pose = Pose.from_xyz_rpy(x=1.0, y=0.5, reference_frame=world.root)
+    manipulation = ManipulationAtStandingPoseAction(
+        standing_pose=standing_pose,
+        manipulated_location=Pose.from_xyz_rpy(
+            x=1.0, y=0.5, z=0.8, reference_frame=world.root
+        ),
+        manipulation=TalkingAction(speaking_text="placing"),
+    )
+    statechart.add_node(manipulation)
+    drive, _ = manipulation.create_steps()
+    assert numpy.allclose(drive._kwargs_["target"].to_np(), standing_pose.to_np())
+
+
 # %% Picking up and placing at a reachable standing pose
 
 
@@ -608,7 +637,7 @@ def test_picking_up_stands_over_a_floor_and_reaches_for_the_object(
     object up there.
     """
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
-    pick_up = PlannedAction.pick_up_from_reachable_standing_pose(milk, pr2_context)
+    pick_up = ManipulationPlanner(pr2_context).pick_up(milk)
     floors = pr2_context.world.get_semantic_annotations_by_type(Floor)
     assert any(
         OverFloorPlan(pose=pick_up.standing_pose, floor=floor.root)()
@@ -632,7 +661,7 @@ def test_picking_up_with_a_gripper_too_narrow_for_every_grasp_raises(
     monkeypatch.setattr(robot.all_arms[0].end_effector, "separation_when_open", 0.0)
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
     with pytest.raises(NoGraspFitsGripper):
-        PlannedAction.pick_up_from_reachable_standing_pose(milk, pr2_context)
+        ManipulationPlanner(pr2_context).pick_up(milk)
 
 
 def test_placing_puts_the_held_object_down_at_the_target(
@@ -643,9 +672,7 @@ def test_placing_puts_the_held_object_down_at_the_target(
     """
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
     target_location = milk.root.global_pose
-    placing = PlannedAction.place_from_reachable_standing_pose(
-        milk, target_location, pr2_context
-    )
+    placing = ManipulationPlanner(pr2_context).place(milk, target_location)
     assert placing.manipulated_location is target_location
     assert isinstance(placing.manipulation, MoveAndPlaceAction)
 
@@ -663,7 +690,7 @@ def test_standing_pose_is_the_first_candidate_over_a_floor(
         target_pose=over_kitchen_floor, candidates=[over_no_floor, over_kitchen_floor]
     )
     assert (
-        PlannedAction.standing_pose_on_floor(candidates, context.world)
+        ManipulationPlanner(context).standing_pose_on_floor(candidates)
         is over_kitchen_floor
     )
 
@@ -680,7 +707,7 @@ def test_standing_pose_without_a_candidate_over_a_floor_raises(
         target_pose=over_no_floor, candidates=[over_no_floor]
     )
     with pytest.raises(NoStandingPoseOnFloor):
-        PlannedAction.standing_pose_on_floor(candidates, context.world)
+        ManipulationPlanner(context).standing_pose_on_floor(candidates)
 
 
 # %% Finding a free place to put an object down
@@ -692,10 +719,10 @@ def test_free_pose_on_a_table_in_the_room_lies_in_the_room(
     """
     An object put down on a table in a room is put down over that room's floor.
     """
-    [kitchen_room] = context.world.get_semantic_annotations_by_type(Kitchen)
+    [kitchen_annotation] = context.world.get_semantic_annotations_by_type(Kitchen)
     apple = context.world.get_semantic_annotation_by_name("apple")
-    free_pose = PlannedAction.free_pose_on_table_in_room(Kitchen, apple, context.world)
-    assert OverFloorPlan(pose=free_pose, floor=kitchen_room.floor.root)()
+    free_pose = FreeSpaceFinder(context.world).pose_on_table_in_room(Kitchen, apple)
+    assert OverFloorPlan(pose=free_pose, floor=kitchen_annotation.floor.root)()
 
 
 def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> None:
@@ -704,7 +731,7 @@ def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> No
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
     with pytest.raises(NoFreeTableInRoom):
-        PlannedAction.free_pose_on_table_in_room(LivingRoom, apple, context.world)
+        FreeSpaceFinder(context.world).pose_on_table_in_room(LivingRoom, apple)
 
 
 def test_no_surfaces_offer_no_free_pose(context: StatechartContext) -> None:
@@ -712,14 +739,14 @@ def test_no_surfaces_offer_no_free_pose(context: StatechartContext) -> None:
     Without surfaces there is no place to put an object down.
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
-    assert PlannedAction.free_pose_on_first_free_surface([], apple) is None
+    assert FreeSpaceFinder.pose_on_first_free_surface([], apple) is None
 
 
-# %% Rewrapping a plan into a command for the room transformation
+# %% Turning a plan into a command for the room transformation
 
 
 def test_leading_step_without_room_joins_the_first_room(
-    kitchen: Kitchen, any_room: set[type[Room]]
+    kitchen: Kitchen, fallback_room_types: set[type[Room]]
 ) -> None:
     """
     Actions before the first one naming a room are performed in that room.
@@ -727,13 +754,13 @@ def test_leading_step_without_room_joins_the_first_room(
     plan = GeneratedPlan(
         actions=[saying("announce"), saying("go", kitchen), saying("take")]
     )
-    [step] = plan.rewrap_into_command("bring it", any_room).steps
+    [step] = plan.to_command("bring it", fallback_room_types).steps
     assert step.rooms == {Kitchen}
-    assert step.actions == [action.action_type for action in plan.actions]
+    assert step.actions == [action.action for action in plan.actions]
 
 
 def test_change_of_room_starts_a_new_step(
-    kitchen: Kitchen, living_room: LivingRoom, any_room: set[type[Room]]
+    kitchen: Kitchen, living_room: LivingRoom, fallback_room_types: set[type[Room]]
 ) -> None:
     """
     An action naming another room starts a new step.
@@ -746,25 +773,30 @@ def test_change_of_room_starts_a_new_step(
             saying("put"),
         ]
     )
-    steps = plan.rewrap_into_command("bring it", any_room).steps
+    steps = plan.to_command("bring it", fallback_room_types).steps
     assert [step.rooms for step in steps] == [{Kitchen}, {LivingRoom}]
     assert [step.actions for step in steps] == [
-        [plan.actions[0].action_type, plan.actions[1].action_type],
-        [plan.actions[2].action_type, plan.actions[3].action_type],
+        [plan.actions[0].action, plan.actions[1].action],
+        [plan.actions[2].action, plan.actions[3].action],
     ]
 
 
-def test_plan_naming_no_room_may_run_in_any_room(any_room: set[type[Room]]) -> None:
+def test_plan_naming_no_room_may_run_in_any_room(
+    fallback_room_types: set[type[Room]],
+) -> None:
     """
     A plan that names no room may be performed in any room.
     """
     plan = GeneratedPlan(actions=[saying("hello")])
-    [step] = plan.rewrap_into_command("greet", any_room).steps
-    assert step.rooms == any_room
+    [step] = plan.to_command("greet", fallback_room_types).steps
+    assert step.rooms == fallback_room_types
 
 
-def test_rewrapped_plans_share_a_visit_to_the_same_room(
-    kitchen: Kitchen, living_room: LivingRoom, any_room: set[type[Room]]
+# %% Planning the room visits of several plans
+
+
+def test_plans_turned_into_commands_share_a_visit_to_the_same_room(
+    kitchen: Kitchen, living_room: LivingRoom, fallback_room_types: set[type[Room]]
 ) -> None:
     """
     Plans that name the same room are performed during one visit to it.
@@ -774,13 +806,13 @@ def test_rewrapped_plans_share_a_visit_to_the_same_room(
     )
     question = GeneratedPlan(actions=[saying("ask", kitchen)])
     commands = [
-        plan.rewrap_into_command("tasks", any_room) for plan in (transport, question)
+        plan.to_command("tasks", fallback_room_types) for plan in (transport, question)
     ]
     room_visits = RoomVisitPlanner().transform_plan_by_rooms(commands)
     assert [room_visit.room for room_visit in room_visits] == [Kitchen, LivingRoom]
     assert room_visits[0].actions == [
-        transport.actions[0].action_type,
-        question.actions[0].action_type,
+        transport.actions[0].action,
+        question.actions[0].action,
     ]
 
 

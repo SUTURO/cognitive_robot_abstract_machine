@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 import pytest
-from typing_extensions import Iterator
+from typing_extensions import TYPE_CHECKING, Iterator
 
 from coraplex.exceptions import (
     NoSingleHsrHeadCamera,
@@ -29,6 +29,9 @@ from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import Body
 
 from ..pytest_environment import runs_in_continuous_integration
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
 
 pytestmark = [
     pytest.mark.skipif(
@@ -137,8 +140,11 @@ def test_start_publishes_the_head_camera_and_runs_the_engine(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
+    """
+    Starting publishes the head camera of the HSR and runs the engine.
+    """
     perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     [camera] = hsr_world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
     assert perception.camera_publisher.camera is camera
@@ -149,12 +155,15 @@ def test_context_captures_the_frame_through_the_publisher(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
+    """
+    The plan captures each frame through the head camera's publisher.
+    """
     perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     [capture] = [
         extension
-        for extension in perception.build_context_extensions(hsr_world)
+        for extension in perception.build_context_extensions()
         if isinstance(extension, CameraFrameCapture)
     ]
     assert capture == CameraFrameCapture(perception.camera_publisher.publish)
@@ -164,12 +173,15 @@ def test_context_places_the_published_world_frame_at_the_world_root(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
+    """
+    The world frame the camera is published in stands for the simulated world's root.
+    """
     perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     [world_frame] = [
         extension
-        for extension in perception.build_context_extensions(hsr_world)
+        for extension in perception.build_context_extensions()
         if isinstance(extension, PerceptionWorldFrame)
     ]
     assert world_frame == PerceptionWorldFrame(
@@ -181,8 +193,11 @@ def test_stop_stops_the_engine_and_the_publishing(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
+    """
+    Stopping stops the engine and the publishing of the head camera.
+    """
     perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     perception.stop()
     assert not perception.analysis_engine.runs
@@ -195,8 +210,11 @@ def test_stop_stops_the_engine_and_the_publishing(
 def test_context_before_start_is_refused(
     perception: SimulatedHsrHeadCameraPerception,
 ) -> None:
+    """
+    A perception that never started gives a plan nothing to capture frames with.
+    """
     with pytest.raises(SimulatedPerceptionNotStarted):
-        perception.build_context_extensions(World())
+        perception.build_context_extensions()
 
 
 def test_stop_before_start_leaves_the_engine_alone(
@@ -216,7 +234,7 @@ def test_starting_twice_is_refused(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
     """
     A running perception refuses to start again instead of starting a second engine.
@@ -230,7 +248,7 @@ def test_starting_twice_is_refused(
 def test_world_without_an_hsr_head_camera_is_refused(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
     """
     A world without the head camera of an HSR leaves nothing to perceive through, so the
@@ -243,7 +261,7 @@ def test_world_without_an_hsr_head_camera_is_refused(
 
 
 def test_failed_engine_start_leaves_the_perception_stopped(
-    hsr_world: World, hsr_head_camera_simulation: MujocoSim, rclpy_node
+    hsr_world: World, hsr_head_camera_simulation: MujocoSim, rclpy_node: Node
 ) -> None:
     """
     An engine that fails to start leaves the perception unable to serve a plan.
@@ -256,7 +274,7 @@ def test_failed_engine_start_leaves_the_perception_stopped(
     with pytest.raises(AnalysisEngineDidNotStart):
         perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     with pytest.raises(SimulatedPerceptionNotStarted):
-        perception.build_context_extensions(hsr_world)
+        perception.build_context_extensions()
 
 
 # %% Releasing the camera topics
@@ -266,7 +284,7 @@ def test_stop_releases_the_head_camera_topics(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
     """
     After stopping, the node publishes on none of the head camera's topics any more.
@@ -287,7 +305,7 @@ def test_context_after_stop_is_refused(
     perception: SimulatedHsrHeadCameraPerception,
     hsr_world: World,
     hsr_head_camera_simulation: MujocoSim,
-    rclpy_node,
+    rclpy_node: Node,
 ) -> None:
     """
     A stopped perception gives a plan nothing to capture frames with.
@@ -295,4 +313,4 @@ def test_context_after_stop_is_refused(
     perception.start(hsr_world, hsr_head_camera_simulation, rclpy_node)
     perception.stop()
     with pytest.raises(SimulatedPerceptionNotStarted):
-        perception.build_context_extensions(hsr_world)
+        perception.build_context_extensions()

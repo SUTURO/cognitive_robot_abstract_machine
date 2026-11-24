@@ -4,8 +4,8 @@ Tests for the robot saying a sentence out loud.
 
 from __future__ import annotations
 
+from coraplex.datastructures.enums import SpeechTopic
 from coraplex.robot_plans.actions.core.talking import TalkingAction
-from cramspeech.speech_node import SpeechTopic
 from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart
 
 # %% handing the sentence to the text-to-speech node
