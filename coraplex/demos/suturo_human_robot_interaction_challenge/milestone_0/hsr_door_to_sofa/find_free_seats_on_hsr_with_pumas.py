@@ -5,13 +5,13 @@ Start AMCL and Pumas on the map ``apartment_master1``, Giskard and RoboKudo, put
 robot at the door, then run it from this folder::
 
     source ~/ros_clean_env.sh
-    python pumas_demo.py
+    python find_free_seats_on_hsr_with_pumas.py
 """
 
 from __future__ import annotations
 
 from coraplex.plans.executors import RealRobotPlanExecutor
-from demo import OneLookDoorToSofaDemonstration, main
+from free_seats_demonstration import OneLookDoorToSofaDemonstration, main
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 
 # %% running it

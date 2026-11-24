@@ -15,7 +15,7 @@ def main() -> None:
     MuJoCo.
     """
     try:
-        import demo
+        import free_seats_demonstration
         from coraplex.plans.executors import (
             KinematicallySimulatedPlanExecutor,
             PhysicallySimulatedPlanExecutor,
@@ -25,7 +25,7 @@ def main() -> None:
             Floor,
         )
 
-        demonstration = demo.DoorToSofaDemonstration(headless=True)
+        demonstration = free_seats_demonstration.DoorToSofaDemonstration(headless=True)
         world = demonstration.build_simulated_world()
         demonstration.build_simulation(world)
         if any(
@@ -39,8 +39,8 @@ def main() -> None:
             PhysicallySimulatedPlanExecutor,
         ):
             free_seats = SofaSeat.free_in(
-                demo.main(
-                    demo.DoorToSofaDemonstration(
+                free_seats_demonstration.main(
+                    free_seats_demonstration.DoorToSofaDemonstration(
                         executor_type=executor_type,
                         occupied_seats=[SofaSeat.RIGHT],
                         headless=True,
@@ -50,10 +50,17 @@ def main() -> None:
             if free_seats != [SofaSeat.LEFT]:
                 raise AssertionError(f"Expected only LEFT to be free, got {free_seats}")
 
-        free_seats = SofaSeat.free_in(demo.main(demo.OneLookDoorToSofaDemonstration()))
+        free_seats = SofaSeat.free_in(
+            free_seats_demonstration.main(
+                free_seats_demonstration.OneLookDoorToSofaDemonstration()
+            )
+        )
         if free_seats != list(SofaSeat):
             raise AssertionError(f"Expected every seat to be free, got {free_seats}")
-        if demo.FreeSeatSentence.describe([]) != demo.FreeSeatSentence.NONE:
+        if (
+            free_seats_demonstration.FreeSeatSentence.describe([])
+            != free_seats_demonstration.FreeSeatSentence.NONE
+        ):
             raise AssertionError("A full sofa is not described as full")
     except Exception:
         traceback.print_exc()

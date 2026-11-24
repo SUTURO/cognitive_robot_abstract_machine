@@ -9,8 +9,8 @@ environment:
 
 | Run | What you see |
 |---|---|
-| `python demo.py` | A MuJoCo viewer. |
-| `python test_demo.py` | No viewer; exit code 0 if the camera looks at the sofa after the drive. |
+| `python look_at_sofa_while_driving_in_mujoco.py` | A MuJoCo viewer. |
+| `python test_look_at_sofa_while_driving.py` | No viewer; exit code 0 if the camera looks at the sofa after the drive. |
 
 The plan:
 

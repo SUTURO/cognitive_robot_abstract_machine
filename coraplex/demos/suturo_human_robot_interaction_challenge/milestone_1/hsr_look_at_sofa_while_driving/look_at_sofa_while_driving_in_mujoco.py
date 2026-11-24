@@ -4,7 +4,7 @@ sofa on the way, in a MuJoCo viewer.
 
 Run it from this folder::
 
-    python demo.py
+    python look_at_sofa_while_driving_in_mujoco.py
 """
 
 from __future__ import annotations

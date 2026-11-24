@@ -12,10 +12,14 @@ def main() -> None:
     failure or if the camera has lost the sofa after the drive.
     """
     try:
-        import demo
+        import look_at_sofa_while_driving_in_mujoco
         from krrood_spatial_math.spatial_types import Vector3
 
-        demonstration = demo.LookAtSofaWhileDrivingDemonstration(headless=True)
+        demonstration = (
+            look_at_sofa_while_driving_in_mujoco.LookAtSofaWhileDrivingDemonstration(
+                headless=True
+            )
+        )
         world = demonstration.run()
         [robot] = world.get_semantic_annotations_by_type(demonstration.used_robot)
         camera = robot.get_default_camera()

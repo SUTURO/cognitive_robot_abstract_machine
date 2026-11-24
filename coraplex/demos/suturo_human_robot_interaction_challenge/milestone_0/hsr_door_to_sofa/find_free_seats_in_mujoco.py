@@ -3,13 +3,13 @@ The door to sofa demo carried out against MuJoCo physics, in a MuJoCo viewer.
 
 Run it from this folder, naming the seat places a person sits on::
 
-    python mujoco_demo.py RIGHT
+    python find_free_seats_in_mujoco.py RIGHT
 """
 
 from __future__ import annotations
 
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
-from demo import (
+from free_seats_demonstration import (
     DoorToSofaDemonstration,
     main,
     occupied_seats_from_command_line,

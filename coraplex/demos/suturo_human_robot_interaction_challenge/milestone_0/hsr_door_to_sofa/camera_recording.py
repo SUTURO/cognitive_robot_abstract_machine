@@ -20,7 +20,7 @@ from tf2_ros import StaticTransformBroadcaster
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.plans.plan_transformation import PlanTransformation
 from coraplex.robot_plans.plan_transformations import DetectWithRoboKudo
-from demo import OneLookDoorToSofaDemonstration
+from free_seats_demonstration import OneLookDoorToSofaDemonstration
 from exceptions import RecordingNotPlaying
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import FetchWorldServer

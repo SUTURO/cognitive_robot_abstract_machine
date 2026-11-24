@@ -4,7 +4,7 @@ sofa is a recording of the real HSR's head camera, perceived by RoboKudo.
 
 Start RoboKudo first, then run it from this folder with the recording's folder::
 
-    python rosbag_demo.py ~/workspace/src/kinect/07
+    python find_free_seats_in_recording.py ~/workspace/src/kinect/07
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import argparse
 from pathlib import Path
 
 from camera_recording import RecordedDoorToSofaDemonstration
-from demo import main
+from free_seats_demonstration import main
 
 # %% running it
 

@@ -3,7 +3,7 @@ The door to sofa demo in kinematic simulation, shown in RViz.
 
 Run it from this folder, naming the seat places a person sits on::
 
-    python rviz_demo.py RIGHT
+    python find_free_seats_in_rviz.py RIGHT
 
 Watch it with the fixed frame ``root`` and a ``MarkerArray`` display on
 ``/semworld/viz_marker`` whose durability is transient local. The world after the run
@@ -19,7 +19,7 @@ import threading
 import rclpy
 
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor
-from demo import (
+from free_seats_demonstration import (
     DoorToSofaDemonstration,
     main,
     occupied_seats_from_command_line,
