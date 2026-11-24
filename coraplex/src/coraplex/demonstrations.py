@@ -27,6 +27,9 @@ from coraplex.plans.executors import (
     PlanExecutor,
     SimulatedPlanExecutor,
 )
+from coraplex.robot_plans.plan_transformations import (
+    WriteTheOdometryInsteadOfCommandingAPose,
+)
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
@@ -173,6 +176,12 @@ class RobotDemonstration(ABC):
     collision_avoidance: bool = False
     """
     Whether collision avoidance is added to every motion state chart of this run.
+    """
+
+    robot_teleports_instead_of_driving: bool = True
+    """
+    Whether a kinematically simulated run puts the robot's base at every pose it
+    navigates to instead of driving it there.
     """
 
     event_segmentation: bool = True
@@ -423,9 +432,20 @@ class RobotDemonstration(ABC):
         :param world: The world the plan is performed in.
         :return: An executor of :attr:`executor_type`, set up the way this demonstration
             performs its plan in :attr:`simulation`, if there is one, showing its runs
-            with :attr:`visualization`.
+            with :attr:`visualization`, and putting the robot's base at its goals in a
+            kinematic simulation if :attr:`robot_teleports_instead_of_driving`.
         """
         executor_type = self.executor_type
+        if self.robot_teleports_instead_of_driving and issubclass(
+            executor_type, KinematicallySimulatedPlanExecutor
+        ):
+            executor_type = partial(
+                executor_type,
+                plan_adaptations=[
+                    *executor_type.default_plan_adaptations,
+                    WriteTheOdometryInsteadOfCommandingAPose(),
+                ],
+            )
         if self.simulation is not None:
             executor_type = partial(executor_type, simulation=self.simulation)
         executor = executor_type(

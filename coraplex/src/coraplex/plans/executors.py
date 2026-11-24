@@ -30,7 +30,6 @@ from coraplex.robot_plans.plan_transformations import (
     CloseFingersToObjectWidth,
     DetectWithRoboKudo,
     LetContactCarryTheBodies,
-    WriteTheOdometryInsteadOfCommandingAPose,
 )
 from coraplex.robot_plans.robot_specific_plan_transformations import (
     DriveWithTheDifferentialDrive,
@@ -67,6 +66,7 @@ from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecu
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
 from giskardpy.qp.exceptions import InfeasibleException
 from giskardpy.qp.qp_controller_config import QPControllerConfig
+from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math.symbolic_math import logic_or
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
 
@@ -528,12 +528,24 @@ class KinematicallySimulatedPlanExecutor(SimulatedPlanExecutor):
     """
 
     plan_adaptations: list[PlanTransformation] = field(
-        default_factory=lambda: [
-            WriteTheOdometryInsteadOfCommandingAPose(),
-            KeepStretchInFrontOfTheContainerItCloses(),
-        ],
+        default_factory=lambda: (
+            KinematicallySimulatedPlanExecutor.default_plan_adaptations
+        ),
         kw_only=True,
     )
+    """
+    The plan transformations adapting every plan to being performed kinematically, by
+    default :attr:`default_plan_adaptations`.
+    """
+
+    @classproperty
+    def default_plan_adaptations(cls) -> list[PlanTransformation]:
+        """
+        :return: New instances of the plan transformations a kinematic simulation adapts
+            every plan with unless it is given others; none of them puts the base at its
+            goal, so it drives there.
+        """
+        return [KeepStretchInFrontOfTheContainerItCloses()]
 
     def create_qp_controller_config(self) -> QPControllerConfig:
         return QPControllerConfig.create_with_fast_simulation_defaults()

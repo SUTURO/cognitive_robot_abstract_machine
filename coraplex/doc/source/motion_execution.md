@@ -116,10 +116,12 @@ Every executor offers each node of a plan to its
 {attr}`~coraplex.plans.executors.PlanExecutor.plan_adaptations`, and then to the transformations of the plan's own
 {class}`~coraplex.plans.plan_transformation.PlanRewriting`:
 
-- {class}`~coraplex.plans.executors.KinematicallySimulatedPlanExecutor` puts the base at its goal by writing the odometry
+- {class}`~coraplex.plans.executors.KinematicallySimulatedPlanExecutor` keeps a Stretch in front of the container it
+  closes, and drives the base to its goal. A {class}`~coraplex.demonstrations.RobotDemonstration` puts the base at its
+  goal by writing the odometry instead
   ({class}`~coraplex.robot_plans.plan_transformations.WriteTheOdometryInsteadOfCommandingAPose`), unless the robot
-  drives differentially, and keeps a Stretch in front of the container it closes. The trial of a candidate for an
-  underspecified action writes the odometry for a differentially driven robot too
+  drives differentially or {attr}`~coraplex.demonstrations.RobotDemonstration.robot_teleports_instead_of_driving` is
+  off. The trial of a candidate for an underspecified action writes the odometry for a differentially driven robot too
   ({class}`~coraplex.robot_plans.plan_transformations.WriteTheOdometryInsteadOfDriving`), see
   {attr}`~coraplex.plans.underspecified.ActionTrial.plan_adaptations`.
 - {class}`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor` closes a grasp to the object's width

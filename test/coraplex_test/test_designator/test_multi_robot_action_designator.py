@@ -1610,19 +1610,21 @@ def test_navigating_drives_the_base_towards_what_it_should_face(
     assert drive.mobile_base is robot.mobile_base
 
 
-def test_navigating_writes_the_odometry_when_simulated(
+def test_navigating_drives_the_base_when_kinematically_simulated(
     robot_without_differential_drive_context,
-):
+) -> None:
     """
-    A simulated run has no drive to follow a pose, so it sets the odometry itself.
+    A kinematic simulation drives the base to the pose unless it is told to put it
+    there.
     """
-    _, _, extensions = robot_without_differential_drive_context
+    _, robot, extensions = robot_without_differential_drive_context
     action = NavigateAction(planar_goal_pose=Pose2D())
 
     expand(action, extensions)
 
-    assert len(nodes_of_type(action, SetOdometry)) == 1
-    assert nodes_of_type(action, HolonomicBaseGoal) == []
+    assert nodes_of_type(action, SetOdometry) == []
+    [drive] = nodes_of_type(action, HolonomicBaseGoal)
+    assert drive.mobile_base is robot.mobile_base
 
 
 def test_navigating_drives_the_base_when_physically_simulated(

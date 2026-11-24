@@ -39,7 +39,6 @@ from giskardpy.motion_statechart.tasks.grasped_mechanism import (
 )
 from giskardpy.motion_statechart.tasks.gripper import MoveGripper
 from giskardpy.motion_statechart.graph_node import ConvergingTask
-from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
 from giskardpy.motion_statechart.tasks.align_planes import AlignPlanes
 from giskardpy.motion_statechart.tasks.cartesian_tasks import (
     CartesianPose,
@@ -293,7 +292,7 @@ def test_a_tiago_drives_with_its_differential_drive(
     assert_drives_differentially_to(action.goal, action, robot)
 
 
-def test_a_simulated_tiago_without_its_robot_adaptations_writes_the_odometry(
+def test_a_simulated_tiago_without_its_robot_adaptations_commands_a_pose(
     tiago_context,
 ) -> None:
     world, robot, extensions = tiago_context
@@ -302,12 +301,12 @@ def test_a_simulated_tiago_without_its_robot_adaptations_writes_the_odometry(
         navigation_to(world), simulated_executor(extensions, robot_adaptations=[])
     )
 
-    assert type(action.goal) is SetOdometry
+    assert type(action.goal) is HolonomicBaseGoal
 
 
 @pytest.mark.parametrize(
     "build_executor, goal_type",
-    [(simulated_executor, SetOdometry), (robot_executor, HolonomicBaseGoal)],
+    [(simulated_executor, HolonomicBaseGoal), (robot_executor, HolonomicBaseGoal)],
 )
 def test_a_robot_of_another_type_keeps_its_drive_goal(
     pr2_apartment_context, build_executor, goal_type

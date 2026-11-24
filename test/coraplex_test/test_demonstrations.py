@@ -45,6 +45,10 @@ from coraplex.plans.executors import (
     RealRobotPlanExecutor,
 )
 from coraplex.plans.failures import MotionExceededSimulationTimeLimit
+from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
+from coraplex.robot_plans.plan_transformations import (
+    WriteTheOdometryInsteadOfCommandingAPose,
+)
 from cramph.statechart import Statechart
 from ..pytest_environment import runs_in_continuous_integration
 
@@ -466,6 +470,57 @@ def test_a_simulated_plan_is_given_up_on_at_the_time_limit_of_its_demonstration(
         demonstration.run()
 
     assert error.value.time_limit == demonstration.simulation_time_per_action
+
+
+# %% driving the base
+
+
+def odometry_writers(executor: PlanExecutor) -> list[PlanTransformation]:
+    """
+    :param executor: The executor a demonstration created.
+    :return: The transformations the plans of `executor` are rewritten with that put the
+        base at its goal instead of driving it there.
+    """
+    rewriting = executor.context.require_extension(extension_type=PlanRewriting)
+    return [
+        transformation
+        for transformation in rewriting.transformations
+        if isinstance(transformation, WriteTheOdometryInsteadOfCommandingAPose)
+    ]
+
+
+def test_a_kinematically_simulated_robot_teleports_by_default(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    A demonstration that is not told otherwise puts a kinematically simulated robot's
+    base at every pose it navigates to.
+    """
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.run()
+
+    assert len(odometry_writers(demonstration.observed_executor)) == 1
+
+
+def test_a_kinematically_simulated_robot_drives_when_it_must_not_teleport(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    A demonstration whose robot must not teleport leaves a kinematically simulated
+    robot's drive to its goals in place.
+    """
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world,
+        used_robot=MinimalRobot,
+        robot_teleports_instead_of_driving=False,
+    )
+
+    demonstration.run()
+
+    assert odometry_writers(demonstration.observed_executor) == []
 
 
 # %% physical simulation
