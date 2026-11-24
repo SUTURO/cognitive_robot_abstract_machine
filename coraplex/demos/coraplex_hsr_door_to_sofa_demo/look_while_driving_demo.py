@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import mujoco
+
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
@@ -59,6 +61,12 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
     """
     Whether the doors and drawers of the kitchen can move, which the plan does not need
     and which slows the physics down.
+    """
+
+    integrator: mujoco.mjtIntegrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
+    """
+    How MuJoCo integrates the physics, by default faster than in
+    :class:`DoorToSofaDemonstration`.
     """
 
     clearance: float = 0.05

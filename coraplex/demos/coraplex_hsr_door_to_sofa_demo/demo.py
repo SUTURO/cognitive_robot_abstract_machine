@@ -13,6 +13,8 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 
+import mujoco
+
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import (
@@ -107,6 +109,11 @@ class DoorToSofaDemonstration(RobotDemonstration):
     The color a person sitting on the sofa is drawn in.
     """
 
+    integrator: mujoco.mjtIntegrator = mujoco.mjtIntegrator.mjINT_RK4
+    """
+    How MuJoCo integrates the physics of a physically simulated run.
+    """
+
     def scene_specification(self) -> WorldSpecification:
         return WorldSpecification(world_source=KitchenEnvironment())
 
@@ -141,13 +148,15 @@ class DoorToSofaDemonstration(RobotDemonstration):
 
     def build_simulation(self, world: World) -> MujocoSim:
         """
-        As :meth:`RobotDemonstration.build_simulation`, with floors that do not collide,
-        since the wheels, which sit slightly inside the floors, would catch on the edge
-        between two of them.
+        As :meth:`RobotDemonstration.build_simulation`, stepped by :attr:`integrator`
+        and with floors that do not collide, since the wheels, which sit slightly inside
+        the floors, would catch on the edge between two of them.
         """
         for floor in world.get_semantic_annotations_by_type(Floor):
             floor.root.collision = ShapeCollection()
-        return super().build_simulation(world)
+        return MujocoSim(
+            world=world, headless=self.headless, integrator=self.integrator
+        )
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         return [
