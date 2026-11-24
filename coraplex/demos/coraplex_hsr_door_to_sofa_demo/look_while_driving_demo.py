@@ -55,6 +55,12 @@ class LookAtSofaWhileDrivingDemonstration(DoorToSofaDemonstration):
     Whether the robot keeps away from the furniture and from itself.
     """
 
+    scene_joints_movable: bool = False
+    """
+    Whether the doors and drawers of the kitchen can move, which the plan does not need
+    and which slows the physics down.
+    """
+
     clearance: float = 0.05
     """
     How far, beyond its radius, the planned path keeps the base from obstacles, in
