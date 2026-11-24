@@ -19,6 +19,11 @@ WRAPPER_PATHS = [
     / "milestone_0"
     / "hsr_door_to_sofa"
     / "test_demo.py",
+    DEMOS_ROOT
+    / "suturo_human_robot_interaction_challenge"
+    / "milestone_1"
+    / "hsr_look_at_sofa_while_driving"
+    / "test_demo.py",
     DEMOS_ROOT / "coraplex_hsr_mujoco_demo" / "test_demo.py",
     DEMOS_ROOT / "coraplex_real_tracy" / "test_demo.py",
     DEMOS_ROOT / "coraplex_unitree_g1_warehouse_demo" / "test_demo.py",
