@@ -43,7 +43,6 @@ from coraplex.robot_plans.actions.core.robot_body import (
 )
 from cramph.composites import Parallel, Sequence
 from cramph.context import ContextExtension, StatechartContext
-from cramph.executor import SimulationPacer
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from krrood.entity_query_language.core.variable import Variable
@@ -142,7 +141,7 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
     Whether the robot keeps away from the furniture, from itself and from what it holds.
     """
 
-    robot_teleports_instead_of_driving: bool = True
+    robot_teleports_instead_of_driving: bool = False
     """
     Whether a kinematic simulation puts the HSR at every pose it navigates to; off, so
     the drive can be watched.
@@ -206,8 +205,8 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
 
     real_time_factor: float | None = 1.0
     """
-    How much faster than real time a kinematic simulation moves the robot, so the run can
-    be followed in RViz; ``None`` runs it as fast as the computer allows.
+    Unlike :attr:`RobotDemonstration.real_time_factor`, real time, so the HSR's drive
+    can be followed in RViz.
     """
 
     def scene_specification(self) -> WorldSpecification:
@@ -250,20 +249,6 @@ class FloorToTrashCanDemonstration(RobotDemonstration):
         milk.root.parent_connection.origin = self._compute_floor_transform(
             self.milk_start, milk.root
         )
-
-    def create_executor(self, world: World) -> PlanExecutor:
-        """
-        Does what :meth:`RobotDemonstration.create_executor` does, and lets a kinematic
-        simulation run at :attr:`real_time_factor`.
-        """
-        executor = super().create_executor(world)
-        if self.real_time_factor is None or not isinstance(
-            executor, KinematicallySimulatedPlanExecutor
-        ):
-            return executor
-        executor.pacer = SimulationPacer(real_time_factor=self.real_time_factor)
-        executor.pacer.pace_ticks_of(context=executor.context)
-        return executor
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         return [

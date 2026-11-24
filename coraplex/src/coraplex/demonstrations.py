@@ -33,6 +33,7 @@ from coraplex.robot_plans.plan_transformations import (
 )
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
+from cramph.executor import SimulationPacer
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
@@ -186,6 +187,12 @@ class RobotDemonstration(ABC):
     """
     Whether a kinematically simulated run puts the robot's base at every pose it
     navigates to instead of driving it there.
+    """
+
+    real_time_factor: float | None = None
+    """
+    How much faster than real time a kinematic simulation moves the robot, so the run
+    can be followed in RViz; ``None`` runs it as fast as the computer allows.
     """
 
     event_segmentation: bool = True
@@ -454,18 +461,26 @@ class RobotDemonstration(ABC):
         :return: An executor of :attr:`executor_type`, set up the way this demonstration
             performs its plan in :attr:`simulation`, if there is one, showing its runs
             with :attr:`visualization`, and putting the robot's base at its goals in a
-            kinematic simulation if :attr:`robot_teleports_instead_of_driving`.
+            kinematic simulation if :attr:`robot_teleports_instead_of_driving`, at
+            :attr:`real_time_factor` if there is one.
         """
         executor_type = self.executor_type
         if self.robot_teleports_instead_of_driving and issubclass(
-            executor_type, KinematicallySimulatedPlanExecutor
+            self.executor_type, KinematicallySimulatedPlanExecutor
         ):
             executor_type = partial(
                 executor_type,
                 plan_adaptations=[
-                    *executor_type.default_plan_adaptations,
+                    *self.executor_type.default_plan_adaptations,
                     WriteTheOdometryInsteadOfCommandingAPose(),
                 ],
+            )
+        if self.real_time_factor is not None and issubclass(
+            self.executor_type, KinematicallySimulatedPlanExecutor
+        ):
+            executor_type = partial(
+                executor_type,
+                pacer=SimulationPacer(real_time_factor=self.real_time_factor),
             )
         if self.simulation is not None:
             executor_type = partial(executor_type, simulation=self.simulation)

@@ -49,6 +49,7 @@ from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
 from coraplex.robot_plans.plan_transformations import (
     WriteTheOdometryInsteadOfCommandingAPose,
 )
+from cramph.executor import NoPacing, SimulationPacer
 from cramph.statechart import Statechart
 from ..pytest_environment import runs_in_continuous_integration
 
@@ -548,6 +549,43 @@ def test_a_kinematically_simulated_robot_drives_when_it_must_not_teleport(
     demonstration.run()
 
     assert odometry_writers(demonstration.observed_executor) == []
+
+
+# %% pacing
+
+
+def test_a_kinematic_simulation_runs_at_the_real_time_factor_of_its_demonstration(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    A demonstration given a real time factor lets its kinematic simulation run that much
+    faster than real time.
+    """
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot, real_time_factor=1000.0
+    )
+
+    demonstration.run()
+
+    pacer = demonstration.observed_executor.pacer
+    assert type(pacer) is SimulationPacer
+    assert pacer.real_time_factor == demonstration.real_time_factor
+
+
+def test_a_kinematic_simulation_runs_as_fast_as_possible_by_default(
+    cylinder_bot_world: World,
+) -> None:
+    """
+    A demonstration given no real time factor lets its kinematic simulation run as fast
+    as the computer allows.
+    """
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.run()
+
+    assert type(demonstration.observed_executor.pacer) is NoPacing
 
 
 # %% physical simulation
