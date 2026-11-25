@@ -119,24 +119,17 @@ class LookAtAction(ParallelAction, HasLookTargetParameter, HasCameraParameter):
         :return: The task pointing the camera at :attr:`look_target`.
         """
         camera = self.pointed_camera(robot=self.robot)
-        return Pointing(
-            kinematic_chain=KinematicChain(root=root, tip=camera.root),
-            goal_point=self._world_P_target(),
-            pointing_axis=camera.viewing_direction,
-        )
-
-    def _world_P_target(self) -> Point3:
-        """
-        :return: Where :attr:`look_target` is in the world frame, as an expression of where
-            the body it is given relative to stands while the look runs.
-        """
         target_frame = self.look_target.reference_frame or self.world.root
         world_T_target_frame = self.world.compose_forward_kinematics_expression(
             self.world.root, target_frame
         )
         world_T_target_frame.reference_frame = self.world.root
         world_T_target_frame.child_frame = target_frame
-        return world_T_target_frame @ self.look_target.position
+        return Pointing(
+            kinematic_chain=KinematicChain(root=root, tip=camera.root),
+            goal_point=world_T_target_frame @ self.look_target.position,
+            pointing_axis=camera.viewing_direction,
+        )
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

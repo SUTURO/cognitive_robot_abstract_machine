@@ -21,8 +21,6 @@ if __name__ == "__main__":
         OneLookDoorToSofaDemonstration(
             executor_type=RealRobotPlanExecutor,
             drives_with_pumas=True,
-            # The kitchen in the laser map apartment_master1, fitted to three room
-            # corners clicked on the map; see the README.
             map_T_scene=HomogeneousTransformationMatrix.from_xyz_rpy(
                 x=0.44, y=0.14, yaw=-0.058
             ),

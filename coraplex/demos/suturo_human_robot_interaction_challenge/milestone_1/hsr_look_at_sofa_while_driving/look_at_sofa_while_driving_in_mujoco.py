@@ -22,7 +22,6 @@ from cramph.context import StatechartContext
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import Pose
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Sofa
-from semantic_digital_twin.world import World
 
 # %% the demonstration
 
@@ -44,20 +43,13 @@ class LookAtSofaWhileDrivingDemonstration(SofaDemonstration):
     The name of the ROS node the demonstration runs as.
     """
 
-    def look_target(self, *, world: World) -> Pose:
-        """
-        :param world: The world holding the sofa.
-        :return: The origin of the sofa.
-        """
-        [sofa] = world.get_semantic_annotations_by_type(Sofa)
-        return Pose.from_xyz_rpy(reference_frame=sofa.root)
-
     def build_statechart(self, context: StatechartContext) -> Statechart:
         """
         Do :meth:`departure_nodes`, look at the sofa, and drive to :meth:`scanning_pose`
         while looking at it.
         """
-        look_target = self.look_target(world=context.world)
+        [sofa] = context.world.get_semantic_annotations_by_type(Sofa)
+        look_target = Pose.from_xyz_rpy(reference_frame=sofa.root)
         return self.build_sequence(
             context=context,
             nodes=[
