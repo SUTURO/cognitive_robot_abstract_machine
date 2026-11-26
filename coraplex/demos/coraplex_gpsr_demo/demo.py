@@ -1,6 +1,6 @@
 """
-The GPSR demonstration: the HSR carries out a spoken command in a simulated kitchen,
-following the plans a language model writes for it.
+The GPSR demonstration: the HSR, simulated or real, carries out a spoken command in a
+kitchen, following the plans a language model writes for it.
 """
 
 from __future__ import annotations
@@ -30,7 +30,11 @@ from cramspeech.transcription import WhisperTranscriber
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.perception import RoboKudoQuery
 from coraplex.plans.context_extensions import RobotAccess
-from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
+from coraplex.plans.executors import (
+    PhysicallySimulatedPlanExecutor,
+    PlanExecutor,
+    RealRobotPlanExecutor,
+)
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
 from coraplex.simulated_perception import SimulatedHsrHeadCameraPerception
 from cramph.composites import Sequence
@@ -213,7 +217,11 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     """The name of the ROS node of this demonstration."""
 
     executor_type: type[PlanExecutor] = PhysicallySimulatedGraspingPlanExecutor
-    """Runs the plan in MuJoCo, counting fingers that press on the milk as at rest."""
+    """
+    Runs the plan in MuJoCo, counting fingers that press on the milk as at rest, unless
+    it is :class:`~coraplex.plans.executors.RealRobotPlanExecutor`, which drives the real
+    HSR.
+    """
 
     collision_avoidance: bool = True
     """Whether the robot's motions keep clear of the furniture."""
@@ -241,14 +249,23 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     """Passes spent removing the slip soft contacts leave, so a held carton
     stays where the fingers hold it."""
 
-    perception: SimulatedHsrHeadCameraPerception | None = None
-    """The perception the plan asks to detect people, or ``None`` to find people
+    analysis_engine: AnalysisEngineProcess | None = None
+    """The RoboKudo pipeline the plan asks to detect people, or ``None`` to find people
     without perception."""
 
     query: RoboKudoQuery = field(
         default_factory=lambda: RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     )
-    """What the plan asks :attr:`perception` once the robot faces the person."""
+    """What the plan asks :attr:`analysis_engine` once the robot faces the person."""
+
+    started_perception: (
+        SimulatedHsrHeadCameraPerception | AnalysisEngineProcess | None
+    ) = field(init=False, default=None)
+    """
+    What runs :attr:`analysis_engine` during a run: the simulated head camera in a
+    physically simulated run, the engine alone on the real camera otherwise, and
+    ``None`` outside a run or without perception.
+    """
 
     robot_body_contact_category: ContactCategories = ContactCategories(
         SceneContactCategory.ROBOT_BODY
@@ -367,28 +384,38 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
     def start_simulation(self, world: World) -> None:
         """Differs from :meth:`RobotDemonstration.start_simulation` in then
-        starting :attr:`perception`, if any."""
+        starting :attr:`analysis_engine`, if any, as :attr:`started_perception`."""
         super().start_simulation(world)
-        if self.perception is None:
+        if self.analysis_engine is None:
             return
-        self.perception.start(world, self.simulation, self.ros_node)
+        if self.simulation is None:
+            self.analysis_engine.start()
+            self.started_perception = self.analysis_engine
+            return
+        simulated_perception = SimulatedHsrHeadCameraPerception(self.analysis_engine)
+        simulated_perception.start(world, self.simulation, self.ros_node)
+        self.started_perception = simulated_perception
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         [robot] = world.get_semantic_annotations_by_type(self.used_robot)
         extensions: list[ContextExtension] = [RobotAccess(robot)]
-        if self.perception is not None:
-            extensions.extend(self.perception.build_context_extensions())
-            extensions.append(PersonDetection(self.query))
+        if self.analysis_engine is None:
+            return extensions
+        if isinstance(self.started_perception, SimulatedHsrHeadCameraPerception):
+            extensions.extend(self.started_perception.build_context_extensions())
+        extensions.append(PersonDetection(self.query))
         return extensions
 
     def tear_down(self) -> None:
         """
         Differs from :meth:`RobotDemonstration.tear_down` in first
-        :meth:`wait_until_viewer_closed` and stopping :attr:`perception`, if any.
+        :meth:`wait_until_viewer_closed` and stopping :attr:`started_perception`, if
+        any.
         """
         self.wait_until_viewer_closed()
-        if self.perception is not None:
-            self.perception.stop()
+        if self.started_perception is not None:
+            self.started_perception.stop()
+            self.started_perception = None
         super().tear_down()
 
     def wait_until_viewer_closed(self) -> None:
@@ -598,6 +625,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
 
 def main(
+    uses_real_robot: bool = False,
     headless: bool = False,
     perceives: bool = True,
     instruction: str | None = None,
@@ -606,6 +634,8 @@ def main(
 ) -> World:
     """Run the demonstration.
 
+    :param uses_real_robot: Whether the real HSR carries out the command, through the
+        Giskard it runs, instead of the HSR simulated in MuJoCo.
     :param headless: Whether the physics runs without a viewer.
     :param perceives: Whether RoboKudo is started and asked to detect the person.
     :param instruction: The command the robot carries out, or ``None`` to hear it
@@ -633,12 +663,13 @@ def main(
         headless=headless,
         json_plan=json_plan,
         instruction=instruction,
-        perception=(
-            SimulatedHsrHeadCameraPerception(
-                AnalysisEngineProcess(
-                    analysis_engine="human_detection", shows_views=False
-                )
-            )
+        executor_type=(
+            RealRobotPlanExecutor
+            if uses_real_robot
+            else PhysicallySimulatedGraspingPlanExecutor
+        ),
+        analysis_engine=(
+            AnalysisEngineProcess(analysis_engine="human_detection", shows_views=False)
             if perceives
             else None
         ),

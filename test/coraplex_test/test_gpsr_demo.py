@@ -7,6 +7,7 @@ from __future__ import annotations
 # %% Imports
 import importlib.util
 import sys
+from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from types import ModuleType
@@ -16,6 +17,9 @@ from typing_extensions import Iterator
 
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import RealRobotPlanExecutor
+from coraplex.robot_plans.generated_commands import PersonDetection
+from robokudo.analysis_engine_process import AnalysisEngineProcess
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoGeom
@@ -268,3 +272,121 @@ def test_context_without_perception_gives_the_plan_its_robot(
     [extension] = demonstration.build_context_extensions(demonstration_world)
     assert isinstance(extension, RobotAccess)
     assert extension.robot is robot
+
+
+# %% Perceiving on the real robot
+
+
+@dataclass
+class RecordingAnalysisEngine(AnalysisEngineProcess):
+    """
+    An analysis engine that records being started and stopped instead of running
+    RoboKudo.
+    """
+
+    analysis_engine: str = "human_detection"
+    """
+    The pipeline RoboKudo would run.
+    """
+
+    starts: int = 0
+    """
+    How often the engine was started.
+    """
+
+    stops: int = 0
+    """
+    How often the engine was stopped.
+    """
+
+    def start(self, timeout: timedelta = timedelta(minutes=2)) -> None:
+        self.starts += 1
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+@pytest.fixture
+def analysis_engine() -> RecordingAnalysisEngine:
+    """
+    A recording analysis engine, neither started nor stopped yet.
+    """
+    return RecordingAnalysisEngine()
+
+
+@pytest.fixture
+def real_robot_demonstration(
+    gpsr_demo: ModuleType, analysis_engine: RecordingAnalysisEngine
+) -> RobotDemonstration:
+    """
+    The demonstration of a command without plans on the real robot, with perception.
+    """
+    return gpsr_demo.GeneratedCommandDemonstration(
+        json_plan='{"plans": []}',
+        instruction="",
+        executor_type=RealRobotPlanExecutor,
+        analysis_engine=analysis_engine,
+    )
+
+
+def test_real_robot_run_starts_the_analysis_engine_on_the_real_camera(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    Without a simulation, the analysis engine is started on its own, to look through the
+    real head camera.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    assert analysis_engine.starts == 1
+    assert real_robot_demonstration.started_perception is analysis_engine
+
+
+def test_real_robot_context_lets_the_plan_detect_people_without_capturing_frames(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    On the real robot the plan's context gives access to the robot and to detecting
+    people, and captures no simulated camera frame.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    [robot_access, person_detection] = (
+        real_robot_demonstration.build_context_extensions(demonstration_world)
+    )
+
+    assert isinstance(robot_access, RobotAccess)
+    assert isinstance(person_detection, PersonDetection)
+    assert person_detection.query is real_robot_demonstration.query
+
+
+def test_tearing_down_a_real_robot_run_stops_the_analysis_engine(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    Tearing down stops the analysis engine the run started, once.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    real_robot_demonstration.tear_down()
+
+    assert analysis_engine.stops == 1
+    assert real_robot_demonstration.started_perception is None
+
+
+def test_tearing_down_before_perception_started_stops_nothing(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+) -> None:
+    """
+    A run that failed before its perception started has no analysis engine to stop.
+    """
+    real_robot_demonstration.tear_down()
+
+    assert analysis_engine.stops == 0
