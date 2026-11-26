@@ -8,8 +8,7 @@ Run it from this folder::
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -31,9 +30,7 @@ from krrood.patterns.path_enumeration import PathEnumeration
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Pose,
-    Point3,
-    RotationMatrix,
-    Vector3,
+    Pose2D,
 )
 from segmind.detectors.agent_event_detector_nodes import GraspDetector
 from segmind.detectors.coarse_event_detector_nodes import (
@@ -325,7 +322,11 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         return world
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        return [RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])]
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
+        ]
 
     def segment_events(self, world: World) -> AbstractContextManager:
         """
@@ -339,32 +340,42 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         )
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
 
         [milk] = context.world.get_semantic_annotations_by_type(Milk)
         [trash_can] = context.world.get_semantic_annotations_by_type(TrashCan)
         [arm] = robot.all_arms
         taking_pose = self._standing_pose_facing(
-            milk.root.global_pose, robot.root.global_pose
+            target=milk.root.global_pose, approach_from=robot.root.global_pose
         )
         middle_pose = self._standing_pose_facing(
-            Pose.from_xyz_rpy(1, 3, reference_frame=context.world.root), taking_pose
+            target=Pose.from_xyz_rpy(x=1, y=3, reference_frame=context.world.root),
+            approach_from=taking_pose,
         )
-
-        target = self._standing_pose_facing(trash_can.root.global_pose, middle_pose)
-        drop_pose = self._get_pose_dropping(trash_can, context.world)
+        dropping_pose = self._standing_pose_facing(
+            target=trash_can.root.global_pose, approach_from=middle_pose
+        )
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     MoveTorsoAction(torso_state=TorsoState.LOW),
                     ParkArmsAction(arms=robot.all_arms),
-                    NavigateAction(target_location=taking_pose),
-                    PickUpAction(grasp=self.find_grasp(milk, taking_pose), arm=arm),
+                    NavigateAction(planar_goal_pose=taking_pose),
+                    PickUpAction(
+                        grasp_candidate=self.find_grasp(
+                            graspable=milk, standing_pose=taking_pose
+                        ),
+                        arm=arm,
+                    ),
                     ParkArmsAction(arms=robot.all_arms),
-                    NavigateAction(target_location=middle_pose),
-                    NavigateAction(target_location=target),
-                    PlaceAction(object_designator=milk, target_location=drop_pose),
+                    NavigateAction(planar_goal_pose=middle_pose),
+                    NavigateAction(planar_goal_pose=dropping_pose),
+                    PlaceAction(
+                        arm=arm,
+                        graspable=milk,
+                        goal_pose=self._compute_drop_pose(trash_can=trash_can),
+                    ),
                     ParkArmsAction(arms=robot.all_arms),
                 ]
             )
@@ -386,8 +397,9 @@ class LabMilkTransportDemonstration(RobotDemonstration):
 
     def find_grasp(
         self,
+        *,
         graspable: IsGraspable,
-        standing_pose: Pose,
+        standing_pose: Pose2D,
         fraction_of_height: float = 4 / 6,
     ) -> GraspCandidate:
         """
@@ -397,15 +409,24 @@ class LabMilkTransportDemonstration(RobotDemonstration):
             at its bottom to 1 at its top; by default where its upper third begins.
         :return: The body's grasp closest to `standing_pose`, moved up to that height.
         """
-        box = graspable.root.collision.as_bounding_box_collection_in_frame(
-            graspable.root
-        ).bounding_box()
-        [closest] = GraspsByCloseness(graspable, standing_pose, number_of_grasps=1)()
-        grasp_pose = deepcopy(closest.grasp_pose)
-        grasp_pose.z = box.min_z + fraction_of_height * (box.max_z - box.min_z)
-        return GraspCandidate(graspable=graspable, grasp_pose=grasp_pose)
+        root = graspable.root
+        box = root.collision.as_bounding_box_collection_in_frame(root).bounding_box()
+        [closest] = GraspsByCloseness(
+            graspable=graspable, standing_position=standing_pose, number_of_grasps=1
+        )()
+        root_T_grasp = root._world.transform(closest.grasp_pose, root).homogeneous_matrix
+        grasp_height = box.min_z + fraction_of_height * (box.max_z - box.min_z)
+        root_T_raised_grasp = (
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=grasp_height - root_T_grasp.to_np()[2, 3], reference_frame=root
+            )
+            @ root_T_grasp
+        )
+        return replace(closest, grasp_pose=root_T_raised_grasp.pose)
 
-    def _standing_pose_facing(self, target: Pose, approach_from: Pose) -> Pose:
+    def _standing_pose_facing(
+        self, *, target: Pose, approach_from: Pose | Pose2D
+    ) -> Pose2D:
         """
         :param target: What the robot goes to reach, in the world frame.
         :param approach_from: Where the robot stands before it goes to `target`, in the
@@ -413,35 +434,37 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         :return: Where the robot's base stands on the floor, :attr:`standing_distance`
             off `target` towards `approach_from` and facing `target`.
         """
-        offset = target.position.to_np()[:2] - approach_from.position.to_np()[:2]
-        standing_position = target.position.to_np()[
-            :2
-        ] - self.standing_distance * offset / np.linalg.norm(offset)
-        return Pose.from_xyz_rpy(
+        target_position = target.position.to_np()[:2]
+        offset = target_position - approach_from.position.to_np()[:2]
+        standing_position = (
+            target_position - self.standing_distance * offset / np.linalg.norm(offset)
+        )
+        return Pose2D.from_xy_yaw(
             x=float(standing_position[0]),
             y=float(standing_position[1]),
             yaw=float(np.arctan2(offset[1], offset[0])),
             reference_frame=target.reference_frame,
         )
 
-    def _get_pose_dropping(self, trash_can: TrashCan, world: World) -> Pose:
+    def _compute_drop_pose(
+        self, *, trash_can: TrashCan, drop_height: float = 0.1
+    ) -> Pose:
         """
-        Calculate a drop pose above the trash can based on its bounding box.
-        :param trash_can: The trash can into which the object will be dropped.
-        :param world: The simulation world used as the reference frame.
-        :return: The calculated drop pose above the trash can.
+        :param trash_can: The trash can the milk is dropped into.
+        :param drop_height: How far above the rim of `trash_can` the milk is let go, in
+            meters.
+        :return: The pose in the world root, centred over `trash_can`, at which the milk
+            is let go.
         """
+        world = trash_can.root._world
         trash_can_box = trash_can.root.collision.as_bounding_box_collection_in_frame(
             world.root
         ).bounding_box()
-        z_offset = 0.1
-
-        x = (trash_can_box.min_x + trash_can_box.max_x) / 2
-        y = (trash_can_box.min_y + trash_can_box.max_y) / 2
-        z = trash_can_box.max_z + z_offset
-
         return Pose.from_xyz_rpy(
-            x, y, z, reference_frame=trash_can.root.global_pose.reference_frame
+            x=(trash_can_box.min_x + trash_can_box.max_x) / 2,
+            y=(trash_can_box.min_y + trash_can_box.max_y) / 2,
+            z=trash_can_box.max_z + drop_height,
+            reference_frame=world.root,
         )
 
 
