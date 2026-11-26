@@ -1510,7 +1510,7 @@ class Pen(IsGraspable):
     """
 
 @dataclass(eq=False)
-class DishwasherTab(HasGraspCandidates):
+class DishwasherTab(IsGraspable):
     """
     A Dishwashertab.
     """
