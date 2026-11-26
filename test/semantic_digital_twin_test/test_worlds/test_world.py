@@ -543,25 +543,6 @@ def test_apply_control_commands(world_setup):
     assert state_memory_id == id(world.state._data)
 
 
-def test_a_measured_degree_of_freedom_keeps_its_position_under_commands(world_setup):
-    """
-    Only the position stays: the commanded velocity is still integrated, as the
-    controller's prediction of how the degree of freedom moves.
-    """
-    world, l1, l2, bf, r1, r2 = world_setup
-    measured = world.get_connection(r1, r2).dof
-    commanded = bf.parent_connection.x
-    measured_position = world.state[measured.id].position
-    commands = np.full(len(world.state), 100.0)
-    dt = 0.1
-
-    world.apply_control_commands(commands, dt, Derivatives.jerk, [measured])
-
-    assert world.state[measured.id].position == measured_position
-    assert world.state[measured.id].velocity == 100.0 * dt * dt
-    assert world.state[commanded.id].position == 100.0 * dt * dt * dt
-
-
 def test_compute_relative_pose(world_setup):
     world, l1, l2, bf, r1, r2 = world_setup
     connection: PrismaticConnection = world.get_connection(l1, l2)

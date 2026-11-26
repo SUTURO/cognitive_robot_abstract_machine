@@ -2,14 +2,11 @@ from __future__ import annotations
 
 # %% Imports
 from dataclasses import dataclass, field
-from importlib.resources import files
 from pathlib import Path
 from enum import StrEnum
 from typing_extensions import cast
 
 import trimesh
-
-from krrood.patterns.path_enumeration import PathEnumeration
 
 import numpy as np
 
@@ -41,10 +38,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Oven,
     WallPanel,
     KitchenIsland,
-)
-from semantic_digital_twin.adapters.package_resolver import (
-    CompositePathResolver,
-    FileUriResolver,
 )
 from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.specifications.connections import (
@@ -763,31 +756,13 @@ class KitchenMeasurements:
     """
 
 
-# %% Washing machine resources
-
-
-class KitchenEnvironmentResource(PathEnumeration):
-    """
-    The files under the semantic_digital_twin resources the kitchen environment is built
-    from.
-    """
-
-    RESOURCES = Path(files("semantic_digital_twin")).parent.parent / "resources"
-    """
-    The resources directory, which the mesh paths in the URDFs are relative to.
-    """
-
-    WASHING_MACHINE = RESOURCES / "urdf" / "miele_washing_machine.urdf"
-    """
-    The Miele washing machine with its porthole door and detergent drawer, front facing
-    -X and origin at the floor in the centre of its footprint.
-    """
+# %% Washing machine
 
 
 class WashingMachineLink(StrEnum):
     """
-    The links of :attr:`KitchenEnvironmentResource.WASHING_MACHINE` that carry a
-    semantic annotation.
+    The links of the Miele washing machine model in the ``iai_objects`` package that
+    carry a semantic annotation.
     """
 
     BODY = "washing_machine"
@@ -2490,14 +2465,7 @@ class KitchenEnvironment(WorldSource):
         handles.
         """
         washing_machine_world = URDFParser.from_file(
-            str(KitchenEnvironmentResource.WASHING_MACHINE),
-            path_resolver=CompositePathResolver(
-                [
-                    FileUriResolver(
-                        base_directory=str(KitchenEnvironmentResource.RESOURCES)
-                    )
-                ]
-            ),
+            "package://iai_objects/urdf/miele_washing_machine.urdf"
         ).create_world()
         world.merge_world(
             washing_machine_world,

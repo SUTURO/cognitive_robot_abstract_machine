@@ -584,20 +584,6 @@ class PhysicallySimulatedPlanExecutor(SimulatedPlanExecutor):
         } or {HasTwoFingers.squeeze}
         return squeeze
 
-    def default_executor_extensions(self) -> list[ExecutorExtension]:
-        """
-        Differs from :meth:`SimulatedPlanExecutor.default_executor_extensions` in
-        leaving every degree of freedom outside the robots, such as a door hinge, to the
-        physics.
-        """
-        return [
-            RosNodeAccess(ros_node=self.ros_node),
-            MotionControl(
-                qp_controller_config=self.create_qp_controller_config(),
-                environment_moved_by_physics=True,
-            ),
-        ]
-
     def create_qp_controller_config(self) -> QPControllerConfig:
         return QPControllerConfig.create_with_physical_simulation_defaults()
 
