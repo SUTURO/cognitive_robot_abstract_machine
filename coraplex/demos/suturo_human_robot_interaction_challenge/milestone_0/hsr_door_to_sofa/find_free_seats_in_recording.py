@@ -2,9 +2,10 @@
 The door to sofa demo in simulation: a kinematically simulated HSR whose view of the
 sofa is a recording of the real HSR's head camera, perceived by RoboKudo.
 
-Start RoboKudo first, then run it from this folder with the recording's folder::
+Start RoboKudo first, then run it from this folder with the folder of a recording of
+your own, see the README::
 
-    python find_free_seats_in_recording.py ~/workspace/src/kinect/07
+    python find_free_seats_in_recording.py <recording folder>
 """
 
 from __future__ import annotations

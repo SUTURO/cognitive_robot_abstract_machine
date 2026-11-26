@@ -31,7 +31,7 @@ lacks the workspace packages.
 |---|---|---|---|
 | `$PY find_free_seats_in_rviz.py [LEFT] [RIGHT]` | kinematically simulated | ROS 2, RViz2 | The robot moving in RViz, see below. |
 | `$PY find_free_seats_in_mujoco.py [LEFT] [RIGHT]` | physically simulated | `mujoco` | A MuJoCo viewer. |
-| `$PY find_free_seats_in_recording.py <recording>` | kinematically simulated, one look | ROS 2, RoboKudo, a recording | The free seats RoboKudo sees in the recording. |
+| `$PY find_free_seats_in_recording.py <recording>` | kinematically simulated, one look | ROS 2, RoboKudo, your own recording, see below | The free seats RoboKudo sees in the recording. |
 | `$PY find_free_seats_on_hsr.py` | real, one look | The HSR, its ROS stack, Pumas and RoboKudo | The real robot driven by Pumas. |
 | `$PY test_find_free_seats.py` | both simulations, without a viewer | `mujoco` | Exit code 0 if only the left seat is reported free with a person on the right seat. |
 
@@ -68,8 +68,29 @@ before or after. To watch the robot drive, use `find_free_seats_in_mujoco.py`.
 
 ### Simulation from a recording
 
-The recordings are `ros2 bag` folders in `~/workspace/src/kinect`, holding the HSR head
-camera's color, depth and camera info topics.
+The recordings are **not part of the repository**, and the ones the results below come
+from exist only on the computer they were made on. Bring your own: a `ros2 bag` folder
+of the HSR's head camera with these topics, as `RecordedTopic` in `camera_recording.py`
+lists them:
+
+| Topic | Content |
+|---|---|
+| `/head_rgbd_sensor/rgb/image_rect_color/compressed` | color images |
+| `/head_rgbd_sensor/depth_registered/image/compressedDepth` | depth images, registered to the color images |
+| `/head_rgbd_sensor/rgb/camera_info` | intrinsics of the color camera |
+
+To make one on the real HSR, point its head at the sofa and run:
+
+```bash
+ros2 bag record -o <recording folder> \
+    /head_rgbd_sensor/rgb/image_rect_color/compressed \
+    /head_rgbd_sensor/depth_registered/image/compressedDepth \
+    /head_rgbd_sensor/rgb/camera_info
+```
+
+The simulated robot looks at the sofa from straight in front, about 2.15 m from the seat
+cushions, so take the recording from about there; a recording from the side does not line
+up with the seat places of the map.
 
 1. Start RoboKudo's seat pipeline, which checks the sofa's seat places for people sitting
    on them:
@@ -78,43 +99,40 @@ camera's color, depth and camera info topics.
    $PY -m robokudo.scripts.main _ae seat_place_occupancy
    ```
 
-2. Run the demo with a recording:
+2. Run the demo with your recording:
 
    ```bash
-   $PY find_free_seats_in_recording.py ~/workspace/src/kinect/07
+   $PY find_free_seats_in_recording.py <recording folder>
    ```
 
 The demo builds the kitchen under a `map` root, as the real robot's world is, serves it
 to RoboKudo, and replays the recording's camera topics in a loop. The recording's own tf
-is not replayed, since it puts the camera at a made-up pose (1 m above the `map` origin).
-The recorded camera frame `head_rgbd_sensor_rgb_optical_frame` is fixed to the simulated
-HSR's head camera instead, so RoboKudo sees the recorded images from wherever the
-simulated robot looks. The plan starts only once the replay delivers images, otherwise
-RoboKudo would answer from the last image of an earlier replay.
+is not replayed, since it may put the camera anywhere. The recorded camera frame
+`head_rgbd_sensor_rgb_optical_frame` is fixed to the simulated HSR's head camera instead,
+so RoboKudo sees the recorded images from wherever the simulated robot looks. The plan
+starts only once the replay delivers images, otherwise RoboKudo would answer from the last
+image of an earlier replay.
 
-#### What the recordings give
+#### What the original recordings gave
 
-`LEFT` and `RIGHT` are seen from someone sitting on the sofa, so the sofa's left seat is
-on the right of the image.
+For comparison, the results on the recordings this demo was developed with. `LEFT` and
+`RIGHT` are seen from someone sitting on the sofa, so the sofa's left seat is on the right
+of the image.
 
-| Recording | Scene | Said |
-|---|---|---|
-| 05 | empty sofa | left and right free |
-| 06 | person on the right seat | left free |
-| 07 | person on the left seat | right free |
-| 08 | a person on each seat | none free |
-| 09 | person in the middle | left and right free |
-| 13A | person on the sofa, seen from the side | left and right free (wrong) |
-| 13B | person on the sofa, seen from the side | left free |
-| 13C | empty sofa, seen from the side | left and right free |
-| 14 | person on the right seat, camera moved to the side | left and right free (wrong) |
-| 15 | person standing in front of the sofa | left and right free |
-| 17 | empty sofa, chair beside it | left and right free |
+| Scene | Said |
+|---|---|
+| empty sofa | left and right free |
+| person on the right seat | left free |
+| person on the left seat | right free |
+| a person on each seat | none free |
+| person in the middle | left and right free |
+| person standing in front of the sofa | left and right free |
+| empty sofa, chair beside it | left and right free |
+| person on the sofa, seen from the side | left and right free, or left free (wrong in one of two recordings) |
+| person on the right seat, camera moved to the side | left and right free (wrong) |
 
-01 to 04, 12 and 16 show chairs only, and 00_test the lab. The simulated robot always
-looks at the sofa from straight in front, about as far away as in 05 to 09, so
-recordings taken from elsewhere (13A, 14) do not line up with the seat places of the
-map.
+The wrong answers come from recordings taken from the side, which do not line up with the
+seat places of the map.
 
 ### On the real robot
 
@@ -197,8 +215,8 @@ afterwards, and the demo names the free seat places of the sofa.
 | `clearance = 0.05` | `sofa_demonstrations.py` | How far, beyond its radius, the planned path keeps the base from obstacles. |
 | `scanning_distance = 1.5` | `sofa_demonstrations.py` | How far in front of the sofa's front edge the robot stands to scan it. |
 | `person_size = 0.4 × 0.4 × 0.8` | `free_seats_demonstration.py` | The box a simulated person is shaped as. |
-| `scanning_distance = 1.8` | `free_seats_demonstration.py` | Puts the camera about 2.15 m from the seat cushions, the distance measured in the depth images of recordings 05 and 07. |
-| `scanning_torso_state = LOW` | `free_seats_demonstration.py` | Not measured; the camera height of the recordings is unknown. |
+| `scanning_distance = 1.8` | `free_seats_demonstration.py` | Puts the camera about 2.15 m from the seat cushions, the distance measured in the depth images of the original recordings. |
+| `scanning_torso_state = LOW` | `free_seats_demonstration.py` | Not measured; the camera height of the original recordings is unknown. |
 | `position_threshold = 0.3`, `orientation_threshold = 0.1`, `timeout = 3 min` | `coraplex/src/coraplex/pumas_navigation.py` | Not measured; Pumas reports no outcome, so arriving is judged by these and by the base having stood still for `stillness_duration = 0.5 s` (within 1 cm and 0.01 rad, also not measured). The position threshold allows for Pumas stopping about 0.24 m short of the goal when an obstacle is near it. |
 | `map_T_scene = (0.44, 0.14, yaw -0.058)` | `find_free_seats_on_hsr.py` | Fitted to three room corners clicked on the laser map: the far wall at the bedroom end, the kitchen wall at the fridge end and the window wall at the oven end, taking the window wall at its cable channel. The corners still differ by 7 to 15 cm after the fit, since the room is 4.72 m by 9.05 m in the laser map and 4.86 m by 8.79 m in the model. |
 | `images_before_start = 30` | `camera_recording.py` | About one second of images at 30 Hz before the plan starts. |
