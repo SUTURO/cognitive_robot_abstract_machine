@@ -1,3 +1,7 @@
+"""
+The shapes of bodies, with their colors, textures, meshes and scales.
+"""
+
 from __future__ import annotations
 
 import itertools
@@ -25,7 +29,7 @@ from typing_extensions import Any, Self, TYPE_CHECKING, TypeVar, Sequence
 
 from krrood.adapters.json_serializer import SubclassJSONSerializer, to_json, from_json
 from krrood.bounds import Bounds, BoundsInterface
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from random_events.interval import SimpleInterval, Bound, closed
 from random_events.product_algebra import SimpleEvent
 from semantic_digital_twin.datastructures.variables import SpatialVariables
@@ -869,11 +873,20 @@ class Mesh(Shape):
         return MeshFileSources().resolve(self.filename)
 
     @property
+    def stored_mesh(self) -> trimesh.Trimesh:
+        """
+        The mesh with exactly the vertices and faces its file stores, before this
+        shape's scale is applied.
+        """
+        return self._load_in_meters(str(self.local_file), process=False)
+
+    @property
     def unscaled_mesh(self) -> trimesh.Trimesh:
         """
-        The mesh exactly as the file describes it, before this shape's scale is applied.
+        The mesh :attr:`stored_mesh` describes, with its duplicate vertices welded
+        unless it is coloured per vertex, before this shape's scale is applied.
         """
-        mesh = self._load_in_meters(str(self.local_file), process=False)
+        mesh = self.stored_mesh
         if mesh.visual.kind != "vertex":
             # Welding duplicate vertices is what makes a mesh watertight, which volume
             # and boolean operations require; formats like STL give every face its own
@@ -1631,14 +1644,20 @@ class AxisAlignedBox(BoundsInterface[PointT], ABC):
         Compute the intersection of two bounding boxes.
 
         :param other: The other bounding box.
-        :return: The intersection of the two bounding boxes or None if they do not
+        :return: The intersection of the two bounding boxes, relative to an unmoved
+            origin in the reference frame of this box's origin, or None if they do not
             intersect.
         """
         other_in_same_frame = other.transform_to_origin(self.origin)
         result = self.simple_event.intersection_with(other_in_same_frame.simple_event)
         if result.is_empty():
             return None
-        return self.__class__.from_simple_event(result, self.origin)[0]
+        return self.__class__.from_simple_event(
+            result,
+            HomogeneousTransformationMatrix(
+                reference_frame=self.origin.reference_frame
+            ),
+        )[0]
 
 
 @dataclass(eq=False)

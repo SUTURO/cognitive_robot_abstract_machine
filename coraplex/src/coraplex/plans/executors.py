@@ -1,3 +1,8 @@
+"""
+Executors that perform plans in simulation or on a real robot, and the adaptations they
+make to a plan first.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -20,11 +25,17 @@ from coraplex.plans.failures import (
     MotionExceededSimulationTimeLimit,
     MotionMadeNoProgress,
     MotionViolatedCollisionAvoidance,
+    MotionWasInfeasible,
     PlanFailure,
 )
-from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
+from coraplex.plans.plan_transformation import (
+    PlanRewriting,
+    PlanTransformation,
+    ConfigurationTransformation,
+)
 from coraplex.plans.underspecified import UnderspecifiedChildChooser
 from coraplex.robot_plans.actions.base import Action
+from coraplex.robot_plans.actions.core.navigation import DrivesBase
 from coraplex.robot_plans.plan_transformations import (
     CloseFingersToObjectWidth,
     DetectWithRoboKudo,
@@ -38,9 +49,10 @@ from coraplex.robot_plans.robot_specific_plan_transformations import (
     KeepTheTorsoUprightWhileUsingATool,
     MoveStretchToolCenterPointInAStraightLine,
 )
+from coraplex.robotiq_grippers import DriveRobotiqGrippersThroughTheirActionServers
 from cramph.composites import ChildChooserAccess, StatementNode
 from cramph.context import ContextExtension
-from cramph.data_types import LifeCycleValues
+from cramph.data_types import LifeCycleValue
 from cramph.exceptions import EmptyStatechartError
 from cramph.executor import (
     Executor,
@@ -63,6 +75,8 @@ from giskardpy.motion_statechart.graph_node import ConvergingTask, EndMotion
 from giskardpy.motion_statechart.monitors.progress_monitors import StillProgressing
 from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecutor
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
+from giskardpy.qp.exceptions import InfeasibleException
+from giskardpy.motion_statechart.tasks.drive_tasks import StraightLineBaseGoal
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.symbolic_math.symbolic_math import logic_or
 from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
@@ -310,7 +324,8 @@ class PlanExecutor(Executor, ABC):
         :return: The outcome, holding why the plan failed if it did:
             :class:`MotionMadeNoProgress` when the plan stopped approaching its goal,
             :class:`MotionViolatedCollisionAvoidance` when it brought bodies closer to
-            each other than collision avoidance allows,
+            each other than collision avoidance allows, :class:`MotionWasInfeasible`
+            when the controller found no motion satisfying every constraint at once,
             :class:`MotionExceededSimulationTimeLimit` when a simulated plan ran longer
             than :attr:`SimulatedPlanExecutor.simulation_time_limit`,
             :class:`CandidateLimitReached` or :class:`EmptyUnderspecified` when an
@@ -331,6 +346,13 @@ class PlanExecutor(Executor, ABC):
                 failure=MotionViolatedCollisionAvoidance(violation=violation),
                 cause=violation,
             )
+        except InfeasibleException as infeasibility:
+            return PlanOutcome.failed_by(
+                failure=MotionWasInfeasible(infeasibility=infeasibility),
+                cause=infeasibility,
+            )
+        except PlanFailure as failure:
+            return PlanOutcome(failure=failure)
         return PlanOutcome(failure=self._failure_of_plan())
 
     @abstractmethod
@@ -353,7 +375,7 @@ class PlanExecutor(Executor, ABC):
         """
         return any(
             plan_node.life_cycle_state.is_terminal
-            and plan_node.life_cycle_state != LifeCycleValues.SUCCEEDED
+            and plan_node.life_cycle_state != LifeCycleValue.SUCCEEDED
             for plan_node in self.plan_nodes
         )
 
@@ -374,7 +396,7 @@ class PlanExecutor(Executor, ABC):
                 for node in self.statechart.nodes
                 if not isinstance(node, TerminalNode)
                 and node.life_cycle_state
-                not in [LifeCycleValues.SUCCEEDED, LifeCycleValues.NOT_STARTED]
+                not in [LifeCycleValue.SUCCEEDED, LifeCycleValue.NOT_STARTED]
             ]
         )
         logger.error(motion_did_not_finish.error_message())
@@ -483,11 +505,15 @@ class SimulatedPlanExecutor(PlanExecutor, StatechartExecutor, ABC):
                 self.tick()
                 self.pacer.sleep()
             # The controller stops commanding, so a velocity-servoed base stops too.
-            MotionControl.set_velocity_acceleration_jerk_to_zero(self.context.world)
+            MotionControl.set_velocity_acceleration_jerk_to_zero(
+                world=self.context.world
+            )
             self.context.world.notify_state_change()
             self.pacer.wait_for_standstill()
         finally:
-            MotionControl.set_velocity_acceleration_jerk_to_zero(self.context.world)
+            MotionControl.set_velocity_acceleration_jerk_to_zero(
+                world=self.context.world
+            )
             self.finish_run()
 
     def _is_over(self) -> bool:
@@ -499,7 +525,7 @@ class SimulatedPlanExecutor(PlanExecutor, StatechartExecutor, ABC):
             self.statechart.is_ended()
             or self._plan_failed()
             or all(
-                plan_node.life_cycle_state == LifeCycleValues.SUCCEEDED
+                plan_node.life_cycle_state == LifeCycleValue.SUCCEEDED
                 for plan_node in self.plan_nodes
             )
         )
@@ -604,7 +630,11 @@ class RealRobotPlanExecutor(PlanExecutor):
     """
 
     plan_adaptations: list[PlanTransformation] = field(
-        default_factory=lambda: [CloseFingersToObjectWidth(), DetectWithRoboKudo()],
+        default_factory=lambda: [
+            DriveRobotiqGrippersThroughTheirActionServers(),
+            CloseFingersToObjectWidth(),
+            DetectWithRoboKudo(),
+        ],
         kw_only=True,
     )
 
@@ -636,3 +666,36 @@ class RealRobotPlanExecutor(PlanExecutor):
             return
         self._giskard.close()
         self._giskard = None
+
+
+@dataclass(kw_only=True)
+class DriveFacingTheWayToTheGoal(ConfigurationTransformation[DrivesBase]):
+    """
+    Lets the base turn towards each goal, drive there facing forwards and only then turn
+    to the goal's orientation, instead of moving sideways while turning.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        return True
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_goal_type = StraightLineBaseGoal
+
+
+@dataclass(kw_only=True)
+class ForwardDrivingPlanExecutor(PhysicallySimulatedPlanExecutor):
+    """
+    Performs plans in MuJoCo with a base that drives facing the way it goes:
+    :attr:`plan_adaptations` is extended by :class:`DriveFacingTheWayToTheGoal`.
+    """
+
+    def __post_init__(self) -> None:
+        """
+        Add :class:`DriveFacingTheWayToTheGoal` to :attr:`plan_adaptations` before the
+        executor is set up.
+        """
+        self.plan_adaptations = [
+            *self.plan_adaptations,
+            DriveFacingTheWayToTheGoal(),
+        ]
+        super().__post_init__()

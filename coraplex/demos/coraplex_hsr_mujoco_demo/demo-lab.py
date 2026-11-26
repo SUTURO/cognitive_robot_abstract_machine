@@ -8,31 +8,37 @@ Run it from this folder::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
 import mujoco
 import numpy as np
-from copy import deepcopy
 from coraplex.demonstrations import RobotDemonstration
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.querying.grasp_closeness import GraspsByCloseness
+from coraplex.robot_plans.actions.core.navigation import (
+    NavigateAction,
+)
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from coraplex.robot_plans.actions.core.placing import PlaceAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
-from coraplex.querying.grasp_closeness import GraspsByCloseness
 from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Pose,
+    Pose2D,
+)
 from segmind.detectors.agent_event_detector_nodes import GraspDetector
 from segmind.detectors.coarse_event_detector_nodes import (
     PickUpDetector,
     PlacingDetector,
 )
 from segmind.event_segmentation import Segmind
+
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from semantic_digital_twin.collision_checking.collision_rules import (
     AllowCollisionBetweenGroups,
@@ -41,18 +47,20 @@ from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
 from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor, Milk
+from semantic_digital_twin.semantic_annotations.mixins import IsGraspable
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
+    Milk,
+    TrashCan,
+)
 from semantic_digital_twin.specifications.connections import (
     Connection6DoFSpecification,
 )
-from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
 from semantic_digital_twin.specifications.robots import RobotSpecification
-from semantic_digital_twin.specifications.semantic_annotations import (
-    SemanticAnnotationWithRootSpecification,
-)
+
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 from semantic_digital_twin.world_description.contact import ContactParameters
 from typing_extensions import TYPE_CHECKING
@@ -93,6 +101,11 @@ class SceneBody(StrEnum):
     KITCHEN_SURFACE = "sideboard"
     """
     The worktop of the kitchen island.
+    """
+
+    LIVING_ROOM_FLOOR = "living_room_floor"
+    """
+    The floor of the living room.
     """
 
     MILK = "milk"
@@ -195,7 +208,7 @@ class LabMilkTransportDemonstration(RobotDemonstration):
 
     robot_start: HomogeneousTransformationMatrix = field(
         default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=2.6, y=-0.9
+            x=1.1, y=2.5
         )
     )
     """
@@ -205,7 +218,7 @@ class LabMilkTransportDemonstration(RobotDemonstration):
 
     milk_start: SurfaceSpot = field(
         default_factory=lambda: SurfaceSpot(
-            SceneBody.COUNTER, x=2.6, y=-2.05, yaw=-np.pi / 2
+            SceneBody.LIVING_ROOM_FLOOR, x=3.5, y=3.3, yaw=-np.pi / 2
         )
     )
     """
@@ -241,7 +254,7 @@ class LabMilkTransportDemonstration(RobotDemonstration):
     an elliptic cone.
     """
 
-    no_slip_iterations: int = 2
+    no_slip_iterations: int = 10
     """
     Passes spent removing the slip soft contacts leave, so a held carton stays where the
     fingers hold it.
@@ -328,29 +341,42 @@ class LabMilkTransportDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         robot = context.require_extension(extension_type=RobotAccess).robot
+
         [milk] = context.world.get_semantic_annotations_by_type(Milk)
+        [trash_can] = context.world.get_semantic_annotations_by_type(TrashCan)
         [arm] = robot.all_arms
         taking_pose = self._standing_pose_facing(
-            milk.root.global_pose, robot.root.global_pose
+            target=milk.root.global_pose, approach_from=robot.root.global_pose
         )
-        target = self.milk_target.compute_milk_pose(milk.root)
+        middle_pose = self._standing_pose_facing(
+            target=Pose.from_xyz_rpy(x=1, y=3, reference_frame=context.world.root),
+            approach_from=taking_pose,
+        )
+        dropping_pose = self._standing_pose_facing(
+            target=trash_can.root.global_pose, approach_from=middle_pose
+        )
         statechart = Statechart(context=context)
         statechart.add_node(
             node=Sequence(
                 nodes=[
-                    ParkArmsAction(arms=robot.all_arms),
-                    NavigateAction(target_location=taking_pose),
-                    MoveTorsoAction(torso_state=TorsoState.HIGH),
-                    PickUpAction(grasp=self.find_grasp(milk, taking_pose), arm=arm),
-                    ParkArmsAction(arms=robot.all_arms),
                     MoveTorsoAction(torso_state=TorsoState.LOW),
-                    NavigateAction(
-                        target_location=self._standing_pose_facing(target, taking_pose)
+                    ParkArmsAction(arms=robot.all_arms),
+                    NavigateAction(planar_goal_pose=taking_pose),
+                    PickUpAction(
+                        grasp_candidate=self.find_grasp(
+                            graspable=milk, standing_pose=taking_pose
+                        ),
+                        arm=arm,
                     ),
-                    MoveTorsoAction(torso_state=TorsoState.HIGH),
-                    PlaceAction(object_designator=milk, target_location=target),
                     ParkArmsAction(arms=robot.all_arms),
-                    MoveTorsoAction(torso_state=TorsoState.LOW),
+                    NavigateAction(planar_goal_pose=middle_pose),
+                    NavigateAction(planar_goal_pose=dropping_pose),
+                    PlaceAction(
+                        arm=arm,
+                        graspable=milk,
+                        goal_pose=self._compute_drop_pose(trash_can=trash_can),
+                    ),
+                    ParkArmsAction(arms=robot.all_arms),
                 ]
             )
         )
@@ -371,28 +397,36 @@ class LabMilkTransportDemonstration(RobotDemonstration):
 
     def find_grasp(
         self,
-        graspable: HasGraspCandidates,
-        standing_pose: Pose,
+        *,
+        graspable: IsGraspable,
+        standing_pose: Pose2D,
         fraction_of_height: float = 4 / 6,
     ) -> GraspCandidate:
         """
         :param graspable: The object to take, standing upright.
-        :param standing_pose: Where the robot stands while it takes the object.
-        :param fraction_of_height: How far up the object's bounding box the grasp is,
-            from 0 at its bottom to 1 at its top; by default where its upper third begins.
-        :return: The object's grasp closest to `standing_pose`, moved up to that height.
+        :param standing_pose: Where the robot stands while it takes the milk.
+        :param fraction_of_height: How far up the milk's bounding box the grasp is, from 0
+            at its bottom to 1 at its top; by default where its upper third begins.
+        :return: The body's grasp closest to `standing_pose`, moved up to that height.
         """
-        box = graspable.root.collision.as_bounding_box_collection_in_frame(
-            graspable.root
-        ).bounding_box()
+        root = graspable.root
+        box = root.collision.as_bounding_box_collection_in_frame(root).bounding_box()
         [closest] = GraspsByCloseness(
             graspable=graspable, standing_position=standing_pose, number_of_grasps=1
         )()
-        grasp_pose = deepcopy(closest.grasp_pose)
-        grasp_pose.z = box.min_z + fraction_of_height * (box.max_z - box.min_z)
-        return GraspCandidate(graspable=graspable, grasp_pose=grasp_pose)
+        root_T_grasp = root._world.transform(closest.grasp_pose, root).homogeneous_matrix
+        grasp_height = box.min_z + fraction_of_height * (box.max_z - box.min_z)
+        root_T_raised_grasp = (
+            HomogeneousTransformationMatrix.from_xyz_rpy(
+                z=grasp_height - root_T_grasp.to_np()[2, 3], reference_frame=root
+            )
+            @ root_T_grasp
+        )
+        return replace(closest, grasp_pose=root_T_raised_grasp.pose)
 
-    def _standing_pose_facing(self, target: Pose, approach_from: Pose) -> Pose:
+    def _standing_pose_facing(
+        self, *, target: Pose, approach_from: Pose | Pose2D
+    ) -> Pose2D:
         """
         :param target: What the robot goes to reach, in the world frame.
         :param approach_from: Where the robot stands before it goes to `target`, in the
@@ -400,16 +434,37 @@ class LabMilkTransportDemonstration(RobotDemonstration):
         :return: Where the robot's base stands on the floor, :attr:`standing_distance`
             off `target` towards `approach_from` and facing `target`.
         """
-        offset = target.position - approach_from.position
-        offset.z = 0
+        target_position = target.position.to_np()[:2]
+        offset = target_position - approach_from.position.to_np()[:2]
         standing_position = (
-            target.position - offset / offset.norm() * self.standing_distance
+            target_position - self.standing_distance * offset / np.linalg.norm(offset)
         )
-        return Pose.from_xyz_rpy(
-            x=standing_position.x,
-            y=standing_position.y,
-            yaw=float(np.arctan2(offset.y, offset.x)),
+        return Pose2D.from_xy_yaw(
+            x=float(standing_position[0]),
+            y=float(standing_position[1]),
+            yaw=float(np.arctan2(offset[1], offset[0])),
             reference_frame=target.reference_frame,
+        )
+
+    def _compute_drop_pose(
+        self, *, trash_can: TrashCan, drop_height: float = 0.1
+    ) -> Pose:
+        """
+        :param trash_can: The trash can the milk is dropped into.
+        :param drop_height: How far above the rim of `trash_can` the milk is let go, in
+            meters.
+        :return: The pose in the world root, centred over `trash_can`, at which the milk
+            is let go.
+        """
+        world = trash_can.root._world
+        trash_can_box = trash_can.root.collision.as_bounding_box_collection_in_frame(
+            world.root
+        ).bounding_box()
+        return Pose.from_xyz_rpy(
+            x=(trash_can_box.min_x + trash_can_box.max_x) / 2,
+            y=(trash_can_box.min_y + trash_can_box.max_y) / 2,
+            z=trash_can_box.max_z + drop_height,
+            reference_frame=world.root,
         )
 
 

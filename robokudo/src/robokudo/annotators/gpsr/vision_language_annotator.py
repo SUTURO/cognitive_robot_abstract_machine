@@ -10,6 +10,7 @@ from enum import IntEnum
 from io import BytesIO
 
 import cv2
+from huggingface_hub import hf_hub_download
 from llama_cpp import Llama
 from llama_cpp.llama_chat_format import Qwen25VLChatHandler
 from PIL import Image
@@ -20,7 +21,6 @@ from robokudo.cas import CASViews
 from robokudo.types.human import ActivityAnnotation
 from robokudo.types.scene import HumanHypothesis
 from robokudo.utils.error_handling import catch_and_raise_to_blackboard
-from robokudo.utils.file_loader import FileLoader
 
 # %% layers on the GPU
 
@@ -66,19 +66,18 @@ class VisionLanguageAnnotator(ThreadedAnnotator):
                 """
                 Start with the default model files and question.
                 """
-                self.ros_package_name: str = "robokudo_suturo"
+                self.model_repository: str = "unsloth/Qwen2.5-VL-3B-Instruct-GGUF"
                 """
-                The ROS package that holds the model files.
+                The Hugging Face repository that holds the model files. They are
+                downloaded into the Hugging Face cache on first use.
                 """
-                self.model_file: str = "weights/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
+                self.model_file: str = "Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf"
                 """
-                The language model, relative to the ROS package.
+                The language model, in :attr:`model_repository`.
                 """
-                self.projector_file: str = (
-                    "weights/Qwen2.5-VL-3B-Instruct-mmproj-F16.gguf"
-                )
+                self.projector_file: str = "mmproj-F16.gguf"
                 """
-                The image projector of the model, relative to the ROS package.
+                The image projector of the model, in :attr:`model_repository`.
                 """
                 self.context_length: int = 4096
                 """
@@ -199,18 +198,16 @@ class VisionLanguageAnnotator(ThreadedAnnotator):
         :return: The configured model with its image projector.
         """
         parameters = self.descriptor.parameters
-        model_path = FileLoader.get_path_to_file_in_ros_package(
-            ros_pkg_name=parameters.ros_package_name,
-            relative_path=parameters.model_file,
+        model_path = hf_hub_download(
+            repo_id=parameters.model_repository, filename=parameters.model_file
         )
-        projector_path = FileLoader.get_path_to_file_in_ros_package(
-            ros_pkg_name=parameters.ros_package_name,
-            relative_path=parameters.projector_file,
+        projector_path = hf_hub_download(
+            repo_id=parameters.model_repository, filename=parameters.projector_file
         )
         return Llama(
-            model_path=str(model_path),
+            model_path=model_path,
             chat_handler=Qwen25VLChatHandler(
-                clip_model_path=str(projector_path), verbose=False
+                clip_model_path=projector_path, verbose=False
             ),
             n_ctx=parameters.context_length,
             n_gpu_layers=GpuLayers.ALL if parameters.use_gpu else GpuLayers.NONE,

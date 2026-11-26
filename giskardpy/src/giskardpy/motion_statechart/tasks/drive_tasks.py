@@ -20,14 +20,23 @@ from cramph.node import (
     SucceedsOnObservingTrue,
     expanded_child_field,
 )
-from giskardpy.motion_statechart.binding_policy import (
+from giskardpy.motion_statechart.forward_kinematics_binding import (
     ForwardKinematicsBinding,
-    GoalBindingPolicy,
 )
-from giskardpy.motion_statechart.cruise_velocities import DefaultCruiseVelocity
 from giskardpy.motion_statechart.exceptions import RobotWithoutMobileBaseError
-from giskardpy.motion_statechart.graph_node import ConvergingTask, MotionNodeArtifacts
-from giskardpy.motion_statechart.weights import DefaultWeights, VelocityScale
+from giskardpy.motion_statechart.graph_node import (
+    BindsGoalReferenceFrame,
+    ConvergingTask,
+    MotionNodeArtifacts,
+)
+from giskardpy.motion_statechart.mixins import (
+    HasCruiseAngularVelocityParameter,
+    HasCruiseVelocityParameter,
+    HasGoalPoseParameter,
+    HasThresholdParameter,
+    HasWeightParameter,
+)
+from giskardpy.motion_statechart.weights import VelocityScale
 from krrood.symbolic_math.symbolic_math import Scalar, trinary_if_cases
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -43,12 +52,13 @@ from semantic_digital_twin.world_description.connections import DifferentialDriv
 from semantic_digital_twin.world_description.world_entity import (
     KinematicStructureEntity,
 )
+from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
 
 # %% moving a driven base
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DrivenBaseTask(ConvergingTask, ABC):
+class DrivenBaseTask(ConvergingTask, HasGoalPoseParameter, ABC):
     """
     Moves the base a drive carries towards :attr:`goal_pose`, relative to the parent of
     the drive as it is whenever the task is built.
@@ -57,14 +67,9 @@ class DrivenBaseTask(ConvergingTask, ABC):
     relative to that parent, and the joints above the drive are never moved for it.
     """
 
-    base: KinematicStructureEntity
+    driven_body: KinematicStructureEntity
     """
     The body the drive carries.
-    """
-
-    goal_pose: Pose
-    """
-    Where the base should end up.
     """
 
     parent_T_goal_reference_frame: HomogeneousTransformationMatrix
@@ -76,9 +81,9 @@ class DrivenBaseTask(ConvergingTask, ABC):
     @property
     def drive_parent(self) -> KinematicStructureEntity:
         """
-        :return: The body the drive carrying :attr:`base` is attached to now.
+        :return: The body the drive carrying :attr:`driven_body` is attached to now.
         """
-        return self.base.parent_kinematic_structure_entity
+        return self.driven_body.parent_kinematic_structure_entity
 
     @property
     def parent_T_goal(self) -> Pose:
@@ -91,23 +96,65 @@ class DrivenBaseTask(ConvergingTask, ABC):
 
     def parent_T_base(self) -> HomogeneousTransformationMatrix:
         """
-        :return: The pose of :attr:`base` relative to :attr:`drive_parent`, over the
-            degrees of freedom of the drive.
+        :return: The pose of :attr:`driven_body` relative to :attr:`drive_parent`, over
+            the degrees of freedom of the drive.
         """
         return self.context.world.compose_forward_kinematics_expression(
-            self.drive_parent, self.base
+            self.drive_parent, self.driven_body
         )
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class BasePosition(DrivenBaseTask):
+class DrivenBaseTaskFromStart(DrivenBaseTask, ABC):
     """
-    Drives the base along the floor to below the position of :attr:`goal_pose`.
+    A task described against the pose the base has when the task starts.
     """
 
-    cruise_velocity: float = DefaultCruiseVelocity.TRANSLATION
+    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
     """
-    Sets how fast the goal is approached, in m/s; not strictly enforced.
+    Fixes the pose of the base relative to the drive's parent when the task starts.
+    """
+
+    def set_up(self) -> None:
+        """
+        Bind the pose of the base, which the task is described against.
+        """
+        super().set_up()
+        self._parent_T_start_binding = ForwardKinematicsBinding(
+            name=PrefixedName("parent_T_start", str(self.name)),
+            kinematic_chain=KinematicChain(
+                root=self.drive_parent, tip=self.driven_body
+            ),
+            float_variable_data=self.context.float_variable_data,
+        )
+        self._parent_T_start_binding.bind(world=self.context.world)
+
+    def on_start(self) -> None:
+        """
+        Read where the base stands again, so a task that starts anew measures from
+        there.
+        """
+        self._parent_T_start_binding.bind(world=self.context.world)
+
+    @property
+    def parent_P_start(self) -> Point3:
+        """
+        :return: Where the base stood when the task started, relative to the drive's
+            parent, expressed relative to the drive's new parent if the drive was moved
+            under another parent.
+        """
+        if self._parent_T_start_binding.kinematic_chain.root is not self.drive_parent:
+            self._parent_T_start_binding.change_root(
+                root=self.drive_parent, world=self.context.world
+            )
+        return self._parent_T_start_binding.root_T_tip.position
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class BasePosition(DrivenBaseTask, HasCruiseVelocityParameter):
+    """
+    Drives the base along the floor to below the position of :attr:`goal_pose`, with an
+    error in meters.
     """
 
     def build_artifacts(self) -> MotionNodeArtifacts:
@@ -136,20 +183,15 @@ class BasePosition(DrivenBaseTask):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DrivenBaseRotation(DrivenBaseTask, ABC):
+class DrivenBaseRotation(DrivenBaseTask, HasCruiseAngularVelocityParameter, ABC):
     """
     Turns the base about the vertical until it faces the way the orientation
-    :meth:`parent_R_goal` describes does.
-    """
-
-    cruise_velocity: float = DefaultCruiseVelocity.ROTATION
-    """
-    Sets how fast the goal orientation is approached, in rad/s; not strictly enforced.
+    :meth:`parent_R_goal` describes does, with an error in radians.
     """
 
     @abstractmethod
     def parent_R_goal(
-        self, parent_T_base: HomogeneousTransformationMatrix
+        self, *, parent_T_base: HomogeneousTransformationMatrix
     ) -> RotationMatrix:
         """
         :param parent_T_base: The pose of the base relative to the drive's parent.
@@ -164,11 +206,11 @@ class DrivenBaseRotation(DrivenBaseTask, ABC):
         artifacts = MotionNodeArtifacts()
         parent_T_base = self.parent_T_base()
         parent_R_base = parent_T_base.rotation_matrix
-        parent_R_goal = self.parent_R_goal(parent_T_base)
+        parent_R_goal = self.parent_R_goal(parent_T_base=parent_T_base)
         artifacts.geometry.add_yaw_goal_constraint(
             frame_R_current=parent_R_base,
             frame_R_goal=parent_R_goal,
-            cruise_velocity=self.cruise_velocity,
+            cruise_velocity=self.cruise_angular_velocity,
             quadratic_weight=self.weight,
         )
         yaw_error = sm.shortest_angular_distance(
@@ -185,7 +227,7 @@ class BaseOrientation(DrivenBaseRotation):
     """
 
     def parent_R_goal(
-        self, parent_T_base: HomogeneousTransformationMatrix
+        self, *, parent_T_base: HomogeneousTransformationMatrix
     ) -> RotationMatrix:
         return self.parent_T_goal.rotation_matrix
 
@@ -198,10 +240,10 @@ class BaseHeading(DrivenBaseRotation):
     """
 
     def parent_R_goal(
-        self, parent_T_base: HomogeneousTransformationMatrix
+        self, *, parent_T_base: HomogeneousTransformationMatrix
     ) -> RotationMatrix:
         parent_V_base_to_goal = self.parent_T_goal.position - self.parent_P_viewpoint(
-            parent_T_base
+            parent_T_base=parent_T_base
         )
         parent_V_base_to_goal.scale(1)
         return RotationMatrix.from_vectors(
@@ -211,7 +253,7 @@ class BaseHeading(DrivenBaseRotation):
         )
 
     def parent_P_viewpoint(
-        self, parent_T_base: HomogeneousTransformationMatrix
+        self, *, parent_T_base: HomogeneousTransformationMatrix
     ) -> Point3:
         """
         :param parent_T_base: The pose of the base relative to the drive's parent.
@@ -222,50 +264,67 @@ class BaseHeading(DrivenBaseRotation):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class BaseTurnTowardsGoalPosition(BaseHeading):
+class BaseTurnTowardsGoalPosition(DrivenBaseTaskFromStart, BaseHeading):
     """
     Turns the front of the base towards the position of :attr:`goal_pose`, as seen from
     where the base stood when the task started, so that driving does not bring the base
     closer to facing it.
     """
 
-    _parent_T_start_binding: ForwardKinematicsBinding = field(init=False, repr=False)
-    """
-    Fixes the pose of the base relative to the drive's parent when the task starts.
-    """
-
-    def set_up(self) -> None:
+    def parent_P_viewpoint(
+        self, *, parent_T_base: HomogeneousTransformationMatrix
+    ) -> Point3:
         """
-        Bind the pose of the base, which the base faces the goal position from.
+        Differs from :meth:`BaseHeading.parent_P_viewpoint` in looking from where the
+        base stood when this task started.
         """
-        super().set_up()
-        self._parent_T_start_binding = ForwardKinematicsBinding(
-            name=PrefixedName("parent_T_start", str(self.name)),
-            root=self.drive_parent,
-            tip=self.base,
-            float_variable_data=self.context.float_variable_data,
-        )
-        self._parent_T_start_binding.bind(self.context.world)
+        return self.parent_P_start
 
-    def on_start(self) -> None:
-        self._parent_T_start_binding.bind(self.context.world)
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class BaseStraightLinePosition(DrivenBaseTaskFromStart, BasePosition):
+    """
+    Drives the base to below the position of :attr:`goal_pose` along the straight line
+    from where it stood when the task started, and back onto that line whenever it
+    strays.
+    """
 
     def build_artifacts(self) -> MotionNodeArtifacts:
         """
-        Differs from :meth:`DrivenBaseRotation.build_artifacts` in first expressing the
-        bound start pose relative to the drive's new parent, if the drive was moved
-        under another parent.
+        :return: The artifacts of this task, whose error is the distance along the floor
+            between the base and the goal position.
         """
-        if self._parent_T_start_binding.root is not self.drive_parent:
-            self._parent_T_start_binding.change_root(
-                self.drive_parent, self.context.world
+        artifacts = MotionNodeArtifacts()
+        parent_P_start = self.parent_P_start
+        parent_P_goal = self.parent_T_goal.position
+        parent_P_base = self.parent_T_base().position
+        parent_V_line = parent_P_goal - parent_P_start
+        parent_V_line.z = 0
+        # scale normalizes in place, so the length has to be read before it
+        line_length = parent_V_line.norm()
+        parent_V_line.scale(1)
+        parent_R_line = RotationMatrix.from_vectors(
+            x=parent_V_line,
+            z=Vector3.Z(reference_frame=self.drive_parent),
+            reference_frame=self.drive_parent,
+        )
+        line_V_travelled = parent_R_line.inverse() @ (parent_P_base - parent_P_start)
+        for line_coordinate, goal_coordinate, constraint_name in [
+            (line_V_travelled[0], line_length, "line/progress"),
+            (line_V_travelled[1], 0, "line/lateral"),
+        ]:
+            artifacts.geometry.add_position_constraint(
+                expression_current=line_coordinate,
+                expression_goal=goal_coordinate,
+                cruise_velocity=self.cruise_velocity,
+                velocity_scale=VelocityScale.TRANSLATION,
+                quadratic_weight=self.weight,
+                name=constraint_name,
             )
-        return super().build_artifacts()
-
-    def parent_P_viewpoint(
-        self, parent_T_base: HomogeneousTransformationMatrix
-    ) -> Point3:
-        return self._parent_T_start_binding.root_T_tip.position
+        parent_V_base_to_goal = parent_P_goal - parent_P_base
+        parent_V_base_to_goal.z = 0
+        artifacts.error = parent_V_base_to_goal.norm()
+        return artifacts
 
 
 # %% putting the base of a robot at a pose
@@ -280,7 +339,7 @@ class MobileBasePoseGoal(ABC):
     @classmethod
     @abstractmethod
     def moving_base_of(
-        cls, robot: AbstractRobot, goal_pose: Pose, threshold: float
+        cls, *, robot: AbstractRobot, goal_pose: Pose, threshold: float
     ) -> Self:
         """
         :param robot: The robot whose base is put at `goal_pose`.
@@ -300,16 +359,20 @@ class DrivenBaseGoal(
     FailsOnObservingFalse,
     CompositeNode,
     MobileBasePoseGoal,
+    BindsGoalReferenceFrame,
+    HasGoalPoseParameter,
+    HasWeightParameter,
+    HasThresholdParameter,
     ABC,
 ):
     """
     Drives a base along the floor and turns it about the vertical until it stands below
-    :attr:`goal_pose`, facing its way.
+    :attr:`goal_pose`, facing its way. Its threshold holds in meters and in radians.
 
     The base is moved relative to the body it is attached to, as it is whenever the
     tasks are built, so the goal follows a base moved under another parent while the
     statechart runs. Where the goal lies is read from its reference frame as
-    :attr:`binding_policy` says.
+    :attr:`goal_binding_policy` says.
     """
 
     mobile_base: MobileBase
@@ -317,41 +380,18 @@ class DrivenBaseGoal(
     The base moved, by the drive attaching its robot to its parent.
     """
 
-    goal_pose: Pose
-    """
-    Pose to reach.
-    """
-
-    weight: float = DefaultWeights.WEIGHT_BELOW_COLLISION_AVOIDANCE
-    """
-    Task priority relative to other tasks.
-    """
-
-    threshold: float = 0.01
-    """
-    How far the base may be from :attr:`goal_pose`, in meters and in radians, to count
-    as arrived.
-    """
-
-    binding_policy: GoalBindingPolicy = GoalBindingPolicy.Bind_on_start
-    """
-    When the pose of the reference frame of :attr:`goal_pose` is read.
-    """
-
-    parent_T_goal_reference_frame: HomogeneousTransformationMatrix = (
-        expanded_child_field()
+    root_T_goal_reference_frame: HomogeneousTransformationMatrix | None = (
+        expanded_child_field(default=None)
     )
     """
-    The pose of the reference frame of :attr:`goal_pose` relative to the body the base
-    is attached to, as :attr:`binding_policy` fixes it; the tasks are expressed over it.
+    Differs from :attr:`BindsGoalReferenceFrame.root_T_goal_reference_frame` in being
+    created by :meth:`expand` and sent along with this goal once it expanded, since the
+    tasks of :attr:`motion` are expressed over it.
     """
 
-    _forward_kinematics_binding: ForwardKinematicsBinding = field(
-        init=False, repr=False
-    )
-    """
-    Fixes :attr:`parent_T_goal_reference_frame` to the current pose of the frame.
-    """
+    @property
+    def goal_reference_frame(self) -> KinematicStructureEntity:
+        return self.goal_pose.reference_frame
 
     @property
     def driven_body(self) -> KinematicStructureEntity:
@@ -368,7 +408,7 @@ class DrivenBaseGoal(
         """
 
     @abstractmethod
-    def _create_motion(self, task_parameters: dict[str, Any]) -> None:
+    def _create_motion(self, *, task_parameters: dict[str, Any]) -> None:
         """
         Creates the node running the tasks that move :attr:`driven_body`.
 
@@ -377,7 +417,7 @@ class DrivenBaseGoal(
 
     @classmethod
     def moving_base_of(
-        cls, robot: AbstractRobot, goal_pose: Pose, threshold: float
+        cls, *, robot: AbstractRobot, goal_pose: Pose, threshold: float
     ) -> Self:
         """
         Differs from :meth:`MobileBasePoseGoal.moving_base_of` in requiring `robot` to
@@ -392,34 +432,38 @@ class DrivenBaseGoal(
         )
 
     @property
-    def _goal_reference_frame_name(self) -> PrefixedName:
-        """
-        :return: The name the variables of :attr:`parent_T_goal_reference_frame` are
-            created under.
-        """
-        return PrefixedName("parent_T_goal_ref", str(self.name))
-
-    @property
     def _drive_parent(self) -> KinematicStructureEntity:
         """
         :return: The body :attr:`driven_body` is attached to now.
         """
         return self.driven_body.parent_kinematic_structure_entity
 
+    @property
+    def goal_binding_root(self) -> KinematicStructureEntity:
+        return self._drive_parent
+
+    def _root_T_goal_reference_frame_to_bind(self) -> HomogeneousTransformationMatrix:
+        """
+        Differs from
+        :meth:`BindsGoalReferenceFrame._root_T_goal_reference_frame_to_bind` in binding
+        the matrix :meth:`expand` created, which the tasks are expressed over.
+        """
+        return self.root_T_goal_reference_frame
+
     def expand(self) -> None:
         """
         Add the node running the tasks.
         """
-        self.parent_T_goal_reference_frame = (
+        self.root_T_goal_reference_frame = (
             HomogeneousTransformationMatrix.create_with_variables(
                 str(self._goal_reference_frame_name)
             )
         )
         self._create_motion(
-            dict(
-                base=self.driven_body,
+            task_parameters=dict(
+                driven_body=self.driven_body,
                 goal_pose=self.goal_pose,
-                parent_T_goal_reference_frame=self.parent_T_goal_reference_frame,
+                parent_T_goal_reference_frame=self.root_T_goal_reference_frame,
                 weight=self.weight,
                 threshold=self.threshold,
             )
@@ -427,35 +471,20 @@ class DrivenBaseGoal(
         self._add_child_to_statechart(node=self.motion)
         self._succeed_at_its_goal(child=self.motion)
 
-    def set_up(self) -> None:
-        """
-        Bind :attr:`parent_T_goal_reference_frame`, which the tasks are expressed over.
-        """
-        super().set_up()
-        self._forward_kinematics_binding = ForwardKinematicsBinding(
-            name=self._goal_reference_frame_name,
-            root=self._drive_parent,
-            tip=self.goal_pose.reference_frame,
-            float_variable_data=self.context.float_variable_data,
-            root_T_tip=self.parent_T_goal_reference_frame,
-        )
-        self._forward_kinematics_binding.bind(self.context.world)
-
-    def on_start(self) -> None:
-        if self.binding_policy == GoalBindingPolicy.Bind_on_start:
-            self._forward_kinematics_binding.bind(self.context.world)
-
     def build_artifacts(self) -> NodeArtifacts:
         """
         Report the outcome of :attr:`motion`, and express
-        :attr:`parent_T_goal_reference_frame` relative to the new parent of the base if
-        it was moved under another parent, since the tasks are rebuilt against it.
+        :attr:`root_T_goal_reference_frame` relative to the new parent of the base if it
+        was moved under another parent, since the tasks are rebuilt against it.
 
         Where the goal's reference frame was bound is kept.
         """
-        if self._forward_kinematics_binding.root is not self._drive_parent:
-            self._forward_kinematics_binding.change_root(
-                self._drive_parent, self.context.world
+        if (
+            self._goal_reference_frame_binding.kinematic_chain.root
+            is not self._drive_parent
+        ):
+            self._goal_reference_frame_binding.change_root(
+                root=self._drive_parent, world=self.context.world
             )
         return NodeArtifacts(
             observation=trinary_if_cases(
@@ -484,7 +513,7 @@ class HolonomicBaseGoal(DrivenBaseGoal):
     def motion(self) -> StatechartNode:
         return self.parallel
 
-    def _create_motion(self, task_parameters: dict[str, Any]) -> None:
+    def _create_motion(self, *, task_parameters: dict[str, Any]) -> None:
         self.parallel = Parallel(
             name=f"{self.name}/parallel",
             nodes=[
@@ -495,19 +524,12 @@ class HolonomicBaseGoal(DrivenBaseGoal):
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class DifferentialDriveBaseGoal(DrivenBaseGoal):
+class TravelFacingBaseGoal(DrivenBaseGoal, ABC):
     """
-    Moves the robot to a goal pose using a differential drive, running these steps in
-    one :class:`~cramph.composites.Sequence`:
-
-    1. Turn towards the goal position, without driving
-    2. Drive to goal position, steering towards it
-    3. Orient to goal orientation
-    """
-
-    mobile_base: MobileBase[DifferentialDrive]
-    """
-    The base moved, by the differential drive attaching its robot to its parent.
+    Moves the base to a goal pose facing the way it travels: in one
+    :class:`~cramph.composites.Sequence`, it turns towards the goal position, drives
+    there with the tasks :meth:`create_driving_tasks` creates, and turns to the goal
+    orientation.
     """
 
     sequence: Sequence = expanded_child_field()
@@ -515,19 +537,26 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
     The sequence running the three steps.
     """
 
+    @abstractmethod
+    def create_driving_tasks(
+        self, *, task_parameters: dict[str, Any]
+    ) -> list[DrivenBaseTask]:
+        """
+        :param task_parameters: The parameters every task is created with.
+        :return: New tasks driving the base to the goal position while keeping it facing
+            the goal position.
+        """
+
     @property
     def motion(self) -> StatechartNode:
         return self.sequence
 
-    def _create_motion(self, task_parameters: dict[str, Any]) -> None:
+    def _create_motion(self, *, task_parameters: dict[str, Any]) -> None:
         steps = [
             BaseTurnTowardsGoalPosition(name=f"{self.name}/step1", **task_parameters),
             Parallel(
                 name=f"{self.name}/step2",
-                nodes=[
-                    BasePosition(name=f"{self.name}/step2/position", **task_parameters),
-                    BaseHeading(name=f"{self.name}/step2/heading", **task_parameters),
-                ],
+                nodes=self.create_driving_tasks(task_parameters=task_parameters),
             ),
             Parallel(
                 name=f"{self.name}/step3",
@@ -540,3 +569,44 @@ class DifferentialDriveBaseGoal(DrivenBaseGoal):
             ),
         ]
         self.sequence = Sequence(name=f"{self.name}/sequence", nodes=steps)
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class DifferentialDriveBaseGoal(TravelFacingBaseGoal):
+    """
+    Moves the robot to a goal pose using a differential drive, steering towards the goal
+    position from wherever the drive has carried the base.
+    """
+
+    mobile_base: MobileBase[DifferentialDrive]
+    """
+    The base moved, by the differential drive attaching its robot to its parent.
+    """
+
+    def create_driving_tasks(
+        self, *, task_parameters: dict[str, Any]
+    ) -> list[DrivenBaseTask]:
+        return [
+            BasePosition(name=f"{self.name}/step2/position", **task_parameters),
+            BaseHeading(name=f"{self.name}/step2/heading", **task_parameters),
+        ]
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class StraightLineBaseGoal(TravelFacingBaseGoal):
+    """
+    Moves a base that can drive in any direction to a goal pose along the straight line
+    to the goal position, facing along that line while it drives.
+    """
+
+    def create_driving_tasks(
+        self, *, task_parameters: dict[str, Any]
+    ) -> list[DrivenBaseTask]:
+        return [
+            BaseStraightLinePosition(
+                name=f"{self.name}/step2/position", **task_parameters
+            ),
+            BaseTurnTowardsGoalPosition(
+                name=f"{self.name}/step2/heading", **task_parameters
+            ),
+        ]

@@ -8,11 +8,13 @@ from krrood.exceptions import DataclassException
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
     from coraplex.robot_plans.actions.base import Action
     from coraplex.robot_plans.task_definitions import Command
     from cramph.node import StatechartNode
+    from krrood_spatial_math.spatial_types import Pose
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
-    from semantic_digital_twin.semantic_annotations.mixins import HasGraspCandidates
     from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
     from semantic_digital_twin.world_description.world_entity import (
         SemanticAnnotation,
@@ -233,25 +235,6 @@ class MotionDidNotFinish(PlanFailure):
 
 
 @dataclass
-class ObjectIsNotHeld(DataclassException):
-    """
-    Raised when a place is asked for an object that no arm holds and no pick-up before
-    it is going to take.
-    """
-
-    object_designator: HasGraspCandidates
-    """
-    The object that was to be placed.
-    """
-
-    def error_message(self) -> str:
-        return f"no arm holds {self.object_designator.name} to place it."
-
-    def suggest_correction(self) -> str:
-        return "place the object after a pick-up of it."
-
-
-@dataclass
 class PerceptionException(DataclassException, ABC):
     """
     Represents a custom exception specific to perception-related errors.
@@ -452,3 +435,56 @@ class NoRoomVisitOrderFound(DataclassException):
 
     def suggest_correction(self) -> str:
         return "Give every step at least one allowed room, or raise the time limit."
+
+
+# %% driving with Pumas
+
+
+@dataclass
+class NavigationGoalNotHeard(DataclassException):
+    """
+    Nothing listens for navigation goals, so the Pumas navigation is not running.
+    """
+
+    topic: str
+    """
+    The topic the goal would have been published on.
+    """
+
+    def error_message(self) -> str:
+        return f"Nothing subscribes to {self.topic}."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Start the Pumas navigation (~/start_pumas_live.sh) and run the demo in the "
+            "environment of ~/ros_clean_env.sh, so both use the same RMW."
+        )
+
+
+@dataclass
+class NavigationTimedOut(DataclassException):
+    """
+    The base did not reach the goal it was sent to in time.
+    """
+
+    goal: Pose
+    """
+    Where the base was sent to, in the map frame.
+    """
+
+    timeout: timedelta
+    """
+    How long the base was given.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The base did not reach ({float(self.goal.x):.2f}, {float(self.goal.y):.2f}) within "
+            f"{self.timeout.total_seconds()} s."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the path is free (the safety limiter stops for anything closer "
+            "than 0.6 m), that AMCL is localized and that the robot clock is synced."
+        )

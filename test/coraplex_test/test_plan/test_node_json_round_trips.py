@@ -16,7 +16,12 @@ from typing_extensions import Callable
 from coraplex import perception
 from coraplex.datastructures.enums import DetectionTechnique
 from coraplex.datastructures.trajectory import PoseTrajectory
-from coraplex.perception import PerceptionQuery, PerceptionSource, PerceptionTask
+from coraplex.perception import (
+    SeatPerceptionTask,
+    PerceptionQuery,
+    PerceptionSource,
+    PerceptionTask,
+)
 from coraplex.robot_plans.actions import core
 from coraplex.robot_plans.actions.composite import (
     carrying,
@@ -40,7 +45,11 @@ from coraplex.robot_plans.actions.composite.transporting import (
     TransportAction,
 )
 from coraplex.robot_plans.actions.core.container import CloseAction, OpenAction
-from coraplex.robot_plans.actions.core.misc import DetectAction, MoveToReach
+from coraplex.robot_plans.actions.core.misc import (
+    DetectAction,
+    DetectSeatsAction,
+    MoveToReach,
+)
 from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     FaceAtAction,
@@ -70,6 +79,7 @@ from cramph.node import StatechartNode
 from semantic_digital_twin.datastructures.definitions import GripperState, TorsoState
 from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Human,
     CuttingKnife,
     Door,
     Elevator,
@@ -83,6 +93,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 from krrood_spatial_math.spatial_types import Pose, Pose2D
 from semantic_digital_twin.world import World
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    RegionSpecification,
+)
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
 )
@@ -95,7 +108,7 @@ from semantic_digital_twin.world_description.geometry import (
     VolumetricBoundingBox,
 )
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
-from semantic_digital_twin.world_description.world_entity import Body
+from semantic_digital_twin.world_description.world_entity import Body, Region
 
 from ..test_designator.test_multi_robot_action_designator import _handle_annotation
 from ..test_tool_based_actions import _add_box_body, _attach_box_to_gripper
@@ -180,26 +193,55 @@ def _whole_scene(world: World) -> VolumetricBoundingBox:
     )
 
 
+def _seat_region(world: World) -> Region:
+    """
+    :return: A named region a person could sit in, spawned into ``world``.
+    """
+    return RegionSpecification.box(
+        "seat_region",
+        Scale(0.6, 0.6, 0.9),
+        parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(x=1.5, y=2.0, z=0.9),
+    ).spawn(world)
+
+
 # %% nodes of the cases
 
 
 def _navigate(world: World) -> NavigateAction:
-    return NavigateAction(target_location=_pose(world))
+    """
+    :param world: The world the goal is taken from.
+    :return: A navigation to the shared test pose.
+    """
+    return NavigateAction(planar_goal_pose=Pose2D.from_pose(_pose(world)))
 
 
 def _face_and_look_at(world: World) -> FaceAndLookAtAction:
+    """
+    :param world: The world the target is taken from.
+    :return: Facing and looking at the shared test pose.
+    """
     return FaceAndLookAtAction(
-        face_at=FaceAtAction(target=_pose(world)),
-        look_at=LookAtAction(target=_pose(world)),
+        face_at=FaceAtAction(look_target=_pose(world)),
+        look_at=LookAtAction(look_target=_pose(world)),
     )
 
 
 def _pick_up(world: World) -> PickUpAction:
-    return PickUpAction(grasp=_milk(world).grasp_candidates()[0], arm=_arm(world))
+    """
+    :param world: The world the milk is taken from.
+    :return: A pick-up of the milk with its first grasp.
+    """
+    return PickUpAction(
+        grasp_candidate=_milk(world).grasp_candidates()[0], arm=_arm(world)
+    )
 
 
 def _place(world: World) -> PlaceAction:
-    return PlaceAction(object_designator=_milk(world), target_location=_pose(world))
+    """
+    :return: A place of the milk with the arm of `world`, which has to follow
+        :func:`_pick_up`.
+    """
+    return PlaceAction(arm=_arm(world), graspable=_milk(world), goal_pose=_pose(world))
 
 
 def _move_and_pick_up(world: World) -> MoveAndPickUpAction:
@@ -253,6 +295,9 @@ def _elevator_navigation(world: World) -> list[StatechartNode]:
 
 
 def _robot_body_cases() -> list[ActionRoundTripCase]:
+    """
+    :return: The round trip cases of the actions moving the torso, the grippers and the arms of the robot.
+    """
     return [
         ActionRoundTripCase(
             MoveTorsoAction,
@@ -262,16 +307,18 @@ def _robot_body_cases() -> list[ActionRoundTripCase]:
             SetGripperAction,
             lambda world: [
                 SetGripperAction(
-                    configuration=_arm(world).end_effector.default_configuration(
-                        GripperState.OPEN
-                    )
+                    gripper_configuration=_arm(
+                        world
+                    ).end_effector.default_configuration(GripperState.OPEN)
                 )
             ],
         ),
         ActionRoundTripCase(
             MoveFingersToWidthAction,
             lambda world: [
-                MoveFingersToWidthAction(gripper=_arm(world).end_effector, width=0.04)
+                MoveFingersToWidthAction(
+                    two_finger_gripper=_arm(world).end_effector, width=0.04
+                )
             ],
             executor_for=physically_simulated_executor,
         ),
@@ -291,8 +338,8 @@ def _robot_body_cases() -> list[ActionRoundTripCase]:
             MoveManipulatorAction,
             lambda world: [
                 MoveManipulatorAction(
-                    target_pose=_pose(world),
-                    end_effector=_arm(world).end_effector,
+                    goal_pose=_pose(world),
+                    arm=_arm(world),
                     allow_gripper_collision=False,
                 )
             ],
@@ -304,7 +351,7 @@ def _robot_body_cases() -> list[ActionRoundTripCase]:
                     target_pose_offset_robot=Pose2D.from_xy_yaw(0.2, -0.55),
                     reference_T_grasp=_pose(world),
                     hip_rotation=0.0,
-                    end_effector=_arm(world).end_effector,
+                    arm=_arm(world),
                 )
             ],
         ),
@@ -325,13 +372,17 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
         ),
         ActionRoundTripCase(
             PathPlanningNavigateAction,
-            lambda world: [PathPlanningNavigateAction(target=_pose(world))],
+            lambda world: [
+                PathPlanningNavigateAction(
+                    planar_goal_pose=Pose2D.from_pose(_pose(world))
+                )
+            ],
         ),
         ActionRoundTripCase(
-            LookAtAction, lambda world: [LookAtAction(target=_pose(world))]
+            LookAtAction, lambda world: [LookAtAction(look_target=_pose(world))]
         ),
         ActionRoundTripCase(
-            FaceAtAction, lambda world: [FaceAtAction(target=_pose(world))]
+            FaceAtAction, lambda world: [FaceAtAction(look_target=_pose(world))]
         ),
         ActionRoundTripCase(
             FaceAndLookAtAction, lambda world: [_face_and_look_at(world)]
@@ -356,22 +407,45 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
                 )
             ],
         ),
+        ActionRoundTripCase(
+            DetectSeatsAction,
+            lambda world: [
+                DetectSeatsAction(
+                    look_targets=[
+                        Pose.from_xyz_rpy(reference_frame=_seat_region(world))
+                    ]
+                )
+            ],
+        ),
+        ActionRoundTripCase(
+            SeatPerceptionTask,
+            lambda world: [
+                SeatPerceptionTask(
+                    robot=_robot(world), answered_by=PerceptionSource.WORLD_MODEL
+                )
+            ],
+        ),
     ]
 
 
 def _manipulation_cases() -> list[ActionRoundTripCase]:
+    """
+    :return: The manipulation actions whose JSON round trip is tested.
+    """
     return [
         ActionRoundTripCase(
             ReachAction,
             lambda world: [
-                ReachAction(grasp=_milk(world).grasp_candidates()[0], arm=_arm(world))
+                ReachAction(
+                    grasp_candidate=_milk(world).grasp_candidates()[0], arm=_arm(world)
+                )
             ],
         ),
         ActionRoundTripCase(
             GraspingAction,
             lambda world: [
                 GraspingAction(
-                    grasp=_milk(world).grasp_candidates()[0], arm=_arm(world)
+                    grasp_candidate=_milk(world).grasp_candidates()[0], arm=_arm(world)
                 )
             ],
         ),
@@ -382,13 +456,19 @@ def _manipulation_cases() -> list[ActionRoundTripCase]:
         ActionRoundTripCase(
             OpenAction,
             lambda world: [
-                OpenAction(grasp=_handle(world).grasp_candidates()[0], arm=_arm(world))
+                OpenAction(
+                    grasp_candidate=_handle(world).grasp_candidates()[0],
+                    arm=_arm(world),
+                )
             ],
         ),
         ActionRoundTripCase(
             CloseAction,
             lambda world: [
-                CloseAction(grasp=_handle(world).grasp_candidates()[0], arm=_arm(world))
+                CloseAction(
+                    grasp_candidate=_handle(world).grasp_candidates()[0],
+                    arm=_arm(world),
+                )
             ],
         ),
         ActionRoundTripCase(
@@ -409,7 +489,8 @@ def _manipulation_cases() -> list[ActionRoundTripCase]:
                     navigate=_navigate(world),
                     face_and_look_at=_face_and_look_at(world),
                     open_container=OpenAction(
-                        grasp=_handle(world).grasp_candidates()[0], arm=_arm(world)
+                        grasp_candidate=_handle(world).grasp_candidates()[0],
+                        arm=_arm(world),
                     ),
                 )
             ],
