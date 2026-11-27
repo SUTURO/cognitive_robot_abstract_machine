@@ -218,7 +218,7 @@ class AvoidExternalCollisions(AvoidCollisionRule, SubclassJSONSerializer):
             "robot": to_json(self.robot.id, **kwargs),
             "body_subset": to_json(
                 (
-                    {body.id for body in self.body_subset}
+                    sorted(body.id for body in self.body_subset)
                     if self.body_subset is not None
                     else None
                 ),

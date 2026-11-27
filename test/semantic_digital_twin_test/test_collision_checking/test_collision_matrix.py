@@ -1308,6 +1308,23 @@ class TestCollisionRuleEquality:
 
         assert copied_rule == rule
 
+    def test_a_subset_of_bodies_writes_the_same_json_after_a_round_trip(
+        self, pr2_world_copy
+    ):
+        """
+        A rule over a subset of many bodies writes them in the same order every time,
+        so a receiver writes back exactly the JSON it was sent.
+        """
+        [robot] = pr2_world_copy.get_semantic_annotations_by_type(PR2)
+        rule = AvoidExternalCollisions(
+            robot=robot, body_subset=set(robot.bodies_with_collision)
+        )
+        tracker = WorldEntityWithIDKwargsTracker.from_world(pr2_world_copy)
+
+        copied_rule = from_json(to_json(rule), **tracker.create_kwargs())
+
+        assert to_json(copied_rule) == to_json(rule)
+
     def test_a_subset_of_bodies_without_collision_stays_empty_through_json(
         self, cylinder_bot_world
     ):
