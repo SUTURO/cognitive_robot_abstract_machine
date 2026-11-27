@@ -137,7 +137,7 @@ class NavigationDemonstration(RobotDemonstration):
         robot = context.require_extension(extension_type=RobotAccess).robot
         [arm] = robot.all_arms
         [dining_table] = context.world.get_semantic_annotations_by_type(DiningTable)
-        table_pose = Pose.from_xyz_rpy(z=0.05, reference_frame=dining_table.root)
+        table_pose = Pose(reference_frame=dining_table.root)
         standing_poses = ReachabilityLocation(
             target_pose=table_pose, arm=arm, context=context
         )
