@@ -6,7 +6,7 @@ from __future__ import annotations
 
 # %% Imports
 import pytest
-from robokudo.annotators.gpsr.gpsr_results import QueryType
+from robokudo.annotators.gpsr.query_answers import QueryType
 from robokudo.descriptors.analysis_engines.gpsr.gpsr_implementation import GpsrRoute
 from typing_extensions import TYPE_CHECKING
 

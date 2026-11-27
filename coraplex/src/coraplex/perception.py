@@ -13,7 +13,7 @@ from enum import StrEnum
 import numpy as np
 
 from krrood.patterns.classproperty import classproperty
-from cramph.node import EndedByOwner, FailsOnObservingFalse
+from cramph.node import EndedByOwner, FailsOnObservingFalse, SucceedsOnObservingTrue
 from cramph.context import ContextExtension
 from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode
@@ -21,6 +21,7 @@ from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rosidl_runtime_py.utilities import get_message
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
@@ -56,7 +57,7 @@ from semantic_digital_twin.world_description.world_entity import (
     Body,
     Region,
 )
-from typing_extensions import Any, Self, TYPE_CHECKING
+from typing_extensions import Any, Callable, Self, TYPE_CHECKING
 
 from coraplex.datastructures.enums import PerceptionSource
 from coraplex.exceptions import (
@@ -76,6 +77,13 @@ Name of the action RoboKudo answers perception queries on.
 """
 
 # %% queries
+
+
+class RoboKudoMessageType(StrEnum):
+    """ROS interface names of the RoboKudo query action."""
+
+    OBJECT_DESIGNATOR = "robokudo_msgs/msg/ObjectDesignator"
+    """The object description carried in a query."""
 
 
 @dataclass
@@ -160,6 +168,63 @@ class PerceptionQuery(SubclassJSONSerializer):
             robot=tracker.get(key=from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
+        )
+
+
+@dataclass(kw_only=True)
+class RoboKudoQuery:
+    """
+    A question to a RoboKudo pipeline, in the terms of the object designator its query
+    action takes.
+    """
+
+    object_type: str
+    """
+    What kind of thing to look for, such as ``human`` or ``object``.
+    """
+
+    attributes: list[str] = field(default_factory=list)
+    """
+    Properties the thing shows, such as a posture or a gesture.
+    """
+
+    colors: list[str] = field(default_factory=list)
+    """
+    Colors of the thing.
+    """
+
+    descriptions: list[str] = field(default_factory=list)
+    """
+    Words describing the thing further, such as an object class or a piece of clothing.
+    """
+
+    location: str = ""
+    """
+    Where to look, such as the name of a room. Empty means anywhere.
+    """
+
+    @classmethod
+    def from_semantic_annotation(
+        cls, *, semantic_annotation: type[SemanticAnnotation]
+    ) -> Self:
+        """
+        :param semantic_annotation: The kind of thing to look for, such as a human.
+        :return: The query for things of that kind, whose :attr:`object_type` is the
+            name of ``semantic_annotation`` in lower case.
+        """
+        return cls(object_type=semantic_annotation.__name__.lower())
+
+    def to_object_designator(self) -> ObjectDesignator:
+        """
+        :return: The object designator the query action of a pipeline takes for this
+            query.
+        """
+        return get_message(RoboKudoMessageType.OBJECT_DESIGNATOR)(
+            type=self.object_type,
+            attribute=self.attributes,
+            color=self.colors,
+            description=self.descriptions,
+            location=self.location,
         )
 
 
@@ -800,3 +865,63 @@ class SeatPerceptionTask(WorldWritingPerceptionTask):
                     world, parent_T_self=world_T_seat_place
                 )
         return ObservationStateValue.TRUE
+
+
+@dataclass(kw_only=True)
+class CameraFrameCapture(ContextExtension):
+    """Provide a camera frame for a perception query."""
+
+    capture_frame: Callable[[], None]
+    """Publish the camera frame for the next query."""
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, StatechartNode):
+    """
+    Statechart node that asks a running RoboKudo pipeline a query and keeps its answer.
+
+    The query is asked on the node's first tick, which blocks until the pipeline answers.
+    The node then observes ``TRUE`` if the pipeline reported anything and ``FALSE`` if it
+    reported nothing.
+    """
+
+    query: RoboKudoQuery
+    """
+    What to ask the pipeline.
+    """
+
+    answer: list[ObjectDesignator] | None = field(init=False, default=None)
+    """
+    The objects the pipeline reported, None before it answered.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        """Extend :meth:`~cramph.node.StatechartNode.required_context_extensions` with ROS.
+
+        :return: The required context extensions, including ROS access.
+        """
+        return super().required_context_extensions + (RosContextExtension,)
+
+    def on_start(self) -> None:
+        """Clear the previous answer when :meth:`~cramph.node.StatechartNode.on_start` runs."""
+        self.answer = None
+
+    def on_tick(self) -> ObservationStateValue:
+        """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`.
+
+        :return: The observation indicating whether the answer contains results.
+        """
+        if self.answer is None:
+            camera = self.context.extensions.get(CameraFrameCapture)
+            if camera is not None:
+                camera.capture_frame()
+            ros_node = self.context.require_extension(
+                extension_type=RosContextExtension
+            ).ros_node
+            self.answer = RoboKudoQuerying(ros_node=ros_node).ask(
+                requested=self.query.to_object_designator()
+            )
+        if self.answer:
+            return ObservationStateValue.TRUE
+        return ObservationStateValue.FALSE

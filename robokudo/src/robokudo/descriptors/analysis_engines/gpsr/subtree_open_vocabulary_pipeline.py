@@ -12,10 +12,8 @@ from robokudo.analysis_engine import SubtreeInterface
 from robokudo.annotators.cluster_position import ClusterPositionAnnotator
 from robokudo.annotators.gpsr.belief_state import BeliefStateAnnotator
 from robokudo.annotators.gpsr.filter_objects_by_region import FilterObjectsByRegion
-from robokudo.annotators.gpsr.gpsr_results import (
-    GenerateOpenVocabularyResult,
-    QueryType,
-)
+from robokudo.annotators.gpsr.gpsr_results import GenerateOpenVocabularyResult
+from robokudo.annotators.gpsr.query_answers import QueryType
 from robokudo.annotators.human_and_pose import HumanAndPoseAnnotator
 from robokudo.annotators.open_vocabulary_object_detection_annotator import (
     OpenVocabularyObjectDetectionAnnotator,

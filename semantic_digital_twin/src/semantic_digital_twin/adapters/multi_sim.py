@@ -11,7 +11,15 @@ import hashlib
 import os
 import tempfile
 from pathlib import Path
-from typing_extensions import Generic, Any, ClassVar, Iterator, TypeVar
+from typing_extensions import (
+    Generic,
+    Any,
+    ClassVar,
+    Iterator,
+    Self,
+    TypeVar,
+    TYPE_CHECKING,
+)
 
 import time
 from datetime import timedelta
@@ -47,6 +55,7 @@ from semantic_digital_twin.callbacks.callback import (
     ModelChangeCallback,
     StateChangeCallback,
 )
+from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.unique_entity_names import UniqueEntityNames
 from semantic_digital_twin.exceptions import (
@@ -112,6 +121,13 @@ from semantic_digital_twin.world_description.world_modification import (
     AddActuatorModification,
     AddConnectionModification,
 )
+
+if TYPE_CHECKING:
+    from rclpy.node import Node
+    from semantic_digital_twin.datastructures.camera_model import (
+        FieldOfViewCameraModel,
+    )
+    from semantic_digital_twin.robots.robot_parts import Camera
 
 logger = logging.getLogger(__name__)
 
@@ -1134,6 +1150,42 @@ class MujocoCamera(MultiSimCamera):
     Orientation of the camera frame.
     """
 
+    @classproperty
+    def quaternion_in_optical_frame(cls) -> list[float]:
+        """
+        The :attr:`quaternion` of a camera on an optical frame that looks along it.
+
+        MuJoCo cameras look along their negative z axis with positive y up, optical
+        frames along positive z with positive y down.
+
+        :return: The quaternion orientation with the scalar component first.
+        """
+        return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
+
+    @classmethod
+    def mount(cls, *, camera: Camera[FieldOfViewCameraModel]) -> Self:
+        """
+        Attach a MuJoCo camera that renders what ``camera`` sees to its optical frame,
+        named after that frame. Only a simulation built afterwards contains it.
+
+        :param camera: The semantic camera whose images to render.
+        :return: The attached MuJoCo camera.
+        """
+        pinhole = PinholeCameraModel.from_field_of_view(
+            resolution=camera.resolution, field_of_view=camera.field_of_view
+        )
+        resolution = [float(camera.resolution.width), float(camera.resolution.height)]
+        mujoco_camera = cls(
+            name=camera.root.name.name,
+            body=camera.root,
+            quaternion=cls.quaternion_in_optical_frame,
+            resolution=resolution,
+            focal_pixel=[pinhole.focal_length_x, pinhole.focal_length_y],
+            sensor_size=resolution,
+        )
+        camera.root.add_simulator_property(mujoco_camera)
+        return mujoco_camera
+
     @staticmethod
     def _look_at_rotation(
         camera_position: Point3, target_position: Point3
@@ -2101,14 +2153,10 @@ The type of wheeled drive a realisation realises.
 @dataclass
 class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
     """
-    A wheeled drive. If servos drive the degrees of freedom it is commanded with, it is
-    built as a slide along x, a slide along y and a hinge about z, all in the drive's
-    ``odom`` frame: the servos push its base across the floor at the commanded
-    velocity, and the positions the joints reach are the drive's odometry. Otherwise it
-    is built as no joint at all and its base stays where it is built.
+    A wheeled drive whose commanded degrees of freedom move its base in the ``odom``
+    frame and provide odometry. Without servos its base remains fixed.
 
-    The joints hold the base at its height, so no floor can carry it; the bodies the
-    drive carries do not collide with any :class:`Floor`, which would only drag them.
+    The drive holds the base at its height; carried bodies do not collide with floors.
     """
 
     @classproperty
@@ -2199,7 +2247,7 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
         carried_bodies = self.carried_bodies
         for floor in self.world.get_semantic_annotations_by_type(Floor):
             for body in carried_bodies:
-                builder.exclude_contact(body, floor.root)
+                builder.exclude_contact(body_a=body, body_b=floor.root)
 
     def home_joint_positions(self) -> list[float]:
         return [self.world.state[axis.measured.id].position for axis in self.axes]
@@ -3277,6 +3325,12 @@ class MujocoBuilder(MultiSimBuilder):
                 entity_type=mujoco.mjtObj.mjOBJ_CAMERA,
                 action="add",
             )
+        width, height = camera_props["resolution"]
+        offscreen_framebuffer = self.spec.visual.global_
+        offscreen_framebuffer.offwidth = max(offscreen_framebuffer.offwidth, int(width))
+        offscreen_framebuffer.offheight = max(
+            offscreen_framebuffer.offheight, int(height)
+        )
 
     def _build_light(self, light: MultiSimLight):
         """
@@ -3381,9 +3435,9 @@ class MujocoBuilder(MultiSimBuilder):
         if pair in excluded:
             return
         excluded.add(pair)
-        self.exclude_contact(body_a, body_b)
+        self.exclude_contact(body_a=body_a, body_b=body_b)
 
-    def exclude_contact(self, body_a: Body, body_b: Body) -> None:
+    def exclude_contact(self, *, body_a: Body, body_b: Body) -> None:
         """
         Tell MuJoCo never to check the two bodies for contact with each other.
 
@@ -4149,8 +4203,10 @@ class MujocoServoCommands:
     """
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, kw_only=True)
 class MujocoSynchronizer(MultiSimSynchronizer):
+    """Synchronize a semantic world with a MuJoCo simulation."""
+
     simulator: MujocoSimulator
     entity_converter: type[EntityConverter] = field(default=MujocoConverter)
     entity_spawner: type[EntitySpawner] = field(default=MujocoEntitySpawner)
@@ -4919,6 +4975,8 @@ class MujocoSimulationSnapshot:
 
 
 class MujocoSim(MultiSim):
+    """Simulate a semantic world with MuJoCo."""
+
     simulator_class: ClassVar[type[BaseSimulator]] = MujocoSimulator
     synchronizer_class: ClassVar[type[MultiSimSynchronizer]] = MujocoSynchronizer
     builder_class: ClassVar[type[MultiSimBuilder]] = MujocoBuilder
@@ -5015,3 +5073,44 @@ class MujocoSim(MultiSim):
         return mujoco.mj_stateSize(
             self.simulator._mj_model, mujoco.mjtState.mjSTATE_INTEGRATION
         )
+
+
+# %% perception in a simulation
+
+
+@dataclass(kw_only=True)
+class SimulatedPerception(ABC):
+    """
+    The perception of a robot in a :class:`MujocoSim`: cameras the simulation renders,
+    and what perceives through them.
+    """
+
+    @abstractmethod
+    def mount_cameras(self, *, world: World) -> None:
+        """
+        Attach the cameras to ``world``, before the simulation of ``world`` is built.
+
+        :param world: The world holding the robot whose cameras are perceived through.
+        """
+
+    @abstractmethod
+    def start_perceiving(self, *, simulation: MujocoSim, ros_node: Node) -> None:
+        """
+        Start perceiving through the cameras of :meth:`mount_cameras`.
+
+        :param simulation: The running simulation of the world the cameras were mounted
+            in.
+        :param ros_node: The node to communicate through.
+        """
+
+    @abstractmethod
+    def capture_frame(self) -> None:
+        """
+        Deliver what the cameras see now, so the next query is answered about it.
+        """
+
+    @abstractmethod
+    def stop_perceiving(self) -> None:
+        """
+        Stop what :meth:`start_perceiving` started; does nothing if it never ran.
+        """
