@@ -1,13 +1,19 @@
+"""
+Errors the core robot actions raise when they are given something they cannot carry out.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from typing_extensions import TYPE_CHECKING
 
+from coraplex.plans.failures import PlanFailure
 from krrood.exceptions import DataclassException
 
 if TYPE_CHECKING:
     from coraplex.robot_plans.actions.core.misc import DetectAction
+    from krrood_spatial_math.spatial_types import Pose2D
     from semantic_digital_twin.robots.robot_part_mixins import HasTwoFingers
 
 # %% detecting
@@ -62,4 +68,41 @@ class WidthBeyondGripperOpening(DataclassException):
         return (
             "grasp the object across a side narrower than the gripper opens, or with a "
             "gripper that opens wider."
+        )
+
+
+# %% driving along a planned path
+
+
+@dataclass(kw_only=True)
+class NavigationGoalOutsideFreeSpace(PlanFailure):
+    """
+    Raised when a drive along a planned path is sent to a goal its base cannot stand on,
+    because furniture or a wall is too close to it or no floor lies below it.
+    """
+
+    goal: Pose2D
+    """
+    The goal the drive was sent to.
+    """
+
+    def error_message(self) -> str:
+        """
+        :return: Where the goal lies, in place of the generic message of
+            :meth:`~coraplex.plans.failures.PlanFailure.error_message`.
+        """
+        return (
+            f"The navigation goal at {self.goal.position} lies outside the free space "
+            f"the robot's base can stand in."
+        )
+
+    def suggest_correction(self) -> str:
+        """
+        :return: How to choose a goal the base can stand at, where
+            :meth:`~coraplex.plans.failures.PlanFailure.suggest_correction` suggests
+            nothing.
+        """
+        return (
+            "choose a goal farther from furniture and walls, or a smaller obstacle "
+            "clearance."
         )

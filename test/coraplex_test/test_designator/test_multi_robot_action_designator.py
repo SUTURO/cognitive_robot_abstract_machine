@@ -25,7 +25,10 @@ from coraplex.robot_plans.actions.composite.searching import (
 from coraplex.robot_plans.actions.composite.transporting import MoveAndPlaceAction
 from coraplex.robot_plans.actions.composite.transporting import TransportAction
 from coraplex.robot_plans.actions.core.container import OpenAction, CloseAction
-from coraplex.robot_plans.actions.core.exceptions import WidthBeyondGripperOpening
+from coraplex.robot_plans.actions.core.exceptions import (
+    NavigationGoalOutsideFreeSpace,
+    WidthBeyondGripperOpening,
+)
 from coraplex.robot_plans.actions.core.misc import DetectAction, MoveToReach
 from coraplex.robot_plans.actions.core.navigation import (
     FaceAtAction,
@@ -58,6 +61,7 @@ from cramph.composites import Parallel, Sequence, TryInOrder
 from cramph.context import ContextExtension, StatechartContext
 from cramph.data_types import LifeCycleValue
 from cramph.executor import StatechartExecutor
+from cramph.exceptions import ExecutionFailure
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from cramph.world_modification_nodes import MoveBranch
@@ -83,7 +87,7 @@ from giskardpy.motion_statechart.tasks.joint_tasks import (
 )
 from giskardpy.motion_statechart.tasks.pointing import Pointing
 from giskardpy.motion_statechart.weights import DefaultWeights
-from krrood.entity_query_language.factories import a
+from krrood.entity_query_language.factories import a, variable
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -1026,6 +1030,53 @@ def test_gcs_navigation_needs_a_floor_below_the_robot(
         attach_to_statechart(action, extensions)
 
     assert raised.value.robot is robot
+
+
+def test_gcs_navigation_to_a_goal_inside_furniture_is_an_execution_failure(
+    multiple_robot_apartment_context,
+):
+    """
+    A goal inside furniture is a target the robot cannot reach rather than a broken
+    world, so whoever runs the drive can recover from it.
+    """
+    world, robot, extensions = multiple_robot_apartment_context
+    table = world.get_body_by_name("table_area_main")
+
+    action = PathPlanningNavigateAction(
+        planar_goal_pose=Pose2D.from_pose(table.global_pose)
+    )
+
+    with pytest.raises(NavigationGoalOutsideFreeSpace) as raised:
+        attach_to_statechart(action, extensions)
+
+    assert isinstance(raised.value, ExecutionFailure)
+    assert raised.value.goal is action.planar_goal_pose
+
+
+def test_gcs_navigation_with_an_open_goal_skips_a_goal_inside_furniture(
+    multiple_robot_apartment_context,
+):
+    """
+    A drive whose goal is left open tries the next goal when one lies inside furniture.
+    """
+    world, robot, extensions = multiple_robot_apartment_context
+    table = world.get_body_by_name("table_area_main")
+    reachable_position = [5, 1]
+
+    navigate = a(PathPlanningNavigateAction)(
+        planar_goal_pose=variable(
+            Pose2D,
+            domain=[
+                Pose2D.from_pose(table.global_pose),
+                Pose2D.from_xy_yaw(*reachable_position, reference_frame=world.root),
+            ],
+        )
+    )
+
+    run_plan(Sequence(nodes=[navigate]), extensions)
+    robot_base_position = robot.global_transform.position.to_np().flatten()
+
+    assert robot_base_position[:2] == pytest.approx(reachable_position, abs=0.01)
 
 
 # %% riding an elevator

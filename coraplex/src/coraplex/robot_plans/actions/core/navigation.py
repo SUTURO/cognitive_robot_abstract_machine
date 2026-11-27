@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from coraplex.exceptions import NoFloorBelowRobot, NotOnASingleLevelException
+from coraplex.robot_plans.actions.core.exceptions import NavigationGoalOutsideFreeSpace
 from cramph.node import StatechartNode
 from coraplex.robot_plans.actions.base import (
     Action,
@@ -320,6 +321,7 @@ class PathPlanningNavigateAction(
         :return: The path, beginning at :attr:`start` and ending at the target's
             position, each waypoint in the frame of the free space above the floor it
             lies on.
+        :raises NavigationGoalOutsideFreeSpace: If the base cannot stand at the target.
         """
         start_floor = self._floor
         target_position = self.world.transform(
@@ -339,6 +341,12 @@ class PathPlanningNavigateAction(
             floor.navigable_space(robot=self.robot, margin=self.obstacle_clearance)
             for floor in floors
         ]
+        goal_free_space = free_spaces[floors.index(target_floor)]
+        target_in_free_space = self.world.transform(
+            target_position, goal_free_space.search_space.reference_frame
+        )
+        if not goal_free_space.is_free(point=target_in_free_space):
+            raise NavigationGoalOutsideFreeSpace(goal=self.planar_goal_pose)
         return AdjoiningFreeSpaces(
             world=self.world, free_spaces=free_spaces
         ).path_from_to(
@@ -346,10 +354,7 @@ class PathPlanningNavigateAction(
                 free_space=free_spaces[floors.index(start_floor)],
                 position=self._start_position,
             ),
-            goal=PlaceInFreeSpace(
-                free_space=free_spaces[floors.index(target_floor)],
-                position=target_position,
-            ),
+            goal=PlaceInFreeSpace(free_space=goal_free_space, position=target_position),
         )
 
 
