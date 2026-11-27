@@ -1,3 +1,7 @@
+"""
+The kitchen environment: a kitchen and its neighbouring rooms, built from measurements.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -14,8 +18,15 @@ from krrood.patterns.float_enumeration import FloatEnum
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor, LivingRoom, Bedroom, \
-    Laundryroom, Kitchen, Bathroom
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Room,
+    Floor,
+    LivingRoom,
+    Bedroom,
+    Laundryroom,
+    Kitchen,
+    Bathroom,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
     Table,

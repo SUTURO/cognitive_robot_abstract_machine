@@ -1,3 +1,7 @@
+"""
+Worlds parsed from the JSON house descriptions of ProcTHOR.
+"""
+
 import json
 import logging
 import math
@@ -36,7 +40,8 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Kitchen,
     Bedroom,
     Bathroom,
-    LivingRoom, Laundryroom,
+    LivingRoom,
+    Laundryroom,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,

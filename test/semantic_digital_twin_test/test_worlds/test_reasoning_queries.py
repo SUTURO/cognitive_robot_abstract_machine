@@ -1,3 +1,7 @@
+"""
+The queries over the semantic annotations of a world.
+"""
+
 import os
 
 from semantic_digital_twin.adapters.urdf import URDFParser
@@ -11,7 +15,8 @@ from semantic_digital_twin.reasoning.queries import (
     filter_annotations_by_color,
     annotation_class_by_label,
     sort_annotations_by_volume,
-    find_objects_in_room, find_the_room_of_an_object,
+    find_objects_in_room,
+    find_the_room_of_an_object,
 )
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
@@ -305,13 +310,13 @@ def test_find_objects_in_room():
     assert find_objects_in_room(
         object_type=Sofa, room_type=LivingRoom, world=world
     ) == [sofa]
-    assert find_objects_in_room(
-        object_type=Sofa, room_type=Kitchen, world=world
-    ) == []
+    assert find_objects_in_room(object_type=Sofa, room_type=Kitchen, world=world) == []
+
 
 def test_find_the_room_of_an_object():
     """
-    Tests the `find_the_room_of_an_object` function by verifying that it correctly identifies.
+    Tests the `find_the_room_of_an_object` function by verifying that it correctly
+    identifies.
     """
     world = KitchenEnvironment().create_world()
     sofa = world.get_semantic_annotations_by_type(Sofa)[0]

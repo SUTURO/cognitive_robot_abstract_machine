@@ -1,3 +1,7 @@
+"""
+Predicates that relate bodies, regions and poses of a world to each other in space.
+"""
+
 from __future__ import annotations
 
 # %% Imports
@@ -737,7 +741,7 @@ def allclose(array1: np.ndarray, array2: np.ndarray, atol=1e-3) -> bool:
     return np.allclose(array1, array2, atol=atol)
 
 
-@dataclass(eq=False)
+@dataclass(eq=False, kw_only=True)
 class OverFloorPlan(Triple[Pose, TBody]):
     """
     Whether a pose lies within the x-y extent of a body's bounding box, regardless of
@@ -773,15 +777,17 @@ class OverFloorPlan(Triple[Pose, TBody]):
         ) and floor_plan.y_interval.contains(float(position.y))
 
     @classmethod
-    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+    def _verbalization_fragment_(
+        cls, *, fields: RenderedFields
+    ) -> VerbalizationFragment:
         """
         Reads as *"the pose is over the floor"*.
 
         :param fields: The rendered fragment for each field, keyed by field name.
         """
         return clause(
-            Noun(fields["pose"]),
+            Noun(content=fields["pose"]),
             Copula(),
             Prepositions.OVER,
-            Noun(fields["floor"]),
+            Noun(content=fields["floor"]),
         )

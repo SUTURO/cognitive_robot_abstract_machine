@@ -1,3 +1,7 @@
+"""
+Queries over the semantic annotations of a world.
+"""
+
 from krrood.inheritance_path_length import (
     nearest_common_ancestor,
     inheritance_path_length,
@@ -246,6 +250,7 @@ def find_objects_in_room(
     )
     return list(query.evaluate())
 
+
 def find_the_room_of_an_object(semantic_annotation: SemanticAnnotation) -> Room | None:
     """
     Finds the room whose floor plan the root body of a semantic annotation stands over.
@@ -256,7 +261,9 @@ def find_the_room_of_an_object(semantic_annotation: SemanticAnnotation) -> Room 
     room = variable(Room, semantic_annotation._world.semantic_annotations)
     query = an(
         entity(room).where(
-            OverFloorPlan(pose=semantic_annotation.root.global_pose, floor=room.floor.root)
+            OverFloorPlan(
+                pose=semantic_annotation.root.global_pose, floor=room.floor.root
+            )
         )
     )
     return next(query.evaluate(), None)

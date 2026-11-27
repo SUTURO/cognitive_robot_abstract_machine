@@ -801,8 +801,13 @@ class Bedroom(Room): ...
 @dataclass(eq=False)
 class Bathroom(Room): ...
 
-@dataclass(eq=False)
-class Laundryroom(Room): ...
+
+@dataclass(eq=False, kw_only=True)
+class Laundryroom(Room):
+    """
+    A room for washing, drying and ironing laundry.
+    """
+
 
 @dataclass(eq=False)
 class LivingRoom(Room): ...
@@ -1511,11 +1516,13 @@ class Pen(IsGraspable):
     A pen.
     """
 
+
 @dataclass(eq=False)
 class DishwasherTab(IsGraspable):
     """
     A Dishwashertab.
     """
+
 
 @dataclass(eq=False)
 class ShapeSortingPiece(IsGraspable):
