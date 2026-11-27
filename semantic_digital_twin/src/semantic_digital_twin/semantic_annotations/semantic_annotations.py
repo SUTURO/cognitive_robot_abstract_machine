@@ -1511,6 +1511,11 @@ class Pen(IsGraspable):
     A pen.
     """
 
+@dataclass(eq=False)
+class DishwasherTab(IsGraspable):
+    """
+    A Dishwashertab.
+    """
 
 @dataclass(eq=False)
 class ShapeSortingPiece(IsGraspable):
