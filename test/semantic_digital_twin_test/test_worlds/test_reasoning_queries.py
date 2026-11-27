@@ -318,3 +318,14 @@ def test_find_the_room_of_an_object():
     living_room = world.get_semantic_annotations_by_type(LivingRoom)[0]
 
     assert find_the_room_of_an_object(sofa) == living_room
+
+    with world.modify_world():
+        random_object = Milk.create_with_new_body_in_world(
+            name="random_object",
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=-10.0, y=-10.0
+            ),
+        )
+
+    assert find_the_room_of_an_object(random_object) is None
