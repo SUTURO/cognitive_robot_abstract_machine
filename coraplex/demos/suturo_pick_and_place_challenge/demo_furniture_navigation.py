@@ -19,6 +19,7 @@ from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkAr
 from cramph.composites import Sequence
 from cramph.statechart import Statechart
 from krrood.entity_query_language.factories import a, variable
+from krrood.entity_query_language.query.match import Match
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Pose,
@@ -30,6 +31,7 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.semantic_annotations.mixins import HasRootBody
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Floor,
     DiningTable,
@@ -40,7 +42,7 @@ from semantic_digital_twin.specifications.worlds import WorldSpecification
 if TYPE_CHECKING:
     from coraplex.plans.executors import PlanExecutor
     from cramph.context import ContextExtension, StatechartContext
-    from semantic_digital_twin.robots.robot_parts import AbstractRobot
+    from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm
     from semantic_digital_twin.world import World
 
 # %% the scene
@@ -93,6 +95,12 @@ class NavigationDemonstration(RobotDemonstration):
     Where the HSR stands before the plan begins.
     """
 
+    obstacle_clearance: float = 0.1
+    """
+    How much further than its base radius the HSR keeps away from furniture and walls, in
+    meters, along its whole drive, so that its parked arm passes them too.
+    """
+
     def scene_specification(self) -> WorldSpecification:
         return WorldSpecification(world_source=KitchenEnvironment())
 
@@ -137,24 +145,37 @@ class NavigationDemonstration(RobotDemonstration):
         robot = context.require_extension(extension_type=RobotAccess).robot
         [arm] = robot.all_arms
         [dining_table] = context.world.get_semantic_annotations_by_type(DiningTable)
-        table_pose = Pose(reference_frame=dining_table.root)
-        standing_poses = ReachabilityLocation(
-            target_pose=table_pose, arm=arm, context=context
-        )
         statechart = Statechart(context=context)
         statechart.add_node(
             node=Sequence(
                 nodes=[
                     MoveTorsoAction(torso_state=TorsoState.LOW),
                     ParkArmsAction(arms=robot.all_arms),
-                    a(PathPlanningNavigateAction)(
-                        planar_goal_pose=variable(Pose2D, domain=standing_poses),
-                        obstacle_clearance=0.1,
+                    self.drive_within_reach(
+                        furniture=dining_table, arm=arm, context=context
                     ),
                 ]
             )
         )
         return statechart
+
+    def drive_within_reach(
+        self, *, furniture: HasRootBody, arm: Arm, context: StatechartContext
+    ) -> Match[PathPlanningNavigateAction]:
+        """
+        :param furniture: What the robot drives up to.
+        :param arm: The arm that is to reach the furniture from where the robot stops.
+        :param context: The context of the plan, whose robot drives.
+        :return: A drive to a spot from which `arm` reaches the furniture's origin, each
+            such spot tried until one can be driven to.
+        """
+        standing_poses = ReachabilityLocation(
+            target_pose=Pose(reference_frame=furniture.root), arm=arm, context=context
+        )
+        return a(PathPlanningNavigateAction)(
+            planar_goal_pose=variable(Pose2D, domain=standing_poses),
+            obstacle_clearance=self.obstacle_clearance,
+        )
 
 
 # %% running the demonstration
