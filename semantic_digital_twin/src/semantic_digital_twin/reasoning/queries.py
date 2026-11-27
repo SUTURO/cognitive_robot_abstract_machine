@@ -16,6 +16,7 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.query.query import Entity
 from krrood.entity_query_language.predicate import symbolic_function, length
 from krrood.utils import recursive_subclasses
+from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 
 from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
@@ -28,7 +29,7 @@ from semantic_digital_twin.semantic_annotations.mixins import (
     IsPerceivable,
     HasRootBody,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Sofa
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -244,3 +245,18 @@ def find_objects_in_room(
         OverFloorPlan(pose=annotation.root.global_pose, floor=room.floor.root)
     )
     return list(query.evaluate())
+
+def find_the_room_of_an_object(semantic_annotation: SemanticAnnotation) -> Room | None:
+    """
+    Finds the room whose floor plan the root body of a semantic annotation stands over.
+
+    :param semantic_annotation: The annotation to locate.
+    :return: The room the annotation is in, or None if it is in no room.
+    """
+    room = variable(Room, semantic_annotation._world.semantic_annotations)
+    query = an(
+        entity(room).where(
+            OverFloorPlan(pose=semantic_annotation.root.global_pose, floor=room.floor.root)
+        )
+    )
+    return next(query.evaluate(), None)

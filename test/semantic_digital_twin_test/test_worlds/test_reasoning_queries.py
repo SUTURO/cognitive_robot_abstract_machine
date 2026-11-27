@@ -11,7 +11,7 @@ from semantic_digital_twin.reasoning.queries import (
     filter_annotations_by_color,
     annotation_class_by_label,
     sort_annotations_by_volume,
-    find_objects_in_room,
+    find_objects_in_room, find_the_room_of_an_object,
 )
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
@@ -296,7 +296,6 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
         assert isinstance(drawer.movable_joint, PrismaticConnection)
 
 
-# %% objects in a room
 def test_find_objects_in_room():
     """
     Tests the `find_objects_in_room` function by verifying that it correctly identifies.
@@ -309,3 +308,13 @@ def test_find_objects_in_room():
     assert find_objects_in_room(
         object_type=Sofa, room_type=Kitchen, world=world
     ) == []
+
+def test_find_the_room_of_an_object():
+    """
+    Tests the `find_the_room_of_an_object` function by verifying that it correctly identifies.
+    """
+    world = KitchenEnvironment().create_world()
+    sofa = world.get_semantic_annotations_by_type(Sofa)[0]
+    living_room = world.get_semantic_annotations_by_type(LivingRoom)[0]
+
+    assert find_the_room_of_an_object(sofa) == living_room

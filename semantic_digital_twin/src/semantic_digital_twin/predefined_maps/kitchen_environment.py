@@ -15,7 +15,7 @@ from krrood.patterns.float_enumeration import FloatEnum
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor, LivingRoom, Bedroom, \
-    Laundryroom, Kitchen
+    Laundryroom, Kitchen, Bathroom
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
     Table,
@@ -2641,15 +2641,15 @@ class KitchenEnvironment(WorldSource):
             bed_room = Bedroom(floor=bed_room_floor, name=PrefixedName("bed_room"))
             room_annotations.append(bed_room)
 
-            office_floor = Floor.create_with_new_body_from_polytope_in_world(
-                name="office_floor",
+            bathroom_floor = Floor.create_with_new_body_from_polytope_in_world(
+                name="bathroom_floor",
                 world=world,
                 floor_polytope=office_floor_polytope,
                 world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=3.5625, y=4.96
                 ),
             )
-            office = Laundryroom(floor=office_floor, name=PrefixedName("office"))
-            room_annotations.append(office)
+            bathroom = Bathroom(floor=bathroom_floor, name=PrefixedName("bathroom"))
+            room_annotations.append(bathroom)
 
             world.add_semantic_annotations(room_annotations)
