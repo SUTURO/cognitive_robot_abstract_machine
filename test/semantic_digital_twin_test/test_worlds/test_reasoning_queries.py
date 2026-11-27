@@ -1,3 +1,5 @@
+import math
+import pytest
 import os
 
 from semantic_digital_twin.adapters.urdf import URDFParser
@@ -10,7 +12,8 @@ from semantic_digital_twin.reasoning.queries import (
     goal_surface_of_object,
     filter_annotations_by_color,
     annotation_class_by_label,
-    sort_annotations_by_volume,
+    sort_annotations_by_volume, find_room, find_free_space_in_room, find_free_space_next_to, find_objects_in_room,
+    find_objects_room,
 )
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
@@ -293,3 +296,76 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
     assert drawers
     for drawer in drawers:
         assert isinstance(drawer.movable_joint, PrismaticConnection)
+
+
+def test_find_room(kitchen_environment_with_rooms: World):
+    """
+    Tests the find_room function by verifying the coordinates of the room's center point.
+    """
+    assert find_room(Kitchen, kitchen_environment_with_rooms) == (3.5, 1.0)
+    assert find_room(LivingRoom, kitchen_environment_with_rooms) == (10.0, 10.0)
+
+
+def test_find_free_space_in_room(kitchen_environment_with_rooms: World) -> None:
+    """
+    Tests the find_free_space_in_room function by verifying the coordinates of the free space in the room near the center.
+    """
+    world = kitchen_environment_with_rooms
+
+    free_pose_kitchen = find_free_space_in_room(Kitchen, world)
+    free_pose_living_room = find_free_space_in_room(LivingRoom, world)
+
+    assert (float(free_pose_kitchen.x), float(free_pose_kitchen.y)) == pytest.approx(
+        find_room(Kitchen, world)
+    )
+    assert (float(free_pose_living_room.x), float(free_pose_living_room.y)) != pytest.approx(
+        find_room(LivingRoom, world)
+    )
+    assert (float(free_pose_living_room.x), float(free_pose_living_room.y)) == (10.6, 10)
+
+
+def test_find_free_space_next_to(kitchen_environment_with_rooms) -> None:
+    """
+    Tests the find_free_space_next_to function by verifying the coordinates of the free space near a given object.
+    """
+    robot_diameter = 0.5
+    fruits_table = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
+
+    assert ((find_free_space_next_to(fruits_table, robot_diameter=robot_diameter).x, (find_free_space_next_to(fruits_table, robot_diameter=robot_diameter).y))) == (2.3, 1)
+    assert ((find_free_space_next_to(sofa, robot_diameter=robot_diameter).x, (find_free_space_next_to(sofa, robot_diameter=robot_diameter).y))) == (10.6, 10)
+
+
+def test_find_objects_in_room(kitchen_environment_with_rooms):
+    """
+    Tests the find_objects_in_room function by returning the list of objects in a given room.
+    """
+    table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    table2 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("vegetable_table")
+    table3 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("empty_table")
+    table4 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("empty_table2")
+    apple = kitchen_environment_with_rooms.get_semantic_annotation_by_name("apple")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
+
+    assert find_objects_in_room(Table, Kitchen, kitchen_environment_with_rooms) == [table1, table2, table3, table4]
+    assert find_objects_in_room(Apple, Kitchen, kitchen_environment_with_rooms) == [apple]
+
+    assert find_objects_in_room(Table, LivingRoom, kitchen_environment_with_rooms) == []
+    assert find_objects_in_room(Apple, LivingRoom, kitchen_environment_with_rooms) == []
+    assert find_objects_in_room(Sofa, LivingRoom, kitchen_environment_with_rooms) == [sofa]
+
+
+def test_find_objects_room(kitchen_environment_with_rooms):
+    """
+    Tests the find_objects_room function by returning the room where an object is located.
+    """
+    table1 = kitchen_environment_with_rooms.get_semantic_annotation_by_name("fruit_table")
+    orange = kitchen_environment_with_rooms.get_semantic_annotation_by_name("orange")
+    sofa = kitchen_environment_with_rooms.get_semantic_annotation_by_name("sofa")
+
+    kitchen = kitchen_environment_with_rooms.get_semantic_annotations_by_type(Kitchen)[0]
+    living_room = kitchen_environment_with_rooms.get_semantic_annotations_by_type(LivingRoom)[0]
+
+    assert find_objects_room(table1) == kitchen
+    assert find_objects_room(orange) == kitchen
+    assert find_objects_room(sofa) == living_room

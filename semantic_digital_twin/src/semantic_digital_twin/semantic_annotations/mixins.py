@@ -1260,19 +1260,23 @@ class HasSupportingSurface(IsStorageSpace, Mixin):
     def _2d_surface_sample_space_excluding_objects(self, object_bloat: float) -> Event:
         """
         Compute a 2D event representing the supporting surface, truncated by the objects
-        on the surface.
+        on the surface. An object lying wholly below the surface, such as a shelf
+        underneath it, leaves the surface free.
 
         :param object_bloat: The amount of bloat to apply to the object events.
         """
         area_of_self = BoundingBoxCollection.from_shapes(self.supporting_surface.area)
         area_of_self.transform_all_shapes_to_own_frame()
         event = area_of_self.event
+        surface_bottom = area_of_self.bounding_box().min_z
 
         event_2d = event.marginal(SpatialVariables.xy)
         for obj in self.objects:
             bounding_box = obj.root.collision.as_bounding_box_collection_in_frame(
                 self.supporting_surface
             ).bounding_box()
+            if bounding_box.max_z < surface_bottom:
+                continue
             bounding_box.enlarge_all(object_bloat)
             object_event = bounding_box.simple_event.as_composite_set()
             object_event_2d = object_event.marginal(SpatialVariables.xy)

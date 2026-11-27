@@ -13,7 +13,7 @@ import pytest
 from typing_extensions import Iterator
 
 from coraplex.locations.base import Location
-from coraplex.locations.costmaps import RingCostmap
+from coraplex.locations.costmaps import OccupancyCostmap, RingCostmap
 from coraplex.locations.locations import ReachabilityLocation, VisibilityLocation
 from coraplex.plans.context_extensions import RobotAccess, StatementGrounding
 from semantic_digital_twin.specifications.robots import RobotSpecification
@@ -241,6 +241,56 @@ def test_a_reachability_location_stands_around_the_reach_fraction_of_the_arm(
     assert float(np.median(stand_offs)) == pytest.approx(
         float(ring.distance), abs=ring.standard_deviation * ring.resolution
     )
+
+
+def test_an_occupancy_costmap_keeps_the_base_the_obstacle_clearance_further_away(
+    single_robot_world,
+):
+    """
+    The default occupancy costmap keeps the base its radius and the obstacle clearance
+    away from obstacles.
+    """
+    world, robot, _ = single_robot_world
+    target = Pose.from_xyz_rpy(
+        *REACHABILITY_TARGET_POSITION, reference_frame=world.root
+    )
+    occupancy = OccupancyCostmap.default_map(
+        robot=robot, target=target, obstacle_clearance=0.1
+    )
+    assert occupancy.distance_to_obstacle == pytest.approx(
+        robot.mobile_base.base_radius + 0.1
+    )
+
+
+def test_a_reachability_location_keeps_its_obstacle_clearance(single_robot_world):
+    """
+    A reachability location offers only standing poses its obstacle clearance further
+    from obstacles than the base's radius.
+    """
+    world, robot, extensions = single_robot_world
+    target = Pose.from_xyz_rpy(
+        *REACHABILITY_TARGET_POSITION, reference_frame=world.root
+    )
+    arm = robot.right_arm
+    location = ReachabilityLocation(
+        target, arm, context=context_of(extensions), obstacle_clearance=0.1
+    )
+    occupancy = OccupancyCostmap.default_map(
+        robot=robot,
+        target=target,
+        resolution=location.map_resolution,
+        cells=location.map_cells,
+        obstacle_clearance=location.obstacle_clearance,
+    )
+    ring = RingCostmap.from_arm_reach_distance(
+        arm,
+        target,
+        reach_fraction=location.reach_fraction,
+        resolution=location.map_resolution,
+        cells=location.map_cells,
+        standard_deviation=location.ring_standard_deviation,
+    )
+    np.testing.assert_array_equal(location.costmap().map, (occupancy & ring).map)
 
 
 def test_a_reachability_location_offers_no_standing_pose_farther_than_the_arm_is_long(

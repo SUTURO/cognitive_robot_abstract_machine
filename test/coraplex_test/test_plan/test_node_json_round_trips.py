@@ -22,7 +22,13 @@ from coraplex.perception import (
     PerceptionSource,
     PerceptionTask,
 )
+from coraplex.robot_plans import generated_commands
 from coraplex.robot_plans.actions import core
+from coraplex.robot_plans.generated_commands import (
+    CollisionAllowingAction,
+    FindPersonAction,
+    ManipulationAtStandingPoseAction,
+)
 from coraplex.robot_plans.actions.composite import (
     carrying,
     facing,
@@ -63,7 +69,8 @@ from coraplex.robot_plans.actions.core.pick_up import (
     PickUpAction,
     ReachAction,
 )
-from coraplex.robot_plans.actions.core.placing import PlaceAction
+from coraplex.robot_plans.actions.core.placing import PlaceAction, YawKeepingPlaceAction
+from coraplex.robot_plans.actions.core.talking import TalkingAction
 from coraplex.robot_plans.actions.core.robot_body import (
     FollowToolCenterPointPathAction,
     MoveManipulatorAction,
@@ -464,6 +471,15 @@ def _manipulation_cases() -> list[ActionRoundTripCase]:
             PlaceAction, lambda world: [_pick_up(world), _place(world)]
         ),
         ActionRoundTripCase(
+            YawKeepingPlaceAction,
+            lambda world: [
+                _pick_up(world),
+                YawKeepingPlaceAction(
+                    arm=_arm(world), graspable=_milk(world), goal_pose=_pose(world)
+                ),
+            ],
+        ),
+        ActionRoundTripCase(
             OpenAction,
             lambda world: [
                 OpenAction(
@@ -567,6 +583,23 @@ def _tool_cases() -> list[ActionRoundTripCase]:
     ]
 
 
+def _generated_command_cases() -> list[ActionRoundTripCase]:
+    """
+    :return: The actions a generated command plan consists of, whose JSON round trip
+        is tested.
+    """
+    return [
+        ActionRoundTripCase(
+            CollisionAllowingAction,
+            lambda world: [
+                CollisionAllowingAction(
+                    performed_action=ParkArmsAction(arms=_robot(world).all_arms)
+                )
+            ],
+        ),
+    ]
+
+
 def _cases() -> list[ActionRoundTripCase]:
     """
     :return: One case per action and perception node class, each in the apartment of
@@ -579,6 +612,7 @@ def _cases() -> list[ActionRoundTripCase]:
             *_navigation_and_perception_cases(),
             *_manipulation_cases(),
             *_tool_cases(),
+            *_generated_command_cases(),
         )
     ]
 
@@ -598,6 +632,13 @@ def cases() -> list[ActionRoundTripCase]:
 
 @pytest.fixture()
 def node_types_needing_a_case() -> set[type[StatechartNode]]:
+    """
+    :return: The action and perception node classes that compile without a ROS node;
+        :class:`TalkingAction` publishes through one and is tested on its own.
+        :class:`ManipulationAtStandingPoseAction` and :class:`FindPersonAction` always
+        drive through an underspecified node, which the sender grounds, so they are
+        left out like it.
+    """
     return set().union(
         *(
             concrete_node_types(package)
@@ -608,9 +649,10 @@ def node_types_needing_a_case() -> set[type[StatechartNode]]:
                 tool_based,
                 transporting,
                 perception,
+                generated_commands,
             )
         )
-    )
+    ) - {TalkingAction, ManipulationAtStandingPoseAction, FindPersonAction}
 
 
 @pytest.fixture()

@@ -147,6 +147,19 @@ class PlanStep:
             person=payload.get(PlanKey.PERSON),
         )
 
+    def to_json(self) -> dict[str, str]:
+        """
+        :return: The step as one step of the plan JSON, without the keys of unset fields.
+        """
+        payload = {
+            PlanKey.ACTION: self.action,
+            PlanKey.TEXT: self.text,
+            PlanKey.LOCATION: self.location,
+            PlanKey.OBJECT: self.object_name,
+            PlanKey.PERSON: self.person,
+        }
+        return {key: value for key, value in payload.items() if value is not None}
+
 
 # %% Plans
 @dataclass
@@ -178,6 +191,14 @@ class Plan:
             steps=[PlanStep.from_json(step) for step in steps],
         )
 
+    def to_json(self) -> list[dict[str, str]]:
+        """
+        :return: The plan as one plan of the plan JSON, opening with a ``say`` step that
+            holds the summary.
+        """
+        summary = PlanStep(action=PlanAction.SAY, text=self.summary)
+        return [step.to_json() for step in [summary, *self.steps]]
+
 
 @dataclass
 class InstructionPlans:
@@ -197,3 +218,9 @@ class InstructionPlans:
         :return: The plans the payload describes.
         """
         return cls(plans=[Plan.from_json(plan) for plan in payload[PlanKey.PLANS]])
+
+    def to_json(self) -> dict[str, Any]:
+        """
+        :return: The plans as the plan JSON the model writes for an instruction.
+        """
+        return {PlanKey.PLANS: [plan.to_json() for plan in self.plans]}

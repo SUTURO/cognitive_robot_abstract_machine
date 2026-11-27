@@ -20,6 +20,7 @@ parts:
     - file: orm_concept.md
     - file: abstract_robot.md
     - file: motion_execution.md
+    - file: simulated_perception.md
     - file: locations.rst
     - file: notebooks.md
   - caption: Adding a new Robot

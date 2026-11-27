@@ -2685,3 +2685,57 @@ class ObjectHasNoWidthWithoutCollision(UsageError):
 
     def suggest_correction(self) -> str:
         return "Give the body collision geometry, or state the width yourself."
+
+
+# %% Name lookup
+
+
+@dataclass
+class UnknownSemanticAnnotationName(DataclassException):
+    """
+    Raised when no semantic annotation class has or contains the requested name.
+    """
+
+    name: str
+    """
+    The object name no class was found for.
+    """
+
+    def error_message(self) -> str:
+        return f"No semantic annotation class is named or contains '{self.name}'."
+
+    def suggest_correction(self) -> str:
+        return (
+            f"Define a semantic annotation class for '{self.name}' "
+            f"or check the spelling of the name."
+        )
+
+
+@dataclass
+class AmbiguousSemanticAnnotationName(DataclassException):
+    """
+    Raised when several semantic annotation classes have the requested name, or none has
+    it and several concrete classes contain it.
+    """
+
+    name: str
+    """
+    The object name several classes were found for.
+    """
+
+    matches: list[type[SemanticAnnotation]]
+    """
+    The classes that have or contain the name.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The name '{self.name}' matches several semantic annotation classes: "
+            f"{[f'{match.__module__}.{match.__qualname__}' for match in self.matches]}."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Use the full name of one of the classes, or rename one of the classes so "
+            "that their names differ."
+        )

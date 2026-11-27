@@ -1,0 +1,28 @@
+{
+  "plans": [
+    [
+      {
+        "action": "say",
+        "text": "I will go to the kitchen and then to the living room table"
+      },
+      {
+        "action": "navigate",
+        "location": "kitchen"
+      },
+      {
+        "action": "navigate",
+        "location": "living room table"
+      }
+    ],
+    [
+      {
+        "action": "say",
+        "text": "I will find the apple"
+      },
+      {
+        "action": "find",
+        "object": "apple"
+      }
+    ]
+  ]
+}

@@ -195,6 +195,23 @@ class MujocoSimulator(BaseSimulator):
         else:
             self._renderer = SimulatorRenderer()
 
+    def _recompile_model(self) -> None:
+        """
+        Recompile the model from its spec, keeping the simulation state, and show the
+        recompiled model in the viewer, if there is one. The recompiled data holds the
+        body poses of that state.
+        """
+        with self._model_lock:
+            self._mj_model, self._mj_data = self._mj_spec.recompile(
+                self._mj_model, self._mj_data
+            )
+            mujoco.mj_forward(self._mj_model, self._mj_data)
+            if self.headless:
+                return
+            self._renderer._sim().load(self._mj_model, self._mj_data, "")
+            if self.simulation_thread is None:
+                mujoco.mj_step1(self._mj_model, self._mj_data)
+
     def stop(self):
         """
         Stop the simulator as :meth:`BaseSimulator.stop` does, and then wait up to
@@ -271,13 +288,7 @@ class MujocoSimulator(BaseSimulator):
                         key.delete()
                     else:
                         self._mj_spec.delete(key)
-            self._mj_model, self._mj_data = self._mj_spec.recompile(
-                self._mj_model, self._mj_data
-            )
-            if not self.headless:
-                self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                if self.simulation_thread is None:
-                    mujoco.mj_step1(self._mj_model, self._mj_data)
+            self._recompile_model()
 
     @property
     def file_path(self) -> str:
@@ -1253,7 +1264,7 @@ class MujocoSimulator(BaseSimulator):
         :param including_children: whether to include children or not
         :param contact_style: contact style. Only
             `SimulatorCallbackResult.OutputType.PYBULLET` is currently supported, which
-            returns contact points in a PyBullet\-compatible format.
+            returns contact points in a PyBullet-compatible format.
         :return: A SimulatorCallbackResult indicating the success or failure of the
             operation. On success, the result contains a list of contact points in the
             specified format.
@@ -1365,14 +1376,14 @@ class MujocoSimulator(BaseSimulator):
         ) = SimulatorCallbackResult.OutputType.PYBULLET,
     ) -> SimulatorCallbackResult:
         """
-        Cast a ray in the scene and return intersections in a PyBullet\-style format.
+        Cast a ray in the scene and return intersections in a PyBullet-style format.
 
-        :param ray_from_position: Start position of the ray as a list \[x, y, z\].
-        :param ray_to_position: End position of the ray as a list \[x, y, z\].
+        :param ray_from_position: Start position of the ray as a list [x, y, z].
+        :param ray_to_position: End position of the ray as a list [x, y, z].
         :param ray_style: Output style. Only
             `SimulatorCallbackResult.OutputType.PYBULLET` is currently supported.
         :return: A `SimulatorCallbackResult` indicating success or failure. On success,
-            the result contains a list of hit records in PyBullet\-compatible format.
+            the result contains a list of hit records in PyBullet-compatible format.
         """
         if isinstance(ray_style, str):
             ray_style = SimulatorCallbackResult.OutputType(ray_style)
@@ -1442,16 +1453,16 @@ class MujocoSimulator(BaseSimulator):
         """
         Cast a batch of rays from a single origin to multiple end positions.
 
-        :param ray_from_position: A list \[x, y, z\] representing the ray origin in
+        :param ray_from_position: A list [x, y, z] representing the ray origin in
             world coordinates.
-        :param ray_to_positions: A list of \[x, y, z\] lists representing ray end points
+        :param ray_to_positions: A list of [x, y, z] lists representing ray end points
             in world coordinates.
         :param parent_link_name: Optional name of a link the rays are conceptually
             attached to (for compatibility).
         :param ray_style: Output style, must be
             `SimulatorCallbackResult.OutputType.PYBULLET`.
         :return: A SimulatorCallbackResult whose `result` is a list of hit results in
-            PyBullet\-style dicts.
+            PyBullet-style dicts.
         """
         if isinstance(ray_style, str):
             ray_style = SimulatorCallbackResult.OutputType(ray_style)
@@ -1557,14 +1568,7 @@ class MujocoSimulator(BaseSimulator):
                     ctrl=self._mj_data.ctrl,
                     time=self.current_simulation_time,
                 )
-                with self._model_lock:
-                    self._mj_model, self._mj_data = self._mj_spec.recompile(
-                        self._mj_model, self._mj_data
-                    )
-                    if not self.headless:
-                        self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                        if self.simulation_thread is None:
-                            mujoco.mj_step1(self._mj_model, self._mj_data)
+                self._recompile_model()
                 key_id = mujoco.mj_name2id(
                     m=self._mj_model, type=mujoco.mjtObj.mjOBJ_KEY, name=key_name
                 )
@@ -1606,14 +1610,7 @@ class MujocoSimulator(BaseSimulator):
                     type=SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION,
                     info=f"File {file_path} not found",
                 )
-            with self._model_lock:
-                self._mj_model, self._mj_data = self._mj_spec.recompile(
-                    self._mj_model, self._mj_data
-                )
-                if not self.headless:
-                    self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                    if self.simulation_thread is None:
-                        mujoco.mj_step1(self._mj_model, self._mj_data)
+            self._recompile_model()
             if key_id >= self._mj_model.nkey:
                 return SimulatorCallbackResult(
                     type=SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION,
@@ -1819,14 +1816,7 @@ class MujocoSimulator(BaseSimulator):
                 self._mj_spec.add_pair(
                     name=pair_name, geomname1=geom_1_name, geomname2=geom_2_name
                 )
-        with self._model_lock:
-            self._mj_model, self._mj_data = self._mj_spec.recompile(
-                self._mj_model, self._mj_data
-            )
-            if not self.headless:
-                self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                if self.simulation_thread is None:
-                    mujoco.mj_step1(self._mj_model, self._mj_data)
+        self._recompile_model()
         return SimulatorCallbackResult(
             type=SimulatorCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL,
             info=f"Enabled contact between {body_1_name} and {body_2_name}",
@@ -1912,22 +1902,12 @@ class MujocoSimulator(BaseSimulator):
                 info=f"Failed to create {entity_type} {entity_name} with properties {entity_properties}: {e}",
             )
 
-        def do_spawn():
-            with self._model_lock:
-                self._mj_model, self._mj_data = self._mj_spec.recompile(
-                    self._mj_model, self._mj_data
-                )
-                if not self.headless:
-                    self._renderer._sim().load(self._mj_model, self._mj_data, "")
-                    if self.simulation_thread is None:
-                        mujoco.mj_step1(self._mj_model, self._mj_data)
-
         if self.state == SimulatorState.RUNNING:
             self.pause()
-            do_spawn()
+            self._recompile_model()
             self.unpause()
         else:
-            do_spawn()
+            self._recompile_model()
         return SimulatorCallbackResult(
             type=SimulatorCallbackResult.ResultType.SUCCESS_AFTER_EXECUTION_ON_MODEL,
             info=f"Spawned {entity_type} {entity.name} under parent body {parent_name} with properties {entity_properties}",

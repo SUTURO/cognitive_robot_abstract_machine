@@ -10,9 +10,14 @@ from semantic_digital_twin.predefined_maps.kitchen_environment import (
     KitchenEnvironment,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bedroom,
     Cooktop,
     CounterTop,
+    Kitchen,
     KitchenIsland,
+    LivingRoom,
+    Office,
+    Room,
 )
 from semantic_digital_twin.world import World
 
@@ -130,4 +135,29 @@ def test_the_island_worktop_still_carries_its_cooktop() -> None:
 
     assert worktop.get_objects_of_type(Cooktop) == [
         world.get_semantic_annotation_by_name("sideboard_cooktop")
+    ]
+
+
+# %% the rooms
+
+
+@pytest.mark.parametrize(
+    "room_name, room_type",
+    [
+        ("kitchen", Kitchen),
+        ("living_room", LivingRoom),
+        ("bed_room", Bedroom),
+        ("office", Office),
+    ],
+)
+def test_each_room_is_annotated_as_its_kind_of_room(
+    room_name: str, room_type: type[Room]
+) -> None:
+    """
+    Every room of the environment is annotated as the kind of room it is, so a plan can
+    look a room up by its kind.
+    """
+    world = KitchenEnvironment().create_world()
+    assert world.get_semantic_annotations_by_type(room_type) == [
+        world.get_semantic_annotation_by_name(room_name)
     ]

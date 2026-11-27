@@ -40,7 +40,11 @@ from semantic_digital_twin.datastructures.joint_state import JointState
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.exceptions import AlreadyBelongsToAWorldError
 from krrood_spatial_math.exceptions import ReferenceFrameMismatchError
-from semantic_digital_twin.mixin import HasSimulatorProperties, UniqueSimulatorProperty
+from semantic_digital_twin.mixin import (
+    HasSimulatorProperties,
+    SimulatorAdditionalProperty,
+    UniqueSimulatorProperty,
+)
 from semantic_digital_twin.world_description.connection_properties import (
     ServoGains,
     VelocityServoGains,
@@ -287,6 +291,10 @@ class WorldEntityWithID(WorldEntity, SubclassJSONSerializer, HasID):
                 return item.copy_for_world(world)
             elif isinstance(item, ShapeCollection):
                 return item.copy_without_reference_frame()
+            elif isinstance(item, SimulatorAdditionalProperty):
+                # A property may reference the entity being copied, which only exists
+                # once the copy does; WorldEntityWithSimulatorProperties copies it then.
+                return item
             elif isinstance(item, SpatialType):
                 copied = deepcopy(item)
                 copied.reference_frame = _resolve_frame(item.reference_frame, world)
@@ -383,6 +391,46 @@ class WorldEntityWithSimulatorProperties(WorldEntityWithID, HasSimulatorProperti
     """
     A WorldEntity that has properties relevant for simulation.
     """
+
+    def copy_for_world(self, world: World) -> Self:
+        """
+        Differs from :meth:`WorldEntityWithID.copy_for_world` in giving the copy its
+        own copies of the simulator properties, see :meth:`_copy_simulator_property`.
+        """
+        copied = super().copy_for_world(world)
+        copied.simulator_additional_properties = [
+            self._copy_simulator_property(
+                simulator_property=simulator_property,
+                copied_entity=copied,
+                world=world,
+            )
+            for simulator_property in self.simulator_additional_properties
+        ]
+        return copied
+
+    def _copy_simulator_property(
+        self,
+        *,
+        simulator_property: SimulatorAdditionalProperty,
+        copied_entity: Self,
+        world: World,
+    ) -> SimulatorAdditionalProperty:
+        """
+        :param simulator_property: A property this entity carries.
+        :param copied_entity: The copy of this entity in ``world``.
+        :param world: The world the copy belongs to.
+        :return: A deep copy of ``simulator_property`` whose fields that reference this
+            entity reference ``copied_entity``, and whose fields that reference another
+            entity reference that entity in ``world``.
+        """
+        copies_of_referenced_entities = {id(self): copied_entity}
+        for property_field in fields(simulator_property):
+            value = getattr(simulator_property, property_field.name)
+            if isinstance(value, WorldEntityWithID) and value is not self:
+                copies_of_referenced_entities[id(value)] = (
+                    world.get_world_entity_with_id_by_id(value.id)
+                )
+        return deepcopy(simulator_property, copies_of_referenced_entities)
 
 
 @dataclass(eq=False)

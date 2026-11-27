@@ -968,6 +968,29 @@ class EndEffector(AbstractRobotPart, ABC):
             and entity.has_collision()
         ]
 
+    @property
+    def enclosed_bodies(self) -> list[Body]:
+        """
+        :return: The bodies with collision outside every robot whose centre lies within
+            the bounding box of this gripper, such as an object its fingers hold by
+            friction alone, which unlike :attr:`held_bodies` hangs below no tool frame.
+        """
+        world_root = self._world.root
+        gripper_box = self.as_bounding_box_collection_in_frame(
+            world_root
+        ).bounding_box()
+        robot_bodies = set(self._world.robot_bodies_with_collision)
+        return [
+            body
+            for body in self._world.bodies_with_collision
+            if body not in robot_bodies
+            and gripper_box.contains(
+                body.collision.as_bounding_box_collection_in_frame(world_root)
+                .bounding_box()
+                .center
+            )
+        ]
+
 
 @dataclass(eq=False)
 class Torso(RobotKinematicChain, ABC):

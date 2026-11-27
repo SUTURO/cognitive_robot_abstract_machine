@@ -807,6 +807,10 @@ class LivingRoom(Room): ...
 
 
 @dataclass(eq=False)
+class Office(Room): ...
+
+
+@dataclass(eq=False)
 class Level(HasRootRegion):
     """
     A level of a building
@@ -1509,11 +1513,13 @@ class Pen(IsGraspable):
     A pen.
     """
 
+
 @dataclass(eq=False)
 class DishwasherTab(IsGraspable):
     """
     A Dishwashertab.
     """
+
 
 @dataclass(eq=False)
 class ShapeSortingPiece(IsGraspable):
@@ -1635,8 +1641,9 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         """
         Collect the obstacle bodies to consider within ``search_space``.
 
-        Filters out robot bodies so a robot does not treat itself as an obstacle, and
-        bodies without meaningful collision geometry.
+        Filters out robot bodies so a robot does not treat itself as an obstacle, the
+        bodies a robot's gripper encloses so it does not treat what it holds as one
+        either, and bodies without meaningful collision geometry.
 
         :param search_space: The search space; its reference frame is used to look up
             the owning world.
@@ -1645,7 +1652,17 @@ class SemanticEnvironmentAnnotation(HasRootBody):
         :return: The obstacle bodies to consider.
         """
         world = search_space.reference_frame._world
-        left_out = set(world.robot_bodies_with_collision) | set(excluded_bodies)
+        enclosed_by_grippers = {
+            body
+            for robot in set(world.robot_body_to_robot_mapping.values())
+            for end_effector in robot.all_end_effectors
+            for body in end_effector.enclosed_bodies
+        }
+        left_out = (
+            set(world.robot_bodies_with_collision)
+            | enclosed_by_grippers
+            | set(excluded_bodies)
+        )
         return [body for body in self.bodies_with_collision if body not in left_out]
 
     def build_bloated_obstacle_collection(

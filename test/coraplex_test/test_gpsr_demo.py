@@ -1,0 +1,442 @@
+"""
+Tests for the scene and the simulation of the GPSR demonstration.
+"""
+
+from __future__ import annotations
+
+# %% Imports
+import importlib.util
+import sys
+from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+from typing_extensions import Iterator
+
+from coraplex.demonstrations import RobotDemonstration
+from coraplex.perception import CameraFrameCapture
+from coraplex.plans.context_extensions import RobotAccess
+from coraplex.plans.executors import RealRobotPlanExecutor
+from coraplex.robot_plans.generated_commands import PersonDetection
+from robokudo.analysis_engine_process import AnalysisEngineProcess
+from robokudo.io.simulated_camera import RoboKudoSimulatedPerception
+from semantic_digital_twin.adapters.multi_sim import MujocoSim
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.adapters.multi_sim import MujocoGeom
+from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.robots.hsrb import HSRB
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Human
+from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.connections import Connection6DoF
+from semantic_digital_twin.world_description.geometry import Box, Scale
+from semantic_digital_twin.world_description.shape_collection import ShapeCollection
+from semantic_digital_twin.world_description.world_entity import Body
+
+
+# %% Fixtures
+
+
+@pytest.fixture(scope="module")
+def gpsr_demo() -> ModuleType:
+    """
+    The GPSR demonstration, loaded from its directory.
+    """
+    folder = Path(__file__).parents[2] / "coraplex" / "demos" / "coraplex_gpsr_demo"
+    with pytest.MonkeyPatch.context() as patch:
+        patch.syspath_prepend(str(folder))
+        specification = importlib.util.spec_from_file_location(
+            "gpsr_demo", folder / "demo.py"
+        )
+        module = importlib.util.module_from_spec(specification)
+        patch.setitem(sys.modules, specification.name, module)
+        specification.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def falling_box_world() -> World:
+    """
+    A world whose only link is a 10 cm box hanging free one metre above the root.
+    """
+    world = World()
+    with world.modify_world():
+        root = Body(name=PrefixedName("root"))
+        world.add_body(root)
+        box = Body(name=PrefixedName("box"))
+        geometry = ShapeCollection(
+            [Box(scale=Scale(0.1, 0.1, 0.1))], reference_frame=box
+        )
+        box.collision, box.visual = geometry, geometry
+        world.add_connection(
+            Connection6DoF.create_with_dofs(
+                world=world,
+                parent=root,
+                child=box,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    z=1.0, reference_frame=root
+                ),
+            )
+        )
+    return world
+
+
+@pytest.fixture
+def falling_box_simulation(
+    gpsr_demo: ModuleType, falling_box_world: World
+) -> Iterator[MujocoSim]:
+    """
+    A started, stepped and headless simulation of a box falling from one metre.
+    """
+    simulation = gpsr_demo.OncePerCallSyncedMujocoSim(
+        world=falling_box_world, headless=True
+    )
+    simulation.start_stepped_simulation()
+    yield simulation
+    simulation.stop_simulation()
+
+
+# %% Syncing once per call
+
+
+def test_stepping_keeps_the_synchronizers_rate(
+    falling_box_simulation: MujocoSim,
+) -> None:
+    """
+    Stepping leaves the rate the synchronizer copies the physics into the world at as it
+    was.
+    """
+    rate_before = 30.0
+    falling_box_simulation.synchronizer.sync_rate_hz = rate_before
+
+    falling_box_simulation.step_simulation(timedelta(milliseconds=100))
+
+    assert falling_box_simulation.synchronizer.sync_rate_hz == rate_before
+
+
+def test_stepping_shorter_than_half_a_physics_step_advances_no_time(
+    falling_box_simulation: MujocoSim,
+) -> None:
+    """
+    A duration that rounds to no physics step advances the simulation by none, as
+    :meth:`MujocoSim.step_simulation` does.
+    """
+    step_size = falling_box_simulation.simulator.step_size
+    time_before = falling_box_simulation.simulator.current_simulation_time
+
+    falling_box_simulation.step_simulation(timedelta(seconds=step_size / 4))
+
+    assert falling_box_simulation.simulator.current_simulation_time == time_before
+
+
+def test_the_world_holds_the_physics_after_a_call(
+    falling_box_simulation: MujocoSim, falling_box_world: World
+) -> None:
+    """
+    After a call, the world holds where the physics moved the box to.
+    """
+    falling_box_simulation.step_simulation(timedelta(milliseconds=300))
+
+    simulated_height = falling_box_simulation.simulator.get_body_position(
+        body_name="box"
+    ).result[2]
+    world_height = float(falling_box_world.get_body_by_name("box").global_pose.z)
+    assert world_height == pytest.approx(simulated_height)
+
+
+# %% Setting up the demonstration
+
+
+def test_demonstration_needs_a_plan(gpsr_demo: ModuleType) -> None:
+    """
+    A demonstration cannot be set up without the plan it carries out.
+    """
+    with pytest.raises(TypeError):
+        gpsr_demo.GeneratedCommandDemonstration()
+
+
+def test_demonstration_needs_the_spoken_instruction(gpsr_demo: ModuleType) -> None:
+    """
+    A demonstration cannot be set up without the instruction its plan was written for.
+    """
+    with pytest.raises(TypeError):
+        gpsr_demo.GeneratedCommandDemonstration(json_plan='{"plans": []}')
+
+
+# %% The scene of the demonstration
+
+
+@pytest.fixture(scope="module")
+def demonstration(gpsr_demo: ModuleType) -> RobotDemonstration:
+    """
+    The demonstration of a command without plans, run without a viewer or perception.
+    """
+    return gpsr_demo.GeneratedCommandDemonstration(
+        json_plan='{"plans": []}', instruction="", headless=True
+    )
+
+
+@pytest.fixture(scope="module")
+def demonstration_world(demonstration: RobotDemonstration) -> World:
+    """
+    The kitchen of the demonstration with the milk, the person and the HSR in it.
+    """
+    return demonstration.build_simulated_world()
+
+
+def test_milk_stands_at_the_front_edge_of_the_counter_top(
+    gpsr_demo: ModuleType,
+    demonstration_world: World,
+) -> None:
+    """
+    The milk stands on the counter top, flush with the edge nearer to the robot.
+    """
+    root = demonstration_world.root
+    milk_box = (
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.MILK)
+        .collision.as_bounding_box_collection_in_frame(root)
+        .bounding_box()
+    )
+    counter_box = (
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.COUNTER_TOP)
+        .collision.as_bounding_box_collection_in_frame(root)
+        .bounding_box()
+    )
+    front_edge_y = min(counter_box.min_y, counter_box.max_y, key=abs)
+    assert milk_box.min_z == pytest.approx(counter_box.max_z)
+    assert front_edge_y in (
+        pytest.approx(milk_box.min_y),
+        pytest.approx(milk_box.max_y),
+    )
+
+
+def test_person_stands_with_their_back_at_the_distance_from_the_window_sill(
+    gpsr_demo: ModuleType, demonstration: RobotDemonstration, demonstration_world: World
+) -> None:
+    """
+    The person's back keeps :attr:`person_distance_to_window` from the window sill.
+    """
+    human_box = (
+        demonstration_world.get_body_by_name(gpsr_demo.SceneName.HUMAN)
+        .collision.as_bounding_box_collection_in_frame(demonstration_world.root)
+        .bounding_box()
+    )
+    window_wall = demonstration.kitchen_environment.measurements.window_wall
+    assert human_box.max_x == pytest.approx(
+        window_wall.sill_front_x - demonstration.person_distance_to_window
+    )
+
+
+def test_the_person_is_a_human_named_as_the_command_names_them(
+    gpsr_demo: ModuleType,
+    demonstration_world: World,
+) -> None:
+    """
+    The person is a human the command can name with ``"person"``.
+    """
+    person = demonstration_world.get_semantic_annotation_by_name(
+        gpsr_demo.SceneName.PERSON
+    )
+    assert isinstance(person, Human)
+
+
+def test_only_the_grippers_of_the_robot_touch_the_scene_in_mujoco(
+    gpsr_demo: ModuleType,
+    demonstration_world: World,
+) -> None:
+    """
+    Every collision shape of the robot but those of its grippers is in the robot body's
+    own contact category; the grippers' shapes keep the default one.
+    """
+    [robot] = demonstration_world.get_semantic_annotations_by_type(HSRB)
+    gripper_bodies = {
+        body
+        for arm in robot.all_arms
+        for body in arm.end_effector.bodies_with_collision
+    }
+    for body in robot.bodies_with_collision:
+        for geometry in body.collision:
+            contact = geometry.get_simulator_property_of_type(MujocoGeom)
+            if body in gripper_bodies:
+                assert contact is None
+            else:
+                assert contact.contact_type == gpsr_demo.SceneContactCategory.ROBOT_BODY
+
+
+def test_context_without_perception_gives_the_plan_its_robot(
+    demonstration: RobotDemonstration, demonstration_world: World
+) -> None:
+    """
+    Without perception, the plan's context only gives access to the robot.
+    """
+    [robot] = demonstration_world.get_semantic_annotations_by_type(HSRB)
+    [extension] = demonstration.build_context_extensions(demonstration_world)
+    assert isinstance(extension, RobotAccess)
+    assert extension.robot is robot
+
+
+# %% Perceiving on the real robot
+
+
+@dataclass
+class RecordingAnalysisEngine(AnalysisEngineProcess):
+    """
+    An analysis engine that records being started and stopped instead of running
+    RoboKudo.
+    """
+
+    analysis_engine: str = "human_detection"
+    """
+    The pipeline RoboKudo would run.
+    """
+
+    starts: int = 0
+    """
+    How often the engine was started.
+    """
+
+    stops: int = 0
+    """
+    How often the engine was stopped.
+    """
+
+    def start(self, timeout: timedelta = timedelta(minutes=2)) -> None:
+        self.starts += 1
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+@pytest.fixture
+def analysis_engine() -> RecordingAnalysisEngine:
+    """
+    A recording analysis engine, neither started nor stopped yet.
+    """
+    return RecordingAnalysisEngine()
+
+
+@pytest.fixture
+def real_robot_demonstration(
+    gpsr_demo: ModuleType, analysis_engine: RecordingAnalysisEngine
+) -> RobotDemonstration:
+    """
+    The demonstration of a command without plans on the real robot, with perception.
+    """
+    return gpsr_demo.GeneratedCommandDemonstration(
+        json_plan='{"plans": []}',
+        instruction="",
+        executor_type=RealRobotPlanExecutor,
+        analysis_engine=analysis_engine,
+    )
+
+
+def test_real_robot_run_starts_the_analysis_engine_on_the_real_camera(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    Without a simulation, the analysis engine is started on its own, to look through the
+    real head camera.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    assert analysis_engine.starts == 1
+    assert real_robot_demonstration.started_perception is analysis_engine
+
+
+def test_real_robot_context_lets_the_plan_detect_people_without_capturing_frames(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    On the real robot the plan's context gives access to the robot and to detecting
+    people, and captures no simulated camera frame.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    [robot_access, person_detection] = (
+        real_robot_demonstration.build_context_extensions(demonstration_world)
+    )
+
+    assert isinstance(robot_access, RobotAccess)
+    assert isinstance(person_detection, PersonDetection)
+    assert person_detection.query is real_robot_demonstration.query
+
+
+def test_tearing_down_a_real_robot_run_stops_the_analysis_engine(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+    demonstration_world: World,
+) -> None:
+    """
+    Tearing down stops the analysis engine the run started, once.
+    """
+    real_robot_demonstration.start_simulation(demonstration_world)
+
+    real_robot_demonstration.tear_down()
+
+    assert analysis_engine.stops == 1
+    assert real_robot_demonstration.started_perception is None
+
+
+def test_tearing_down_before_perception_started_stops_nothing(
+    real_robot_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+) -> None:
+    """
+    A run that failed before its perception started has no analysis engine to stop.
+    """
+    real_robot_demonstration.tear_down()
+
+    assert analysis_engine.stops == 0
+
+
+# %% Perceiving in simulation
+
+
+@pytest.fixture
+def simulated_demonstration(
+    gpsr_demo: ModuleType, analysis_engine: RecordingAnalysisEngine
+) -> RobotDemonstration:
+    """
+    The demonstration of a command without plans in MuJoCo, with perception.
+    """
+    return gpsr_demo.GeneratedCommandDemonstration(
+        json_plan='{"plans": []}',
+        instruction="",
+        analysis_engine=analysis_engine,
+    )
+
+
+def test_simulated_run_perceives_through_the_simulated_head_camera(
+    simulated_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+) -> None:
+    """
+    In a physically simulated run, the analysis engine runs inside the simulated
+    perception of the demonstration, which starts and stops it.
+    """
+    assert isinstance(
+        simulated_demonstration.simulated_perception, RoboKudoSimulatedPerception
+    )
+    assert (
+        simulated_demonstration.simulated_perception.analysis_engine is analysis_engine
+    )
+
+
+def test_capturing_frames_survives_rebinding_to_a_world_copy(
+    simulated_demonstration: RobotDemonstration, demonstration_world: World
+) -> None:
+    """
+    A statement trial rebinds the context extensions to a copy of the world; the frame
+    capture of the copy captures through the same simulated perception.
+    """
+    perception = simulated_demonstration.simulated_perception
+    capture = CameraFrameCapture(capture_frame=perception.capture_frame)
+
+    rebound = demonstration_world.rebind_world_entities(capture)
+
+    assert rebound.capture_frame.__self__ is perception

@@ -18,7 +18,12 @@ from typing_extensions import Any, Callable
 from krrood.adapters.json_serializer import from_json, to_json
 from krrood.symbolic_math.symbolic_math import SymbolicMathType
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Vector3
-from semantic_digital_twin.adapters.multi_sim import MujocoJoint, MujocoTendon
+from semantic_digital_twin.adapters.multi_sim import (
+    MujocoCamera,
+    MujocoJoint,
+    MujocoLight,
+    MujocoTendon,
+)
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.soft_trunk import SoftTrunk, SoftTrunkSection
 from semantic_digital_twin.exceptions import DuplicateSimulatorPropertyError
@@ -141,6 +146,84 @@ def test_copy_keeps_properties_of_world_body_and_connection(simulated_world: Wor
         simulated_world.get_body_by_name("arm").simulator_additional_properties,
         simulated_world.connections[0].simulator_additional_properties,
     )
+
+
+# %% properties referencing an entity
+
+
+@pytest.fixture
+def world_with_camera() -> World:
+    """
+    A world whose camera body carries a camera mounted on it and a light that shines
+    from the root, so both properties reference a body.
+    """
+    world = World()
+    root = Body(name=PrefixedName("root"))
+    camera_body = Body(name=PrefixedName("camera"))
+    camera_body.add_simulator_property(MujocoCamera(name="camera", body=camera_body))
+    camera_body.add_simulator_property(MujocoLight(name="lamp", body=root))
+    with world.modify_world():
+        world.add_connection(FixedConnection(parent=root, child=camera_body))
+    return world
+
+
+def test_copied_property_references_the_copy_of_the_entity_carrying_it(
+    world_with_camera: World,
+):
+    copied = deepcopy(world_with_camera)
+
+    copied_camera_body = copied.get_body_by_name("camera")
+    [camera] = [
+        simulator_property
+        for simulator_property in copied_camera_body.simulator_additional_properties
+        if isinstance(simulator_property, MujocoCamera)
+    ]
+    assert camera.body is copied_camera_body
+
+
+def test_copied_property_references_another_entity_of_the_copied_world(
+    world_with_camera: World,
+):
+    copied = deepcopy(world_with_camera)
+
+    copied_camera_body = copied.get_body_by_name("camera")
+    [lamp] = [
+        simulator_property
+        for simulator_property in copied_camera_body.simulator_additional_properties
+        if isinstance(simulator_property, MujocoLight)
+    ]
+    assert lamp.body is copied.get_body_by_name("root")
+
+
+def test_copying_leaves_the_references_of_the_original_properties(
+    world_with_camera: World,
+):
+    camera_body = world_with_camera.get_body_by_name("camera")
+
+    deepcopy(world_with_camera)
+
+    [camera] = [
+        simulator_property
+        for simulator_property in camera_body.simulator_additional_properties
+        if isinstance(simulator_property, MujocoCamera)
+    ]
+    assert camera.body is camera_body
+
+
+def test_merged_property_references_the_merged_entity(world_with_camera: World):
+    world = World()
+    with world.modify_world():
+        world.add_kinematic_structure_entity(Body(name=PrefixedName("map")))
+
+    world.merge_world(world_with_camera)
+
+    merged_camera_body = world.get_body_by_name("camera")
+    [camera] = [
+        simulator_property
+        for simulator_property in merged_camera_body.simulator_additional_properties
+        if isinstance(simulator_property, MujocoCamera)
+    ]
+    assert camera.body is merged_camera_body
 
 
 # %% merging a world

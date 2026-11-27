@@ -125,6 +125,22 @@ def test_face_gets_its_encoding(scene: GpsrScene, placed_faces: PlacedFaces) -> 
     np.testing.assert_array_equal(face_encoding, placed_faces.encoding)
 
 
+def test_face_is_identified_by_its_detection_index_as_text(
+    scene: GpsrScene, placed_faces: PlacedFaces
+) -> None:
+    """
+    A found person is identified by the index of its face among the found faces, as
+    text, so that a query answer can carry it as the identifier of the person.
+    """
+    detector = face_finder(with_point_generation=False)
+    scene.place_in_pipeline(detector)
+
+    detector.compute()
+
+    [human_hypothesis] = detected_human_hypotheses(scene)
+    assert human_hypothesis.id == "0"
+
+
 def test_without_faces_nobody_is_added(
     scene: GpsrScene, placed_faces: PlacedFaces
 ) -> None:

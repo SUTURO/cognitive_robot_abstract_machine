@@ -135,6 +135,13 @@ class PlaceAction(
     def variable_poses(self) -> list[Pose]:
         return self._tool_goals.poses
 
+    def placed_object_pose(self) -> Pose:
+        """
+        :return: The pose :attr:`graspable` is put down at, measured when the place
+            starts: :attr:`goal_pose`.
+        """
+        return self.goal_pose
+
     def on_start(self) -> None:
         """
         Differs from :meth:`~coraplex.robot_plans.actions.base.Action.on_start` in also
@@ -151,9 +158,42 @@ class PlaceAction(
             ),
         )
         place_sequence = self.grasp_pose_sequence(
-            reference_T_grasp=grasp.moved_to(self.goal_pose),
+            reference_T_grasp=grasp.moved_to(self.placed_object_pose()),
             end_effector=end_effector,
             grasp_candidate=grasp,
         )
         for variable_pose, pose in zip(self._tool_goals.poses, place_sequence.poses):
             self.set_variable_pose(variable_pose=variable_pose, value=pose)
+
+
+# %% placing a held object turned as it is held
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class YawKeepingPlaceAction(PlaceAction):
+    """
+    Puts down :attr:`graspable` at the position of :attr:`goal_pose`, upright as the
+    goal pose says, but turned about the vertical axis as it is held when the place
+    starts, so the gripper keeps pointing the way it points.
+    """
+
+    def placed_object_pose(self) -> Pose:
+        """
+        Differs from :meth:`PlaceAction.placed_object_pose` in taking the yaw of the
+        held object instead of that of :attr:`goal_pose`.
+        """
+        reference_frame = self.goal_pose.reference_frame
+        reference_T_held = self.world.transform(
+            self.graspable.root.global_pose, reference_frame
+        )
+        _, _, held_yaw = reference_T_held.rotation_matrix.rpy
+        roll, pitch, _ = self.goal_pose.rotation_matrix.rpy
+        return Pose.from_xyz_rpy(
+            x=self.goal_pose.x,
+            y=self.goal_pose.y,
+            z=self.goal_pose.z,
+            roll=roll,
+            pitch=pitch,
+            yaw=held_yaw,
+            reference_frame=reference_frame,
+        )

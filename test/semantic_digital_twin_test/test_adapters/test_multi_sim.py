@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import logging
 import os
 from datetime import timedelta
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import mujoco
+import mujoco.viewer
 import pytest
 import numpy
 import trimesh
@@ -1939,3 +1942,112 @@ def test_a_stepped_simulation_advances_exactly_the_requested_time(falling_box_wo
 
     fallen = 0.5 * 9.81 * duration.total_seconds() ** 2
     assert height == pytest.approx(1.0 - fallen, abs=0.01)
+
+
+# %% viewer of a stepped simulation
+
+
+@dataclass
+class UpdateRecordingViewer:
+    """
+    Stands in for MuJoCo's passive viewer and records when it is handed the simulation's
+    state.
+    """
+
+    updated: threading.Event = field(default_factory=threading.Event)
+    """
+    Set each time the viewer is handed the simulation's state.
+    """
+
+    running: bool = True
+    """
+    Whether the viewer window is open.
+    """
+
+    viewer_lock: threading.Lock = field(default_factory=threading.Lock)
+    """
+    Guards the simulation's state while the viewer reads it.
+    """
+
+    def is_running(self) -> bool:
+        """
+        :return: Whether the viewer window is open.
+        """
+        return self.running
+
+    def sync(self) -> None:
+        """
+        Record that the viewer was handed the simulation's state.
+        """
+        self.updated.set()
+
+    def close(self) -> None:
+        """
+        Close the viewer window.
+        """
+        self.running = False
+
+    def lock(self) -> threading.Lock:
+        """
+        :return: The lock that guards the simulation's state while the viewer reads it.
+        """
+        return self.viewer_lock
+
+    def __enter__(self) -> UpdateRecordingViewer:
+        """
+        :return: This viewer, open until the block ends.
+        """
+        return self
+
+    def __exit__(self, *exception_info: object) -> None:
+        """
+        Close the viewer window when the block ends.
+        """
+        self.close()
+
+
+@pytest.fixture
+def recording_viewer(monkeypatch: pytest.MonkeyPatch) -> UpdateRecordingViewer:
+    """
+    The viewer every simulation that is not headless opens during the test.
+    """
+    viewer = UpdateRecordingViewer()
+    monkeypatch.setattr(mujoco.viewer, "launch_passive", lambda model, data: viewer)
+    return viewer
+
+
+def test_a_stepped_simulation_keeps_its_viewer_up_to_date_between_steps(
+    falling_box_world: World, recording_viewer: UpdateRecordingViewer
+) -> None:
+    """
+    The viewer keeps being handed the simulation's state while nobody steps the physics,
+    so a controller that takes long to prepare its next step leaves no stale viewer.
+    """
+    longest_wait_for_an_update = timedelta(seconds=2)
+    multi_sim = MujocoSim(world=falling_box_world, headless=False)
+
+    multi_sim.start_stepped_simulation()
+    try:
+        recording_viewer.updated.clear()
+        updated_without_stepping = recording_viewer.updated.wait(
+            longest_wait_for_an_update.total_seconds()
+        )
+    finally:
+        stop_multisim_if_running(multi_sim)
+
+    assert updated_without_stepping
+
+
+def test_stopping_a_stepped_simulation_closes_its_viewer(
+    falling_box_world: World, recording_viewer: UpdateRecordingViewer
+) -> None:
+    """
+    Stopping the simulation closes the viewer and ends the thread that updates it.
+    """
+    multi_sim = MujocoSim(world=falling_box_world, headless=False)
+    multi_sim.start_stepped_simulation()
+
+    multi_sim.stop_simulation()
+
+    assert not recording_viewer.running
+    assert not multi_sim.simulator.render_thread.is_alive()

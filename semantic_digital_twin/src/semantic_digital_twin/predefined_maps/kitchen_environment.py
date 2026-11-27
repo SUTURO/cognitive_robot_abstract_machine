@@ -14,7 +14,13 @@ from krrood.patterns.float_enumeration import FloatEnum
 
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Floor
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bedroom,
+    Floor,
+    Kitchen,
+    LivingRoom,
+    Office,
+)
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Aperture,
     Table,
@@ -2613,7 +2619,7 @@ class KitchenEnvironment(WorldSource):
                     x=2.317, y=-0.843
                 ),
             )
-            kitchen = Room(floor=kitchen_floor, name=PrefixedName("kitchen"))
+            kitchen = Kitchen(floor=kitchen_floor, name=PrefixedName("kitchen"))
             room_annotations.append(kitchen)
 
             living_room_floor = Floor.create_with_new_body_from_polytope_in_world(
@@ -2624,7 +2630,7 @@ class KitchenEnvironment(WorldSource):
                     x=2.317, y=2.2245
                 ),
             )
-            living_room = Room(
+            living_room = LivingRoom(
                 floor=living_room_floor, name=PrefixedName("living_room")
             )
             room_annotations.append(living_room)
@@ -2637,7 +2643,7 @@ class KitchenEnvironment(WorldSource):
                     x=0.96, y=4.96
                 ),
             )
-            bed_room = Room(floor=bed_room_floor, name=PrefixedName("bed_room"))
+            bed_room = Bedroom(floor=bed_room_floor, name=PrefixedName("bed_room"))
             room_annotations.append(bed_room)
 
             office_floor = Floor.create_with_new_body_from_polytope_in_world(
@@ -2648,7 +2654,7 @@ class KitchenEnvironment(WorldSource):
                     x=3.5625, y=4.96
                 ),
             )
-            office = Room(floor=office_floor, name=PrefixedName("office"))
+            office = Office(floor=office_floor, name=PrefixedName("office"))
             room_annotations.append(office)
 
             world.add_semantic_annotations(room_annotations)

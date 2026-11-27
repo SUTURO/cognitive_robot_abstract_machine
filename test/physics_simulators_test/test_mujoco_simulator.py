@@ -1,3 +1,4 @@
+import copy
 import os
 import subprocess
 import sys
@@ -542,6 +543,23 @@ class TestMujocoSimulator:
         assert (
             result.type is SimulatorCallbackResult.ResultType.FAILURE_WITHOUT_EXECUTION
         )
+
+    def test_recompiling_keeps_the_body_poses_while_the_physics_runs_in_a_thread(
+        self, simulator: MujocoSimulator
+    ) -> None:
+        """
+        A model recompiled while the physics thread is paused holds the body poses of
+        the state it kept, so a viewer that loads it draws the scene.
+        """
+        simulator.start(simulate_in_thread=True, render_in_thread=True)
+        simulator.pause()
+        kept_state = copy.copy(simulator._mj_data)
+        mujoco.mj_forward(simulator._mj_model, kept_state)
+        body_positions = kept_state.xpos.copy()
+
+        simulator.callbacks["save"](key_name="recompiled")
+
+        numpy.testing.assert_array_equal(simulator._mj_data.xpos, body_positions)
 
 
 class TestMujocoSimulatorComplex:
