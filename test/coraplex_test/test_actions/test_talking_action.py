@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from coraplex.datastructures.enums import SpeechTopic
 from coraplex.robot_plans.actions.core.talking import TalkingAction
-from giskardpy.motion_statechart.ros2_nodes.topic_monitor import PublishOnStart
+from giskardpy.motion_statechart.ros2_nodes.topics import PublishOnStart
 
 # %% handing the sentence to the text-to-speech node
 

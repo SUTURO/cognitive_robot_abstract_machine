@@ -5,7 +5,7 @@ This is the camera config for a openCV camera without depth information.
 from __future__ import annotations
 
 # %% Imports
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from dataclasses import dataclass, field
 
 import cv2
@@ -22,11 +22,8 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class OpenCVCameraConfig(BaseCameraConfig):
     """
-    Configuration class for OpenCV-based cameras without depth information.
-
-    This class defines the configuration parameters for cameras that can be accessed
-    through OpenCV's video capture interface. It supports various input sources
-    including physical cameras, video files, image sequences, and network streams.
+    Configuration of a color source read through OpenCV's video capture: a physical
+    camera, a video file, an image sequence or a network stream.
 
     .. note::
         When using image sequences as input, the first image must have a number
@@ -41,7 +38,9 @@ class OpenCVCameraConfig(BaseCameraConfig):
         return "opencv"
 
     interface_type: str = "OpenCV"
-
+    """
+    Camera interface reading this source.
+    """
     device: int | str = 0
     """
     Input source identifier (camera index, file path, or URL).
@@ -62,21 +61,27 @@ class OpenCVCameraConfig(BaseCameraConfig):
     """
     Flag argument to use when retrieving/reading the frames.
     """
+    buffered_frame_grab_seconds: float = 0.005
+    """
+    Duration below which grabbing a live camera frame counts as taking one the driver
+    buffered since the last read, so a newer frame is grabbed instead.
+    """
+    maximum_buffered_frames: int = 10
+    """
+    Most buffered live camera frames skipped before reading one.
+    """
     normalize_rgb: bool = True
     """
     Normalize/stabilise rgb image contrast/brightness.
     """
     loop_mode: int = -1
     """
-    Loop after iterating over all frames of the video file
-    > 0: number of repetitions before to stop
-    = 0: never loop
-    < 0: infinite loop
+    Repetitions after the last frame of a file source: positive for that many, zero for
+    none, negative for endless.
 
-    ... note::
+    .. note::
         Only works with a file as source
     """
-
     depth: npt.NDArray | None = None
     """
     Static depth image, which is used as depth image for all rgb images.

@@ -18,10 +18,15 @@ import numpy as np
 import pytest
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.node import Node
 from typing_extensions import Iterator
 
+import coraplex.demonstrations
 from coraplex.demonstrations import RobotDemonstration, RobotDemonstrationRosSession
+from coraplex.exceptions import PerceptionWithoutPhysicalSimulation
+from coraplex.perception import CameraFrameCapture
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Vector3
+from semantic_digital_twin.adapters.multi_sim import MujocoSim, SimulatedPerception
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.specifications.robots import RobotSpecification
@@ -52,6 +57,62 @@ class PlanDeliberatelyFailed(Exception):
     """
     Raised by a demonstration whose plan is meant to fail.
     """
+
+
+class RunStep(StrEnum):
+    """
+    The steps of a physically simulated run that a simulated perception takes part in.
+    """
+
+    MOUNT_CAMERAS = "mount cameras"
+    """
+    The cameras are attached to the world.
+    """
+
+    BUILD_SIMULATION = "build simulation"
+    """
+    The physics of the world is built.
+    """
+
+    START_PERCEIVING = "start perceiving"
+    """
+    The perception starts in the running physics.
+    """
+
+    CAPTURE_FRAME = "capture frame"
+    """
+    The cameras deliver what they see.
+    """
+
+    STOP_PERCEIVING = "stop perceiving"
+    """
+    The perception stops.
+    """
+
+
+@dataclass(kw_only=True)
+class RecordingSimulatedPerception(SimulatedPerception):
+    """
+    A simulated perception that records the steps it is asked to take instead of
+    perceiving.
+    """
+
+    recorded_steps: list[RunStep] = field(default_factory=list)
+    """
+    The steps of the run, in the order they were taken.
+    """
+
+    def mount_cameras(self, *, world: World) -> None:
+        self.recorded_steps.append(RunStep.MOUNT_CAMERAS)
+
+    def start_perceiving(self, *, simulation: MujocoSim, ros_node: Node) -> None:
+        self.recorded_steps.append(RunStep.START_PERCEIVING)
+
+    def capture_frame(self) -> None:
+        self.recorded_steps.append(RunStep.CAPTURE_FRAME)
+
+    def stop_perceiving(self) -> None:
+        self.recorded_steps.append(RunStep.STOP_PERCEIVING)
 
 
 @dataclass
@@ -130,6 +191,11 @@ class RecordingDemonstration(RobotDemonstration):
     Whether :attr:`simulation` was running while the plan ran.
     """
 
+    recorded_steps: list[RunStep] = field(default_factory=list)
+    """
+    The steps of the run this demonstration took itself, in the order they were taken.
+    """
+
     def scene_specification(self) -> WorldSpecification:
         return WorldSpecification()
 
@@ -152,7 +218,9 @@ class RecordingDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         statechart = Statechart(context=context)
-        statechart.add_node(FunctionCall(function=lambda: self.run_plan_body(context)))
+        statechart.add_node(
+            node=FunctionCall(function=lambda: self.run_plan_body(context))
+        )
         return statechart
 
     @contextmanager
@@ -173,6 +241,14 @@ class RecordingDemonstration(RobotDemonstration):
         self.simulation_running_during_the_plan = (
             self.simulation is not None and self.simulation.is_running()
         )
+
+    def build_simulation(self, world: World) -> MujocoSim:
+        """
+        Differs from :meth:`RobotDemonstration.build_simulation` in also recording the
+        step in :attr:`recorded_steps`.
+        """
+        self.recorded_steps.append(RunStep.BUILD_SIMULATION)
+        return super().build_simulation(world)
 
     def create_executor(self, world: World) -> PlanExecutor:
         """
@@ -230,9 +306,9 @@ class HingedSceneDemonstration(RecordingDemonstration):
         box = Body(name=PrefixedName(HingedSceneBody.BOX))
         with world.modify_world():
             hinge = RevoluteConnection.create_with_dofs(
-                world,
-                world.root,
-                door,
+                world=world,
+                parent=world.root,
+                child=door,
                 axis=Vector3.Z(reference_frame=world.root),
                 parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
                     x=self.hinge_distance, reference_frame=world.root
@@ -240,7 +316,9 @@ class HingedSceneDemonstration(RecordingDemonstration):
             )
             world.add_connection(hinge)
             world.add_connection(
-                Connection6DoF.create_with_dofs(world, world.root, box)
+                Connection6DoF.create_with_dofs(
+                    world=world, parent=world.root, child=box
+                )
             )
         hinge.position = self.door_opening
 
@@ -280,12 +358,12 @@ def test_simulated_run_puts_the_robot_into_the_scene_it_builds():
 
 def serve_from_the_controller(monkeypatch: pytest.MonkeyPatch, world: World) -> None:
     """
-    Make every fetch of a real run return `world`, as if a controller served it.
+    Make every join of a real run return `world`, as if a controller served it.
     """
     monkeypatch.setattr(
-        RobotDemonstrationRosSession,
-        "fetch_world",
-        lambda session, timeout_seconds=None: world,
+        coraplex.demonstrations,
+        "join_shared_world",
+        lambda node, timeout_seconds=None: world,
     )
 
 
@@ -309,6 +387,33 @@ def test_real_run_merges_the_scene_into_a_world_that_does_not_have_it(
     assert cylinder_bot_world.root is controller_root
     assert scene_root.parent_connection.parent is controller_root
     assert demonstration.robot.spawned_into == []
+
+
+def test_real_run_places_the_scene_where_it_lies_in_the_map(
+    cylinder_bot_world, monkeypatch
+):
+    serve_from_the_controller(monkeypatch, cylinder_bot_world)
+    map_T_scene = HomogeneousTransformationMatrix.from_xyz_rpy(x=0.4, y=0.1, yaw=-0.06)
+    demonstration = RecordingDemonstration(
+        used_robot=MinimalRobot,
+        executor_type=RealRobotPlanExecutor,
+        map_T_scene=map_T_scene,
+    )
+
+    try:
+        demonstration.acquire_world()
+    finally:
+        demonstration.tear_down()
+
+    [scene_root_id] = demonstration.populated_scene_roots
+    scene_root = cylinder_bot_world.get_kinematic_structure_entity_by_id(scene_root_id)
+    np.testing.assert_allclose(
+        cylinder_bot_world.compute_forward_kinematics_np(
+            cylinder_bot_world.root, scene_root
+        ),
+        map_T_scene.to_np(),
+        atol=1e-9,
+    )
 
 
 def test_real_run_does_not_merge_the_scene_into_a_world_that_has_it(
@@ -502,6 +607,195 @@ def test_the_physics_of_a_run_stops_when_its_plan_fails(cylinder_bot_world) -> N
         demonstration.run()
 
     assert demonstration.simulation is None
+
+
+# %% performing the plan in parts
+
+
+class PlanPart(StrEnum):
+    """
+    The parts of the plan of :class:`PlanInPartsDemonstration`, in the order they run.
+    """
+
+    FIRST_STATECHART = "first statechart"
+    """
+    The statechart run before the step outside of any executor.
+    """
+
+    STEP_BETWEEN = "step between"
+    """
+    A step done outside of any executor, between the two statecharts.
+    """
+
+    SECOND_STATECHART = "second statechart"
+    """
+    The statechart run after the step outside of any executor.
+    """
+
+
+@dataclass
+class PlanInPartsDemonstration(RecordingDemonstration):
+    """
+    A demonstration performing its plan as two statecharts with a step between them.
+    """
+
+    performed_parts: list[PlanPart] = field(default_factory=list)
+    """
+    The parts of the plan that ran, in order.
+    """
+
+    executors: list[PlanExecutor] = field(default_factory=list)
+    """
+    The executors the statecharts ran with, in order.
+    """
+
+    def perform_plan(self, world: World) -> None:
+        self.execute_statechart(
+            world,
+            lambda context: self.part_statechart(context, PlanPart.FIRST_STATECHART),
+        )
+        self.performed_parts.append(PlanPart.STEP_BETWEEN)
+        self.execute_statechart(
+            world,
+            lambda context: self.part_statechart(context, PlanPart.SECOND_STATECHART),
+        )
+
+    def part_statechart(self, context: StatechartContext, part: PlanPart) -> Statechart:
+        """
+        :param context: The context the statechart is built in.
+        :param part: The part the statechart records when it runs.
+        :return: A statechart recording ``part`` when it runs.
+        """
+        statechart = Statechart(context=context)
+        statechart.add_node(
+            node=FunctionCall(function=lambda: self.performed_parts.append(part))
+        )
+        return statechart
+
+    def create_executor(self, world: World) -> PlanExecutor:
+        """
+        Differs from :meth:`RecordingDemonstration.create_executor` in also recording
+        every executor in :attr:`executors`.
+        """
+        executor = super().create_executor(world)
+        self.executors.append(executor)
+        return executor
+
+
+def test_a_plan_performed_in_parts_runs_them_in_order_every_repetition(
+    cylinder_bot_world,
+):
+    demonstration = PlanInPartsDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot, repetitions=2
+    )
+
+    demonstration.run()
+
+    assert demonstration.performed_parts == list(PlanPart) * 2
+
+
+def test_every_statechart_of_a_plan_performed_in_parts_runs_with_its_own_executor(
+    cylinder_bot_world,
+):
+    demonstration = PlanInPartsDemonstration(
+        world=cylinder_bot_world, used_robot=MinimalRobot
+    )
+
+    demonstration.run()
+
+    first, second = demonstration.executors
+    assert first is not second
+
+
+# %% simulated perception
+
+
+@pytest.mark.skipif(
+    not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
+)
+def test_a_simulated_perception_runs_alongside_the_physics(cylinder_bot_world) -> None:
+    """
+    The cameras are mounted before the physics is built from the world, the perception
+    starts once the physics runs, and it stops when the run ends.
+    """
+    recorded_steps: list[RunStep] = []
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world,
+        used_robot=MinimalRobot,
+        executor_type=PhysicallySimulatedPlanExecutor,
+        headless=True,
+        recorded_steps=recorded_steps,
+        simulated_perception=RecordingSimulatedPerception(
+            recorded_steps=recorded_steps
+        ),
+    )
+
+    demonstration.run()
+
+    assert recorded_steps == [
+        RunStep.MOUNT_CAMERAS,
+        RunStep.BUILD_SIMULATION,
+        RunStep.START_PERCEIVING,
+        RunStep.STOP_PERCEIVING,
+    ]
+
+
+@pytest.mark.skipif(
+    not runs_in_continuous_integration(), reason="MuJoCo tests only run in CI"
+)
+def test_a_simulated_perception_stops_when_the_plan_fails(cylinder_bot_world) -> None:
+    """
+    A perception left running would keep its analysis engine alive after the run.
+    """
+    simulated_perception = RecordingSimulatedPerception()
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world,
+        used_robot=MinimalRobot,
+        executor_type=PhysicallySimulatedPlanExecutor,
+        headless=True,
+        fail_the_plan=True,
+        simulated_perception=simulated_perception,
+    )
+
+    with pytest.raises(PlanDeliberatelyFailed):
+        demonstration.run()
+
+    assert simulated_perception.recorded_steps[-1] == RunStep.STOP_PERCEIVING
+
+
+def test_a_simulated_perception_needs_physics(cylinder_bot_world) -> None:
+    """
+    Without physics no camera is rendered, so there is nothing to perceive through.
+    """
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world,
+        used_robot=MinimalRobot,
+        simulated_perception=RecordingSimulatedPerception(),
+    )
+
+    with pytest.raises(PerceptionWithoutPhysicalSimulation):
+        demonstration.run()
+
+
+def test_the_plan_captures_frames_through_the_simulated_perception(
+    cylinder_bot_world,
+) -> None:
+    """
+    A query in the plan has the cameras deliver what they see before it is asked.
+    """
+    simulated_perception = RecordingSimulatedPerception()
+    demonstration = RecordingDemonstration(
+        world=cylinder_bot_world,
+        used_robot=MinimalRobot,
+        simulated_perception=simulated_perception,
+    )
+    executor = demonstration.create_executor(cylinder_bot_world)
+
+    executor.context.require_extension(
+        extension_type=CameraFrameCapture
+    ).capture_frame()
+
+    assert simulated_perception.recorded_steps == [RunStep.CAPTURE_FRAME]
 
 
 # %% event segmentation

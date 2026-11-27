@@ -12,7 +12,7 @@ from typing_extensions import TYPE_CHECKING
 
 from robokudo.analysis_engine import AnalysisEngineInterface
 from robokudo.annotators.collection_reader import CollectionReaderAnnotator
-from robokudo.annotators.gpsr.gpsr_results import QueryType
+from robokudo.annotators.gpsr.query_answers import QueryType
 from robokudo.annotators.gpsr.sitting import HumanPosture
 from robokudo.annotators.image_preprocessor import ImagePreprocessorAnnotator
 from robokudo.annotators.query import QueryAnnotator

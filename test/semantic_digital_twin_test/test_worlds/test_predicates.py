@@ -25,7 +25,6 @@ from semantic_digital_twin.reasoning.predicates import (
     InsideRegion,
     InContactWith,
     PlaceIsOccupied,
-    Reachable,
     SupportedBy,
     Supports,
     ViewDependentSpatialRelation,
@@ -40,7 +39,6 @@ from krrood.entity_query_language.verbalization.pipeline import (
 from semantic_digital_twin.reasoning.robot_predicates import (
     robot_in_collision,
     robot_holds_body,
-    blocking,
     is_body_in_gripper,
     bodies_in_gripper,
     is_pose_free_for_robot,
@@ -183,9 +181,9 @@ def test_in_contact() -> None:
         w.add_kinematic_structure_entity(b3)
         w.add_connection(Connection6DoF.create_with_dofs(parent=b1, child=b2, world=w))
         w.add_connection(Connection6DoF.create_with_dofs(parent=b2, child=b3, world=w))
-    assert InContactWith(b1, b2)()
-    assert not InContactWith(b1, b3)()
-    assert InContactWith(b2, b3)()
+    assert InContactWith(body1=b1, body2=b2)()
+    assert not InContactWith(body1=b1, body2=b3)()
+    assert InContactWith(body1=b2, body2=b3)()
 
 
 def test_robot_in_contact(pr2_world_copy: World) -> None:
@@ -397,40 +395,68 @@ def test_above_and_below(two_block_world) -> None:
     center, top = two_block_world
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(x=-3)
-    assert Above(top.center_of_mass, center.center_of_mass, pov)()
-    assert Below(center.center_of_mass, top.center_of_mass, pov)()
+    assert Above(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert Below(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(x=3, yaw=np.pi)
-    assert Above(top.center_of_mass, center.center_of_mass, pov)()
-    assert Below(center.center_of_mass, top.center_of_mass, pov)()
+    assert Above(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert Below(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(x=3, roll=np.pi)
-    assert Above(center.center_of_mass, top.center_of_mass, pov)()
-    assert Below(top.center_of_mass, center.center_of_mass, pov)()
+    assert Above(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
+    assert Below(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
 
 
 def test_left_and_right(two_block_world) -> None:
     center, top = two_block_world
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(x=3, roll=np.pi / 2)
-    assert LeftOf(top.center_of_mass, center.center_of_mass, pov)()
-    assert RightOf(center.center_of_mass, top.center_of_mass, pov)()
+    assert LeftOf(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert RightOf(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(x=3, roll=-np.pi / 2)
-    assert RightOf(top.center_of_mass, center.center_of_mass, pov)()
-    assert LeftOf(center.center_of_mass, top.center_of_mass, pov)()
+    assert RightOf(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert LeftOf(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
 
 def test_behind_and_in_front_of(two_block_world) -> None:
     center, top = two_block_world
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(z=-5, pitch=np.pi / 2)
-    assert Behind(top.center_of_mass, center.center_of_mass, pov)()
-    assert InFrontOf(center.center_of_mass, top.center_of_mass, pov)()
+    assert Behind(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert InFrontOf(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
     pov = HomogeneousTransformationMatrix.from_xyz_rpy(z=5, pitch=-np.pi / 2)
-    assert InFrontOf(top.center_of_mass, center.center_of_mass, pov)()
-    assert Behind(center.center_of_mass, top.center_of_mass, pov)()
+    assert InFrontOf(
+        point=top.center_of_mass, other=center.center_of_mass, point_of_view=pov
+    )()
+    assert Behind(
+        point=center.center_of_mass, other=top.center_of_mass, point_of_view=pov
+    )()
 
 
 def test_body_in_region(two_block_world) -> None:
@@ -451,21 +477,23 @@ def test_body_in_region(two_block_world) -> None:
             ),
         )
         center._world.add_connection(connection)
-    assert InsideRegion(center, region).compute_contained_fraction() == 0.5
-    assert InsideRegion(top, region).compute_contained_fraction() == 0.0
-    assert InsideRegion(center, region)()
-    assert not InsideRegion(top, region)()
+    assert InsideRegion(body=center, region=region).compute_contained_fraction() == 0.5
+    assert InsideRegion(body=top, region=region).compute_contained_fraction() == 0.0
+    assert InsideRegion(body=center, region=region)()
+    assert not InsideRegion(body=top, region=region)()
 
 
 def test_supporting(two_block_world) -> None:
     center, top = two_block_world
 
     with center._world.modify_world():
-        top.parent_connection.parent_T_connection_expression = (
-            HomogeneousTransformationMatrix.from_xyz_rpy(reference_frame=center, z=1.0)
+        top.parent_connection.update_parent_T_connection(
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
+                reference_frame=center, z=1.0
+            )
         )
-    assert SupportedBy(top, center)()
-    assert not SupportedBy(center, top)()
+    assert SupportedBy(supported=top, supporting=center)()
+    assert not SupportedBy(supported=center, supporting=top)()
 
 
 def test_is_body_in_gripper(pr2_world_copy) -> None:
@@ -476,9 +504,9 @@ def test_is_body_in_gripper(pr2_world_copy) -> None:
     left_gripper = (
         gripper[0]
         if LeftOf(
-            gripper[0].root.center_of_mass,
-            gripper[1].root.center_of_mass,
-            pr2.root.global_transform,
+            point=gripper[0].root.center_of_mass,
+            other=gripper[1].root.center_of_mass,
+            point_of_view=pr2.root.global_transform,
         )()
         else gripper[1]
     )
@@ -519,97 +547,6 @@ def test_is_body_in_gripper(pr2_world_copy) -> None:
     assert is_body_in_gripper(test_box, left_gripper) == 0
 
 
-def test_reachable(pr2_world_state_reset, rclpy_node) -> None:
-    pr2 = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
-
-    tool_frame_T_reachable_goal = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=-0.2,
-        y=0.3,
-        reference_frame=pr2.left_arm.end_effector.tool_frame,
-    )
-
-    assert Reachable(
-        tool_frame_T_reachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )()
-    assert not blocking(
-        tool_frame_T_reachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )
-    tool_frame_T_unreachable_goal = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=10, y=10, reference_frame=pr2.left_arm.end_effector.tool_frame
-    )
-    assert not Reachable(
-        tool_frame_T_unreachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )()
-
-    tool_frame_T_rotated_reachable_goal = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=-0.2,
-        y=0.3,
-        yaw=np.pi / 2,
-        reference_frame=pr2.left_arm.end_effector.tool_frame,
-    )
-    assert Reachable(
-        tool_frame_T_rotated_reachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )()
-
-    tool_frame_T_rotated_unreachable_goal = (
-        HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=-0.2,
-            y=0.3,
-            yaw=-np.pi / 2,
-            reference_frame=pr2.left_arm.end_effector.tool_frame,
-        )
-    )
-    assert not Reachable(
-        tool_frame_T_rotated_unreachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )()
-
-
-def test_blocking(pr2_world_copy) -> None:
-    pr2 = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
-    obstacle = Body(name=PrefixedName("obstacle"))
-    collision = Box(
-        scale=Scale(3.0, 1.0, 1.0),
-        origin=HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=1.0, z=0.5, reference_frame=obstacle
-        ),
-    )
-    obstacle.collision = ShapeCollection([collision])
-    obstacle.visual = ShapeCollection([collision])
-
-    with pr2_world_copy.modify_world():
-        pr2_world_copy.add_connection(
-            Connection6DoF.create_with_dofs(
-                parent=pr2_world_copy.root,
-                child=obstacle,
-                world=pr2_world_copy,
-            )
-        )
-
-    assert obstacle not in pr2.bodies
-    assert robot_in_collision(pr2)
-
-    tool_frame_T_reachable_goal = HomogeneousTransformationMatrix.from_xyz_rpy(
-        x=-0.2,
-        y=0.3,
-        reference_frame=pr2.left_arm.end_effector.tool_frame,
-    )
-    assert blocking(
-        tool_frame_T_reachable_goal,
-        pr2.left_arm.root,
-        pr2.left_arm.end_effector.tool_frame,
-    )
-
-
 def test_region_is_occupied(pr2_world_state_reset) -> None:
     view = pr2_world_state_reset.get_semantic_annotations_by_type(PR2)[0]
 
@@ -617,9 +554,9 @@ def test_region_is_occupied(pr2_world_state_reset) -> None:
         0, 0, 0, 1, 1, 1, HomogeneousTransformationMatrix()
     )
     assert not PlaceIsOccupied(
-        target_box,
-        Pose.from_xyz_rpy(2.5, 2, 0, reference_frame=pr2_world_state_reset.root),
-        pr2_world_state_reset,
+        box=target_box,
+        pose=Pose.from_xyz_rpy(2.5, 2, 0, reference_frame=pr2_world_state_reset.root),
+        world=pr2_world_state_reset,
     )()
 
     view.root.parent_connection.origin = HomogeneousTransformationMatrix.from_xyz_rpy(
@@ -627,13 +564,17 @@ def test_region_is_occupied(pr2_world_state_reset) -> None:
     )
     pr2_world_state_reset.notify_state_change()
 
-    assert PlaceIsOccupied(target_box, view.root.global_pose, pr2_world_state_reset)()
+    assert PlaceIsOccupied(
+        box=target_box, pose=view.root.global_pose, world=pr2_world_state_reset
+    )()
 
     assert not PlaceIsOccupied(
-        target_box,
-        Pose.from_xyz_rpy(3.5, 2.5, 1, 0, reference_frame=pr2_world_state_reset.root),
-        pr2_world_state_reset,
-        view.bodies_with_collision,
+        box=target_box,
+        pose=Pose.from_xyz_rpy(
+            3.5, 2.5, 1, 0, reference_frame=pr2_world_state_reset.root
+        ),
+        world=pr2_world_state_reset,
+        allowed_bodies=view.bodies_with_collision,
     )()
 
 
@@ -828,8 +769,8 @@ def _stand_on(center: Body, top: Body, gap: float = 0.0) -> None:
     Stand ``top`` on ``center``, leaving ``gap`` between the faces that meet.
     """
     with center._world.modify_world():
-        top.parent_connection.parent_T_connection_expression = (
-            HomogeneousTransformationMatrix.from_xyz_rpy(
+        top.parent_connection.update_parent_T_connection(
+            parent_T_connection=HomogeneousTransformationMatrix.from_xyz_rpy(
                 reference_frame=center, z=1.0 + gap
             )
         )
@@ -845,7 +786,7 @@ def test_a_body_resting_within_the_contact_tolerance_is_supported(
     center, top = two_block_world
     _stand_on(center, top, gap=RESTING_CONTACT_TOLERANCE / 2)
 
-    assert SupportedBy(top, center)()
+    assert SupportedBy(supported=top, supporting=center)()
 
 
 def test_a_body_hovering_beyond_the_contact_tolerance_is_not_supported(
@@ -854,7 +795,7 @@ def test_a_body_hovering_beyond_the_contact_tolerance_is_not_supported(
     center, top = two_block_world
     _stand_on(center, top, gap=RESTING_CONTACT_TOLERANCE * 2)
 
-    assert not SupportedBy(top, center)()
+    assert not SupportedBy(supported=top, supporting=center)()
 
 
 def test_a_body_inside_another_s_bounding_box_but_not_touching_it_is_not_supported() -> (
@@ -903,7 +844,7 @@ def test_a_body_inside_another_s_bounding_box_but_not_touching_it_is_not_support
             )
         )
 
-    assert not SupportedBy(beside_the_ball, ball)()
+    assert not SupportedBy(supported=beside_the_ball, supporting=ball)()
 
 
 def test_a_body_standing_in_a_container_is_supported_by_it() -> None:
@@ -959,7 +900,7 @@ def test_a_body_standing_in_a_container_is_supported_by_it() -> None:
             )
         )
 
-    assert SupportedBy(content, container)()
+    assert SupportedBy(supported=content, supporting=container)()
 
 
 def test_bodies_a_gap_apart_are_in_contact_within_a_threshold_that_spans_it(
@@ -972,7 +913,9 @@ def test_bodies_a_gap_apart_are_in_contact_within_a_threshold_that_spans_it(
     center, top = two_block_world
     _stand_on(center, top, gap=RESTING_CONTACT_TOLERANCE / 2)
 
-    assert InContactWith(center, top, maximum_distance=RESTING_CONTACT_TOLERANCE)()
+    assert InContactWith(
+        body1=center, body2=top, maximum_distance=RESTING_CONTACT_TOLERANCE
+    )()
 
 
 def test_a_body_does_not_support_itself(two_block_world) -> None:
@@ -982,7 +925,7 @@ def test_a_body_does_not_support_itself(two_block_world) -> None:
     """
     center, _ = two_block_world
 
-    assert not SupportedBy(center, center)()
+    assert not SupportedBy(supported=center, supporting=center)()
 
 
 # %% a body rests on what pushes it up
@@ -1058,7 +1001,7 @@ def test_a_body_touched_only_on_its_side_is_not_supported_by_what_touches_it() -
         ),
     )
 
-    assert not SupportedBy(crate, kerb)()
+    assert not SupportedBy(supported=crate, supporting=kerb)()
 
 
 def _box_on_a_slope(slope: float) -> tuple[Body, Body]:
@@ -1091,13 +1034,13 @@ def _box_on_a_slope(slope: float) -> tuple[Body, Body]:
 def test_a_body_on_a_slope_gentler_than_the_steepest_allowed_is_supported() -> None:
     box, slab = _box_on_a_slope(_steepest_supporting_slope() / 2)
 
-    assert SupportedBy(box, slab)()
+    assert SupportedBy(supported=box, supporting=slab)()
 
 
 def test_a_body_on_a_slope_steeper_than_the_steepest_allowed_is_not_supported() -> None:
     box, slab = _box_on_a_slope(_steepest_supporting_slope() * 1.5)
 
-    assert not SupportedBy(box, slab)()
+    assert not SupportedBy(supported=box, supporting=slab)()
 
 
 def test_a_body_standing_upside_down_is_supported_by_what_it_stands_on() -> None:
@@ -1118,7 +1061,7 @@ def test_a_body_standing_upside_down_is_supported_by_what_it_stands_on() -> None
         ),
     )
 
-    assert SupportedBy(crate, table)()
+    assert SupportedBy(supported=crate, supporting=table)()
 
 
 @pytest.mark.parametrize(
@@ -1143,7 +1086,7 @@ def test_a_body_rests_on_a_surface_whichever_of_the_two_is_checked_first(
         HomogeneousTransformationMatrix.from_xyz_rpy(z=0.15, reference_frame=table),
     )
 
-    assert SupportedBy(crate, table)()
+    assert SupportedBy(supported=crate, supporting=table)()
 
 
 def test_a_body_taller_than_the_deepest_allowed_clipping_is_supported_by_the_floor_of_a_container() -> (
@@ -1190,7 +1133,7 @@ def test_a_body_taller_than_the_deepest_allowed_clipping_is_supported_by_the_flo
         ),
     )
 
-    assert SupportedBy(bottle, container)()
+    assert SupportedBy(supported=bottle, supporting=container)()
 
 
 def test_a_body_sunk_deeper_than_the_deepest_allowed_clipping_is_not_supported() -> (
@@ -1214,7 +1157,7 @@ def test_a_body_sunk_deeper_than_the_deepest_allowed_clipping_is_not_supported()
         ),
     )
 
-    assert not SupportedBy(crate, table)()
+    assert not SupportedBy(supported=crate, supporting=table)()
 
 
 # %% a spatial relation is something a query can state
@@ -1234,7 +1177,6 @@ def test_a_view_dependent_spatial_relation_is_a_predicate() -> None:
     [
         InContactWith,
         VisibleTo,
-        Reachable,
         SupportedBy,
         Supports,
         InsideOf,
@@ -1256,7 +1198,7 @@ def test_containment_answers_whether_it_holds_rather_than_by_how_much(
 ) -> None:
     center, top = two_block_world
 
-    assert InsideOf(top, center)() in (True, False)
+    assert InsideOf(body=top, other=center)() in (True, False)
 
 
 def test_containment_reports_the_fraction_it_measured(two_block_world) -> None:
@@ -1265,10 +1207,10 @@ def test_containment_reports_the_fraction_it_measured(two_block_world) -> None:
     on its own for the callers that compare it against a threshold of their own.
     """
     center, top = two_block_world
-    relation = InsideOf(top, center)
+    relation = InsideOf(body=top, other=center)
 
     assert relation.compute_containment_ratio() == pytest.approx(
-        InsideOf(top, center).compute_containment_ratio()
+        InsideOf(body=top, other=center).compute_containment_ratio()
     )
 
 
@@ -1281,10 +1223,12 @@ def test_the_threshold_is_what_turns_the_measurement_into_a_verdict(
     constant hidden in the caller.
     """
     center, top = two_block_world
-    measured = InsideOf(top, center).compute_containment_ratio()
+    measured = InsideOf(body=top, other=center).compute_containment_ratio()
 
-    assert InsideOf(top, center, minimum_containment_ratio=measured)()
-    assert not InsideOf(top, center, minimum_containment_ratio=measured + 0.01)()
+    assert InsideOf(body=top, other=center, minimum_containment_ratio=measured)()
+    assert not InsideOf(
+        body=top, other=center, minimum_containment_ratio=measured + 0.01
+    )()
 
 
 # %% measuring containment
@@ -1301,7 +1245,7 @@ def test_containment_is_the_fraction_of_vertices_within_the_other_s_bounding_box
         world.add_kinematic_structure_entity(box)
     _fix_to(box, crate, HomogeneousTransformationMatrix.from_xyz_rpy(z=0.5))
 
-    assert InsideOf(crate, box).compute_containment_ratio() == 0.5
+    assert InsideOf(body=crate, other=box).compute_containment_ratio() == 0.5
 
 
 def test_containment_is_measured_against_the_world_aligned_bounding_box():
@@ -1318,7 +1262,7 @@ def test_containment_is_measured_against_the_world_aligned_bounding_box():
     _fix_to(room, box, HomogeneousTransformationMatrix.from_xyz_rpy(yaw=np.pi / 4))
     _fix_to(room, crate, HomogeneousTransformationMatrix.from_xyz_rpy(x=0.6, y=0.6))
 
-    assert InsideOf(crate, box).compute_containment_ratio() == 1.0
+    assert InsideOf(body=crate, other=box).compute_containment_ratio() == 1.0
 
 
 def _sphere_body(name: str, radius: float, subdivisions: int) -> Body:
@@ -1353,7 +1297,7 @@ def test_measuring_containment_allocates_less_than_a_copy_of_both_meshes():
     with world.modify_world():
         world.add_kinematic_structure_entity(bowl)
     _fix_to(bowl, ball, HomogeneousTransformationMatrix.from_xyz_rpy())
-    relation = InsideOf(ball, bowl)
+    relation = InsideOf(body=ball, other=bowl)
     relation.compute_containment_ratio()
     geometry_size = sum(
         mesh.vertices.nbytes + mesh.faces.nbytes
@@ -1398,20 +1342,6 @@ def test_a_relation_is_generic_in_the_kinds_of_thing_it_relates(
 
 
 # %% how a relation reads
-
-
-def test_reachability_reads_the_pose_as_what_is_reachable() -> None:
-    """
-    Reachability is stated about the pose, by the tip that has to arrive at it, so the
-    pose is the subject of the sentence rather than the chain that reaches for it.
-    """
-    operands = placeholder_operands(Reachable)
-    operands.update(Reachable._example_operand_values_())
-
-    assert (
-        verbalize_expression(Reachable(**operands))
-        == "a HomogeneousTransformationMatrix is reachable by a Body"
-    )
 
 
 @pytest.mark.parametrize(

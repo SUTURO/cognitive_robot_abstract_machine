@@ -16,10 +16,12 @@ import pytest
 from typing_extensions import Iterator
 
 from coraplex.demonstrations import RobotDemonstration
+from coraplex.perception import CameraFrameCapture
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import RealRobotPlanExecutor
 from coraplex.robot_plans.generated_commands import PersonDetection
 from robokudo.analysis_engine_process import AnalysisEngineProcess
+from robokudo.io.simulated_camera import RoboKudoSimulatedPerception
 from semantic_digital_twin.adapters.multi_sim import MujocoSim
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
 from semantic_digital_twin.adapters.multi_sim import MujocoGeom
@@ -390,3 +392,51 @@ def test_tearing_down_before_perception_started_stops_nothing(
     real_robot_demonstration.tear_down()
 
     assert analysis_engine.stops == 0
+
+
+# %% Perceiving in simulation
+
+
+@pytest.fixture
+def simulated_demonstration(
+    gpsr_demo: ModuleType, analysis_engine: RecordingAnalysisEngine
+) -> RobotDemonstration:
+    """
+    The demonstration of a command without plans in MuJoCo, with perception.
+    """
+    return gpsr_demo.GeneratedCommandDemonstration(
+        json_plan='{"plans": []}',
+        instruction="",
+        analysis_engine=analysis_engine,
+    )
+
+
+def test_simulated_run_perceives_through_the_simulated_head_camera(
+    simulated_demonstration: RobotDemonstration,
+    analysis_engine: RecordingAnalysisEngine,
+) -> None:
+    """
+    In a physically simulated run, the analysis engine runs inside the simulated
+    perception of the demonstration, which starts and stops it.
+    """
+    assert isinstance(
+        simulated_demonstration.simulated_perception, RoboKudoSimulatedPerception
+    )
+    assert (
+        simulated_demonstration.simulated_perception.analysis_engine is analysis_engine
+    )
+
+
+def test_capturing_frames_survives_rebinding_to_a_world_copy(
+    simulated_demonstration: RobotDemonstration, demonstration_world: World
+) -> None:
+    """
+    A statement trial rebinds the context extensions to a copy of the world; the frame
+    capture of the copy captures through the same simulated perception.
+    """
+    perception = simulated_demonstration.simulated_perception
+    capture = CameraFrameCapture(capture_frame=perception.capture_frame)
+
+    rebound = demonstration_world.rebind_world_entities(capture)
+
+    assert rebound.capture_frame.__self__ is perception

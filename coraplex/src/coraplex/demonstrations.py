@@ -20,7 +20,10 @@ from functools import partial
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from typing_extensions import Callable
 
+from coraplex.exceptions import PerceptionWithoutPhysicalSimulation
+from coraplex.perception import CameraFrameCapture
 from coraplex.plans.executors import (
     KinematicallySimulatedPlanExecutor,
     PhysicallySimulatedPlanExecutor,
@@ -30,9 +33,12 @@ from coraplex.plans.executors import (
 from cramph.visualization import RvizVisualization, WorldVisualization
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
-from semantic_digital_twin.adapters.multi_sim import MujocoSim
-from semantic_digital_twin.adapters.ros.world_fetcher import fetch_world_from_service
-from semantic_digital_twin.adapters.ros.world_synchronizer import WorldSynchronizer
+from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix
+from semantic_digital_twin.adapters.multi_sim import MujocoSim, SimulatedPerception
+from semantic_digital_twin.adapters.ros.world_fetcher import (
+    fetch_world_from_service,
+    join_shared_world,
+)
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
@@ -148,8 +154,10 @@ class RobotDemonstration(ABC):
     """
     A robot demonstration that performs its plan in the scene of :meth:`build_scene`,
     either against a real controller, whose world the scene is merged into, or in
-    simulation, where the robot is put into the scene. A physically simulated run
-    performs the plan in the physics of :meth:`build_simulation`.
+    simulation, where the robot is put into the scene.
+
+    A physically simulated run performs the plan in the physics of
+    :meth:`build_simulation`.
     """
 
     used_robot: type[AbstractRobot]
@@ -196,8 +204,10 @@ class RobotDemonstration(ABC):
     scene_joints_movable: bool = True
     """
     Whether the joints of the scene, such as the hinges of its doors and the slides of
-    its drawers, can move. If not, :meth:`build_scene` replaces each of them with a fixed
-    connection holding it where the scene was built with it.
+    its drawers, can move.
+
+    If not, :meth:`build_scene` replaces each of them with a fixed connection holding it
+    where the scene was built with it.
     """
 
     simulation_time_per_action: timedelta | None = None
@@ -217,10 +227,25 @@ class RobotDemonstration(ABC):
     the scene to come to rest.
     """
 
+    map_T_scene: HomogeneousTransformationMatrix = field(
+        default_factory=HomogeneousTransformationMatrix
+    )
+    """
+    Where the root of the scene lies in the map frame the real robot localizes in.
+    """
+
     visualization: WorldVisualization | None = None
     """
-    Shows every simulated run of this demonstration. Left ``None``, a simulated run is
-    shown in RViz through :attr:`ros_node`, if there is one; a real run is never shown.
+    Shows every simulated run of this demonstration.
+
+    Left ``None``, a simulated run is shown in RViz through :attr:`ros_node`, if there
+    is one; a real run is never shown.
+    """
+
+    simulated_perception: SimulatedPerception | None = None
+    """
+    The perception of the robot in a physically simulated run, which the plan can query;
+    ``None`` for a run that perceives nothing in simulation.
     """
 
     ros_session: RobotDemonstrationRosSession | None = field(init=False, default=None)
@@ -244,8 +269,9 @@ class RobotDemonstration(ABC):
     @abstractmethod
     def robot_specification(self) -> RobotSpecification:
         """
-        How a simulated run puts :attr:`used_robot` into the scene. A real run takes the
-        robot from the controller instead.
+        How a simulated run puts :attr:`used_robot` into the scene.
+
+        A real run takes the robot from the controller instead.
 
         :return: The robot to put into the scene, with where it starts and how fast its
             drive is.
@@ -278,8 +304,8 @@ class RobotDemonstration(ABC):
         """
         Build what the plan's nodes read from their context, at least the
         :class:`~coraplex.plans.context_extensions.RobotAccess` of the robot resolved in
-        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting`
-        if the plan is to be rewritten.
+        ``world``, and the :class:`~coraplex.plans.plan_transformation.PlanRewriting` if
+        the plan is to be rewritten.
         """
 
     @abstractmethod
@@ -361,20 +387,26 @@ class RobotDemonstration(ABC):
     def fetch_real_world(self) -> World:
         """
         Fetch the world the controller serves and keep it synchronized with it, and
-        merge the scene into it unless :meth:`is_scene_populated` finds it there already.
+        merge the scene into it unless :meth:`is_scene_populated` finds it there
+        already.
 
-        The scene's root is fixed to the root of the fetched world, which is the map frame
-        the robot localizes in.
+        The scene's root is fixed at :attr:`map_T_scene` to the root of the fetched
+        world, which is the map frame the robot localizes in.
 
         :return: The world the controller serves, holding the scene.
         """
-        world = self.ros_session.fetch_world()
-        WorldSynchronizer(_world=world, node=self.ros_session.node)
+        world = join_shared_world(
+            self.ros_session.node, timeout_seconds=WORLD_FETCH_TIMEOUT_SECONDS
+        )
         if not self.is_scene_populated(world):
             scene = self.build_scene()
             world.merge_world(
                 scene,
-                root_connection=FixedConnection(parent=world.root, child=scene.root),
+                root_connection=FixedConnection(
+                    parent=world.root,
+                    child=scene.root,
+                    parent_T_connection_expression=self.map_T_scene,
+                ),
             )
         return world
 
@@ -404,30 +436,53 @@ class RobotDemonstration(ABC):
     def start_simulation(self, world: World) -> None:
         """
         Start the physics of a run of a
-        :class:`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor`, and let it
-        step for :attr:`settling_duration`. Starts nothing for any other run.
+        :class:`~coraplex.plans.executors.PhysicallySimulatedPlanExecutor` with the
+        cameras of :attr:`simulated_perception` mounted, let it step for
+        :attr:`settling_duration`, then start :attr:`simulated_perception`. Starts
+        nothing for any other run.
 
         :param world: The world the plan is performed in.
+        :raises PerceptionWithoutPhysicalSimulation: If :attr:`simulated_perception` is
+            set for a run without physics.
         """
-        if not issubclass(self.executor_type, PhysicallySimulatedPlanExecutor):
+        physically_simulated = issubclass(
+            self.executor_type, PhysicallySimulatedPlanExecutor
+        )
+        if self.simulated_perception is not None and not physically_simulated:
+            raise PerceptionWithoutPhysicalSimulation(executor_type=self.executor_type)
+        if not physically_simulated:
             return
+        if self.simulated_perception is not None:
+            self.simulated_perception.mount_cameras(world=world)
         self.simulation = self.build_simulation(world)
         self.simulation.start_stepped_simulation()
         self.simulation.step_simulation(self.settling_duration)
+        if self.simulated_perception is not None:
+            self.simulated_perception.start_perceiving(
+                simulation=self.simulation, ros_node=self.ros_node
+            )
 
     def create_executor(self, world: World) -> PlanExecutor:
         """
         :param world: The world the plan is performed in.
         :return: An executor of :attr:`executor_type`, set up the way this demonstration
             performs its plan in :attr:`simulation`, if there is one, showing its runs
-            with :attr:`visualization`.
+            with :attr:`visualization`, and whose plan captures the frames of
+            :attr:`simulated_perception`.
         """
         executor_type = self.executor_type
         if self.simulation is not None:
             executor_type = partial(executor_type, simulation=self.simulation)
+        context_extensions = self.build_context_extensions(world)
+        if self.simulated_perception is not None:
+            context_extensions.append(
+                CameraFrameCapture(
+                    capture_frame=self.simulated_perception.capture_frame
+                )
+            )
         executor = executor_type(
-            StatechartContext.with_extensions(
-                world, self.build_context_extensions(world)
+            context=StatechartContext.with_extensions(
+                world=world, extensions=context_extensions
             ),
             ros_node=self.ros_node,
             collision_avoidance=self.collision_avoidance,
@@ -450,26 +505,49 @@ class RobotDemonstration(ABC):
             world = self.acquire_world()
             self.start_simulation(world)
             for _ in range(self.repetitions):
-                executor = self.create_executor(world)
-                statechart = self.build_statechart(executor.context)
-                event_segmentation = (
-                    self.segment_events(world)
-                    if self.event_segmentation
-                    else nullcontext()
-                )
-                with event_segmentation:
-                    executor.compile(statechart)
-                    executor.execute()
-                executor.close()
+                self.perform_plan(world)
         finally:
             self.tear_down()
         return world
 
+    def perform_plan(self, world: World) -> None:
+        """
+        Perform the plan once against ``world``: the statechart of
+        :meth:`build_statechart`, in one run of an executor.
+
+        :param world: The world the plan is performed in.
+        """
+        self.execute_statechart(world, self.build_statechart)
+
+    def execute_statechart(
+        self,
+        world: World,
+        build_statechart: Callable[[StatechartContext], Statechart],
+    ) -> None:
+        """
+        Run one statechart against ``world`` with a new executor, segmenting its events
+        if :attr:`event_segmentation` asks for it.
+
+        :param world: The world the statechart runs in.
+        :param build_statechart: Builds the statechart in the executor's context.
+        """
+        executor = self.create_executor(world)
+        statechart = build_statechart(executor.context)
+        event_segmentation = (
+            self.segment_events(world) if self.event_segmentation else nullcontext()
+        )
+        with event_segmentation:
+            executor.compile(statechart=statechart)
+            executor.execute()
+        executor.close()
+
     def tear_down(self) -> None:
         """
-        Stop the physics, and release the ROS session if this demonstration started the
-        ROS context.
+        Stop :attr:`simulated_perception` and the physics, and release the ROS session if
+        this demonstration started the ROS context.
         """
+        if self.simulated_perception is not None:
+            self.simulated_perception.stop_perceiving()
         if self.simulation is not None:
             self.simulation.stop_simulation()
             self.simulation = None

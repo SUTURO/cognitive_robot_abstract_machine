@@ -3,19 +3,22 @@ from __future__ import annotations
 # %% Imports
 from dataclasses import dataclass, field
 from pathlib import Path
-from enum import Enum, StrEnum
+from enum import StrEnum
 from typing_extensions import cast
 
 import trimesh
 
 import numpy as np
 
+from krrood.patterns.float_enumeration import FloatEnum
+
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
+from semantic_digital_twin.predefined_maps.sofa_seats import SofaSeat
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
-    Floor,
-    LivingRoom,
-    Kitchen,
     Bedroom,
+    Floor,
+    Kitchen,
+    LivingRoom,
     Office,
 )
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
@@ -41,7 +44,6 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Oven,
     WallPanel,
     KitchenIsland,
-    SemanticEnvironmentAnnotation,
 )
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
@@ -75,7 +77,7 @@ from semantic_digital_twin.world_source import WorldSource
 
 
 # %% Articulation limits
-class MaximumSpeed(float, Enum):
+class MaximumSpeed(FloatEnum):
     """
     The speed limits of the kitchen's movable parts.
     """
@@ -450,7 +452,11 @@ class SofaResource(StrEnum):
 @dataclass
 class KitchenSofa:
     """
-    A sofa with two seat cushions, two back cushions and solid armrests.
+    A sofa with two seat cushions, two back cushions and solid armrests, facing along
+    its -x axis.
+
+    Above each seat cushion hangs the region of one :class:`SofaSeat` place, listed
+    among the seat places of the :class:`Sofa`.
     """
 
     origin_height: float = 0.34
@@ -508,6 +514,11 @@ class KitchenSofa:
     seat_surface_thickness: float = 0.005
     """
     Thickness of the virtual seating support region.
+    """
+    seat_place_height: float = 0.9
+    """
+    How far above the top of a seat cushion the region of its :class:`SofaSeat` place
+    reaches, enough to hold a seated adult up to the head.
     """
     geometry_directory: Path = field(
         default_factory=lambda: create_cache_dir(SofaResource.GEOMETRY)
@@ -631,12 +642,31 @@ class KitchenSofa:
             (inner_width, self.width / 2),
         ):
             meshes.append(self.arm.create_mesh(minimum, maximum, self.origin_height))
-        for minimum, maximum, back in (
-            (-inner_width, -self.cushion_gap / 2, self.left_back),
-            (self.cushion_gap / 2, inner_width, self.right_back),
-        ):
+        cushion_widths = {
+            SofaSeat.LEFT: (-inner_width, -self.cushion_gap / 2, self.left_back),
+            SofaSeat.RIGHT: (self.cushion_gap / 2, inner_width, self.right_back),
+        }
+        for minimum, maximum, back in cushion_widths.values():
             meshes.append(self.seat.create_mesh(minimum, maximum, self.origin_height))
             meshes.append(back.create_mesh(minimum, maximum, self.origin_height))
+        cushion_depths = [point.depth for point in self.seat.points]
+        cushion_top = max(point.height for point in self.seat.points)
+        seat_places = [
+            RegionSpecification.box(
+                name=seat.value,
+                scale=Scale(
+                    max(cushion_depths) - min(cushion_depths),
+                    maximum - minimum,
+                    self.seat_place_height,
+                ),
+                parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=(max(cushion_depths) + min(cushion_depths)) / 2,
+                    y=(maximum + minimum) / 2,
+                    z=cushion_top - self.origin_height + self.seat_place_height / 2,
+                ),
+            )
+            for seat, (minimum, maximum, _) in cushion_widths.items()
+        ]
         envelope = trimesh.boolean.union(meshes, engine="manifold")
         shape = Mesh.from_trimesh(
             envelope,
@@ -662,7 +692,7 @@ class KitchenSofa:
             root_specification=BodySpecification(
                 name=None,
                 shapes=ShapeCollection([shape]),
-                child_specifications=[seat_surface],
+                child_specifications=[seat_surface, *seat_places],
             ),
         )
         sofa = specification.spawn(world, parent_T_self=root_T_sofa)
@@ -671,6 +701,8 @@ class KitchenSofa:
                 Region, world.get_kinematic_structure_entity_by_name(seat_surface.name)
             )
         )
+        for seat in SofaSeat:
+            sofa.add_seat_place(seat.region_in(world))
         return sofa
 
 
@@ -778,7 +810,6 @@ class KitchenEnvironment(WorldSource):
         self._build_environment_walls(world)
         self._build_environment_furniture(world)
         self._build_environment_rooms(world)
-        self._build_apartment_floor(world)
 
         return world
 
@@ -2627,32 +2658,3 @@ class KitchenEnvironment(WorldSource):
             room_annotations.append(office)
 
             world.add_semantic_annotations(room_annotations)
-
-    def _build_apartment_floor(self, world: World, thickness: float = 0.01) -> None:
-        """
-        Annotates one floor spanning the whole environment with its top at the height
-        the robot stands at, so that a path between two rooms can be laid out on a
-        single floor.
-
-        :param world: The world holding the environment.
-        :param thickness: The thickness of the floor, in m.
-        """
-        with world.modify_world():
-            footprint = (
-                SemanticEnvironmentAnnotation(root=world.root, _world=world)
-                .as_bounding_box_collection_at_origin(
-                    HomogeneousTransformationMatrix(reference_frame=world.root)
-                )
-                .bounding_box()
-            )
-            Floor.create_with_new_body_in_world(
-                name="apartment_floor",
-                world=world,
-                scale=Scale(footprint.depth, footprint.width, thickness),
-                world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
-                    x=float(footprint.center.x),
-                    y=float(footprint.center.y),
-                    z=-thickness / 2,
-                    reference_frame=world.root,
-                ),
-            )

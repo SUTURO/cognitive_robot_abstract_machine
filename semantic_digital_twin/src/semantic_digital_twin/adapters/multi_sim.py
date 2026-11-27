@@ -1,3 +1,8 @@
+"""
+Conversion of worlds into MultiSim simulations, with their cameras, lights and MuJoCo
+properties.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -37,10 +42,12 @@ from physics_simulators.base_simulator import (
     SimulatorCallbackResult,
     SimulatorConstraints,
 )
+from krrood.adapters.json_field import JSONField
+from krrood.adapters.json_serializer import ExternalClassJSONSerializer
 from krrood.exceptions import UnboundGenericParameter
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from krrood.patterns.subclass_safe_generic import SubClassSafeGeneric
-from krrood.utils import recursive_subclasses
+from krrood.utils import get_full_class_name, recursive_subclasses
 from scipy.spatial.transform import Rotation
 from trimesh.visual import TextureVisuals
 
@@ -49,7 +56,6 @@ from semantic_digital_twin.callbacks.callback import (
     StateChangeCallback,
 )
 from semantic_digital_twin.datastructures.camera_model import PinholeCameraModel
-from semantic_digital_twin.robots.hsrb import HSRBHeadRGBDCamera
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.datastructures.unique_entity_names import UniqueEntityNames
 from semantic_digital_twin.exceptions import (
@@ -57,6 +63,7 @@ from semantic_digital_twin.exceptions import (
     MujocoEntityNotFoundError,
     SimulationAlreadyRunningError,
     SimulationNotStartedError,
+    SnapshotDoesNotFitSimulationError,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -65,6 +72,7 @@ from krrood_spatial_math.spatial_types import (
     RotationMatrix,
     Vector3,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.connections import (
     RevoluteConnection,
@@ -77,6 +85,7 @@ from semantic_digital_twin.world_description.connections import (
     WheeledDrive,
 )
 from semantic_digital_twin.world_description.degree_of_freedom import DegreeOfFreedom
+from semantic_digital_twin.world_description.derivatives import Derivatives
 from semantic_digital_twin.world_description.geometry import (
     Box,
     Cylinder,
@@ -86,7 +95,10 @@ from semantic_digital_twin.world_description.geometry import (
     MeshFileFormat,
     Color,
 )
-from semantic_digital_twin.world_description.contact import ContactParameters
+from semantic_digital_twin.world_description.contact import (
+    ContactFriction,
+    ContactParameters,
+)
 from semantic_digital_twin.world_description.world_entity import (
     Region,
     Body,
@@ -111,6 +123,7 @@ from semantic_digital_twin.world_description.world_modification import (
 )
 
 if TYPE_CHECKING:
+    from rclpy.node import Node
     from semantic_digital_twin.datastructures.camera_model import (
         FieldOfViewCameraModel,
     )
@@ -179,6 +192,70 @@ class MujocoActuatorProperty(StrEnum):
     """
 
 
+class MujocoContactDimensionality(IntEnum):
+    """
+    The dimensions MuJoCo resolves a contact in, its ``condim``, which decide which
+    friction coefficients of the contact act. MuJoCo resolves a contact in
+    :attr:`SLIDING` unless told otherwise, and in the more dimensions of its two geoms.
+
+    For more information, see:
+    https://mujoco.readthedocs.io/en/stable/modeling.html#contact
+    """
+
+    FRICTIONLESS = 1
+    """
+    Only the push along the contact normal; no friction acts.
+    """
+
+    SLIDING = 3
+    """
+    Sliding friction acts; the bodies are free to turn against each other.
+    """
+
+    SLIDING_AND_TORSIONAL = 4
+    """
+    Sliding and torsional friction act, so the bodies also resist turning around the
+    contact normal.
+    """
+
+    SLIDING_TORSIONAL_AND_ROLLING = 6
+    """
+    Sliding, torsional and rolling friction act, so the bodies also resist rolling over
+    each other.
+    """
+
+    @classmethod
+    def from_friction(cls, *, friction: ContactFriction) -> MujocoContactDimensionality:
+        """
+        :param friction: The friction a geom offers.
+        :return: The fewest dimensions in which every coefficient of `friction` that is
+            not zero acts.
+        """
+        if friction.rolling != 0:
+            return cls.SLIDING_TORSIONAL_AND_ROLLING
+        if friction.torsional != 0:
+            return cls.SLIDING_AND_TORSIONAL
+        if friction.sliding != 0:
+            return cls.SLIDING
+        return cls.FRICTIONLESS
+
+    def acting_friction(self, *, friction: ContactFriction) -> ContactFriction:
+        """
+        :param friction: The coefficients a geom declares.
+        :return: The coefficients of `friction` that act in these dimensions, the others
+            zero.
+        """
+        return ContactFriction(
+            sliding=friction.sliding if self >= self.SLIDING else 0.0,
+            torsional=(
+                friction.torsional if self >= self.SLIDING_AND_TORSIONAL else 0.0
+            ),
+            rolling=(
+                friction.rolling if self >= self.SLIDING_TORSIONAL_AND_ROLLING else 0.0
+            ),
+        )
+
+
 class GeomVisibilityAndCollisionType(IntEnum):
     """
     Enumeration of geometric visibility and collision attributes.
@@ -234,9 +311,9 @@ class MultiSimCamera(SimulatorAdditionalProperty):
     The name of the camera.
     """
 
-    body: Any = None
+    body: Body | None = None
     """
-    The body that the camera is attached to. This can be set to the name of the body or a reference to the body object itself.
+    The body the camera is attached to.
     """
 
 
@@ -1086,19 +1163,19 @@ class MujocoCamera(MultiSimCamera):
         return Rotation.from_euler("x", numpy.pi).as_quat(scalar_first=True).tolist()
 
     @classmethod
-    def mounted_on(cls, camera: Camera[FieldOfViewCameraModel]) -> Self:
+    def mount(cls, *, camera: Camera[FieldOfViewCameraModel]) -> Self:
         """
-        The camera that renders what a semantic camera sees, at its optical frame and
-        named after it.
+        Attach a MuJoCo camera that renders what ``camera`` sees to its optical frame,
+        named after that frame. Only a simulation built afterwards contains it.
 
-        :param camera: The semantic camera whose image to render.
-        :return: The MuJoCo camera, to be added to the root of the semantic camera.
+        :param camera: The semantic camera whose images to render.
+        :return: The attached MuJoCo camera.
         """
         pinhole = PinholeCameraModel.from_field_of_view(
             resolution=camera.resolution, field_of_view=camera.field_of_view
         )
         resolution = [float(camera.resolution.width), float(camera.resolution.height)]
-        return cls(
+        mujoco_camera = cls(
             name=camera.root.name.name,
             body=camera.root,
             quaternion=cls.quaternion_in_optical_frame,
@@ -1106,17 +1183,8 @@ class MujocoCamera(MultiSimCamera):
             focal_pixel=[pinhole.focal_length_x, pinhole.focal_length_y],
             sensor_size=resolution,
         )
-
-    @classmethod
-    def mount_hsr_head(cls, world: World) -> HSRBHeadRGBDCamera:
-        """Attach a MuJoCo camera to the HSR head camera before building the simulation.
-
-        :param world: The world containing the HSR head camera.
-        :return: The head camera whose optical frame carries the simulated camera.
-        """
-        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
-        camera.root.add_simulator_property(cls.mounted_on(camera))
-        return camera
+        camera.root.add_simulator_property(mujoco_camera)
+        return mujoco_camera
 
     @staticmethod
     def _look_at_rotation(
@@ -1249,6 +1317,46 @@ class MujocoLight(MultiSimLight):
     """
     Radius of the light's bulb, used for soft shadows.
     """
+
+
+# %% json of MuJoCo's enums
+
+
+class MujocoEnumJSONKey(StrEnum):
+    """
+    The keys of a serialized MuJoCo enum member besides its type.
+    """
+
+    VALUE = "value"
+    """
+    The integer MuJoCo gives the member.
+    """
+
+
+@dataclass
+class MujocoEnumJSONSerializer(ExternalClassJSONSerializer[None]):
+    """
+    Json serializer for the enums MuJoCo defines, such as :class:`mujoco.mjtLimited`,
+    so that the simulator properties carrying them can be synchronized.
+
+    The enums are bound from C and share no Python base class, which is why T is set to
+    None and they are recognized by the module that defines them.
+    """
+
+    @classmethod
+    def to_json(cls, *, instance: Any, **kwargs) -> dict[str, Any]:
+        return {
+            JSONField.TYPE: get_full_class_name(instance.__class__),
+            MujocoEnumJSONKey.VALUE: int(instance),
+        }
+
+    @classmethod
+    def from_json(cls, *, data: dict[str, Any], clazz: type, **kwargs: Any) -> Any:
+        return clazz(data[MujocoEnumJSONKey.VALUE])
+
+    @classmethod
+    def matches_generic_type(cls, *, clazz: type) -> bool:
+        return clazz.__module__ == mujoco.mjtLimited.__module__
 
 
 @dataclass
@@ -1820,7 +1928,7 @@ class MujocoConnectionJoints(Generic[ConnectionType], SubClassSafeGeneric, ABC):
         for realisation in recursive_subclasses(cls) + [cls]:
             try:
                 realised_type = realisation.get_type_of_generic_parameter(
-                    ConnectionType
+                    parameter=ConnectionType
                 )
             except UnboundGenericParameter:
                 continue
@@ -2045,11 +2153,10 @@ The type of wheeled drive a realisation realises.
 @dataclass
 class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
     """
-    A wheeled drive. If servos drive the degrees of freedom it is commanded with, it is
-    built as a slide along x, a slide along y and a hinge about z, all in the drive's
-    ``odom`` frame: the servos push its base across the floor at the commanded
-    velocity, and the positions the joints reach are the drive's odometry. Otherwise it
-    is built as no joint at all and its base stays where it is built.
+    A wheeled drive whose commanded degrees of freedom move its base in the ``odom``
+    frame and provide odometry. Without servos its base remains fixed.
+
+    The drive holds the base at its height; carried bodies do not collide with floors.
     """
 
     @classproperty
@@ -2074,14 +2181,45 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
         :return: Whether servos drive every degree of freedom the drive is commanded
             with.
         """
-        actuated = {
+        return {
+            degree_of_freedom.id for degree_of_freedom in self.connection.active_dofs
+        } <= self._actuated_degree_of_freedom_ids
+
+    @property
+    def _actuated_degree_of_freedom_ids(self) -> set[UUID]:
+        """
+        :return: The id of every degree of freedom of the world a servo drives.
+        """
+        return {
             degree_of_freedom.id
             for actuator in self.world.actuators
             for degree_of_freedom in actuator.dofs
         }
-        return {
-            degree_of_freedom.id for degree_of_freedom in self.connection.active_dofs
-        } <= actuated
+
+    @property
+    def carried_bodies(self) -> list[Body]:
+        """
+        :return: The colliding bodies the drive holds at its base's height: the base
+            and every body hanging from it through joints no servo drives, such as its
+            wheels and casters.
+        """
+        actuated = self._actuated_degree_of_freedom_ids
+        carried = []
+        unvisited = [self.connection.child]
+        while unvisited:
+            entity = unvisited.pop()
+            if isinstance(entity, Body) and entity.collision:
+                carried.append(entity)
+            unvisited += [
+                child
+                for child in entity.child_kinematic_structure_entities
+                if not {
+                    degree_of_freedom.id
+                    for degree_of_freedom in child.parent_connection.dofs
+                }
+                & actuated
+            ]
+        return carried
 
     @property
     def axes(self) -> list[DriveAxis]:
@@ -2106,6 +2244,10 @@ class MujocoWheeledDriveJoints(MujocoConnectionJoints[DriveType], ABC):
                 axis=(child_T_connection[:3, :3] @ axis.direction).tolist(),
                 pos=child_T_connection[:3, 3].tolist(),
             )
+        carried_bodies = self.carried_bodies
+        for floor in self.world.get_semantic_annotations_by_type(Floor):
+            for body in carried_bodies:
+                builder.exclude_contact(body_a=body, body_b=floor.root)
 
     def home_joint_positions(self) -> list[float]:
         return [self.world.state[axis.measured.id].position for axis in self.axes]
@@ -2481,11 +2623,11 @@ class MultiSimBuilder(ABC):
         self.element_names = SimulatorModelNames()
         self._start_build(file_path=file_path)
 
-        for body in world.bodies_topologically_sorted:
-            self.build_body(body=body)
-
-        for region in world.regions:
-            self.build_region(region=region)
+        for entity in world.kinematic_structure_entities_topologically_sorted:
+            if isinstance(entity, Body):
+                self.build_body(body=entity)
+            elif isinstance(entity, Region):
+                self.build_region(region=entity)
 
         for connection in world.connections_topologically_sorted:
             self._build_connection(connection=connection)
@@ -2657,6 +2799,12 @@ class MujocoBuilder(MultiSimBuilder):
 
     spec: mujoco.MjSpec = field(default=mujoco.MjSpec())
 
+    region_opacity: float = 0.2
+    """
+    How opaque the shapes of a region are drawn, whatever the opacity of their own color,
+    so what lies inside a region stays visible.
+    """
+
     minimum_mass: float = 1e-3
     """
     The mass, in kilograms, every body weighs at least, so that a frame without an
@@ -2772,6 +2920,9 @@ class MujocoBuilder(MultiSimBuilder):
         geom_props = MujocoGeomConverter.convert(
             shape, visible=is_visible, collidable=is_collidable
         )
+        if isinstance(parent, Region):
+            *color, _ = geom_props[MujocoGeomConverter.rgba_str]
+            geom_props[MujocoGeomConverter.rgba_str] = [*color, self.region_opacity]
         parent_body_spec = self.body_spec_of(parent)
         if geom_props["type"] == mujoco.mjtGeom.mjGEOM_MESH:
             if not self._parse_geom(geom_props=geom_props):
@@ -2792,6 +2943,9 @@ class MujocoBuilder(MultiSimBuilder):
         contact = shape.get_simulator_property_of_type(ContactParameters)
         if contact is not None:
             geom_props["friction"] = contact.friction.to_list()
+            geom_props["condim"] = MujocoContactDimensionality.from_friction(
+                friction=contact.friction
+            )
             if contact.stiffness is not None:
                 geom_props["solref"] = contact.stiffness.to_list()
             if contact.impedance is not None:
@@ -3160,7 +3314,7 @@ class MujocoBuilder(MultiSimBuilder):
             MujocoActuatorProperty.TRANSMISSION_TYPE: mujoco.mjtTrn.mjTRN_JOINT,
         }
 
-    def _build_camera(self, camera: MultiSimCamera) -> None:
+    def _build_camera(self, camera: MultiSimCamera):
         camera_name = camera.name
         camera_props = MujocoCameraConverter.convert(camera)
         camera_props.pop("body")
@@ -3281,6 +3435,16 @@ class MujocoBuilder(MultiSimBuilder):
         if pair in excluded:
             return
         excluded.add(pair)
+        self.exclude_contact(body_a=body_a, body_b=body_b)
+
+    def exclude_contact(self, *, body_a: Body, body_b: Body) -> None:
+        """
+        Tell MuJoCo never to check the two bodies for contact with each other.
+
+        :param body_a: One of the two bodies.
+        :param body_b: The other.
+        """
+        pair = sorted((self.body_spec_of(body_a).name, self.body_spec_of(body_b).name))
         self.spec.add_exclude(name="_".join(pair), bodyname1=pair[0], bodyname2=pair[1])
 
     def _build_equalities(self):
@@ -4022,8 +4186,27 @@ class JointBackedConnection:
     """
 
 
-@dataclass(eq=False)
+@dataclass(kw_only=True)
+class MujocoServoCommands:
+    """
+    What a :class:`MujocoSynchronizer` has commanded its actuators to at one moment.
+    """
+
+    position_set_points: dict[UUID, float]
+    """
+    The position each position servo is commanded to, by the id of its degree of freedom.
+    """
+
+    sent_controls: dict[str, float]
+    """
+    The control input last handed to each actuator, by the actuator's name.
+    """
+
+
+@dataclass(eq=False, kw_only=True)
 class MujocoSynchronizer(MultiSimSynchronizer):
+    """Synchronize a semantic world with a MuJoCo simulation."""
+
     simulator: MujocoSimulator
     entity_converter: type[EntityConverter] = field(default=MujocoConverter)
     entity_spawner: type[EntitySpawner] = field(default=MujocoEntitySpawner)
@@ -4399,6 +4582,42 @@ class MujocoSynchronizer(MultiSimSynchronizer):
         self._position_set_points.clear()
         self._command_actuators()
 
+    @property
+    def servo_commands(self) -> MujocoServoCommands:
+        """
+        A copy of what the actuators are commanded to now.
+        """
+        return MujocoServoCommands(
+            position_set_points=dict(self._position_set_points),
+            sent_controls=dict(self._sent_controls),
+        )
+
+    def restore_world_state(
+        self,
+        *,
+        world_state: NDArray[numpy.float64],
+        servo_commands: MujocoServoCommands,
+    ) -> None:
+        """
+        Put the world back to an earlier state and the actuators back to what they were
+        commanded to then, without pushing that state into the simulator.
+
+        :param world_state: The world's state, one row per member of
+            :class:`Derivatives`, one column per degree of freedom.
+        :param servo_commands: What the actuators were commanded to at that state.
+        """
+        with self._world._world_lock:
+            self._state_callback.pause()
+            try:
+                for row in Derivatives:
+                    self._world.state.set_derivative(row, world_state[row])
+                self._world.notify_state_change()
+                self._state_callback.update_previous_world_state()
+            finally:
+                self._state_callback.resume()
+            self._position_set_points = dict(servo_commands.position_set_points)
+            self._sent_controls = dict(servo_commands.sent_controls)
+
     def _read_6dof_from_qpos(
         self, connection: Connection6DoF, qpos_address: int
     ) -> None:
@@ -4729,7 +4948,35 @@ class MultiSim(ABC):
         return self.simulator.state == SimulatorState.RUNNING
 
 
+@dataclass(kw_only=True)
+class MujocoSimulationSnapshot:
+    """
+    One moment of a MuJoCo simulation and of the world it simulates, from which
+    :meth:`MujocoSim.restore_snapshot` lets the simulation continue again.
+    """
+
+    physics_state: NDArray[numpy.float64]
+    """
+    The simulator's integration state: positions, velocities, controls, simulated time
+    and every other quantity the integrator carries from one step to the next, laid out
+    as MuJoCo's ``mjSTATE_INTEGRATION``.
+    """
+
+    world_state: NDArray[numpy.float64]
+    """
+    The world's state at that moment: one row per member of :class:`Derivatives`, one
+    column per degree of freedom.
+    """
+
+    servo_commands: MujocoServoCommands
+    """
+    What the actuators were commanded to at that moment.
+    """
+
+
 class MujocoSim(MultiSim):
+    """Simulate a semantic world with MuJoCo."""
+
     simulator_class: ClassVar[type[BaseSimulator]] = MujocoSimulator
     synchronizer_class: ClassVar[type[MultiSimSynchronizer]] = MujocoSynchronizer
     builder_class: ClassVar[type[MultiSimBuilder]] = MujocoBuilder
@@ -4744,21 +4991,20 @@ class MujocoSim(MultiSim):
         than at the synchronizer's throttled rate.
 
         Every servo is handed the position its joint currently holds in the world, so
-        nothing rushes towards zero the moment the physics starts. The viewer, if any,
-        keeps showing the state of the last physics step also while nothing steps it.
+        nothing rushes towards zero the moment the physics starts.
 
         :raises SimulationAlreadyRunningError: If the simulation is already running.
         """
         if self.simulator.state == SimulatorState.RUNNING:
             raise SimulationAlreadyRunningError(self.world.root.name.name)
         self.synchronizer.sync_rate_hz = MujocoSynchronizer.UNTHROTTLED_SYNC_RATE_HZ
-        self.simulator.start(simulate_in_thread=False, render_in_thread=True)
+        self.simulator.start(simulate_in_thread=False, render_in_thread=False)
         self.synchronizer.command_actuators_from_world_state()
 
     def step_simulation(self, duration: timedelta) -> None:
         """
         Advance the physics of a simulation started with
-        :meth:`start_stepped_simulation`.
+        :meth:`start_stepped_simulation` and refresh the viewer.
 
         :param duration: How much simulated time to advance.
         :raises SimulationNotStartedError: If the simulation is not running.
@@ -4767,3 +5013,104 @@ class MujocoSim(MultiSim):
             raise SimulationNotStartedError(self.world.root.name.name)
         for _ in range(round(duration.total_seconds() / self.simulator.step_size)):
             self.simulator.step()
+        self.simulator.render()
+
+    def take_snapshot(self) -> MujocoSimulationSnapshot:
+        """
+        :return: The current moment of the simulation and its world, for
+            :meth:`restore_snapshot` to continue from later.
+        """
+        with self.world._world_lock, self.simulator._model_lock:
+            physics_state = numpy.empty(self._physics_state_size)
+            mujoco.mj_getState(
+                self.simulator._mj_model,
+                self.simulator._mj_data,
+                physics_state,
+                mujoco.mjtState.mjSTATE_INTEGRATION,
+            )
+            return MujocoSimulationSnapshot(
+                physics_state=physics_state,
+                world_state=numpy.stack(
+                    [self.world.state.get_derivative(row) for row in Derivatives]
+                ),
+                servo_commands=self.synchronizer.servo_commands,
+            )
+
+    def restore_snapshot(self, *, snapshot: MujocoSimulationSnapshot) -> None:
+        """
+        Put the simulation and its world back to the moment of a snapshot, so that the
+        physics continues from there exactly as it did after the snapshot was taken.
+
+        :param snapshot: A snapshot taken of this simulation by :meth:`take_snapshot`.
+        :raises SnapshotDoesNotFitSimulationError: If the snapshot was taken of a
+            simulation built from a different world.
+        """
+        if snapshot.physics_state.shape != (
+            self._physics_state_size,
+        ) or snapshot.world_state.shape != (len(Derivatives), len(self.world.state)):
+            raise SnapshotDoesNotFitSimulationError(
+                world_name=self.world.root.name.name
+            )
+        with self.world._world_lock:
+            self.synchronizer.restore_world_state(
+                world_state=snapshot.world_state,
+                servo_commands=snapshot.servo_commands,
+            )
+            with self.simulator._model_lock:
+                mujoco.mj_setState(
+                    self.simulator._mj_model,
+                    self.simulator._mj_data,
+                    snapshot.physics_state,
+                    mujoco.mjtState.mjSTATE_INTEGRATION,
+                )
+                mujoco.mj_forward(self.simulator._mj_model, self.simulator._mj_data)
+
+    @property
+    def _physics_state_size(self) -> int:
+        """
+        The number of values in the simulator's integration state.
+        """
+        return mujoco.mj_stateSize(
+            self.simulator._mj_model, mujoco.mjtState.mjSTATE_INTEGRATION
+        )
+
+
+# %% perception in a simulation
+
+
+@dataclass(kw_only=True)
+class SimulatedPerception(ABC):
+    """
+    The perception of a robot in a :class:`MujocoSim`: cameras the simulation renders,
+    and what perceives through them.
+    """
+
+    @abstractmethod
+    def mount_cameras(self, *, world: World) -> None:
+        """
+        Attach the cameras to ``world``, before the simulation of ``world`` is built.
+
+        :param world: The world holding the robot whose cameras are perceived through.
+        """
+
+    @abstractmethod
+    def start_perceiving(self, *, simulation: MujocoSim, ros_node: Node) -> None:
+        """
+        Start perceiving through the cameras of :meth:`mount_cameras`.
+
+        :param simulation: The running simulation of the world the cameras were mounted
+            in.
+        :param ros_node: The node to communicate through.
+        """
+
+    @abstractmethod
+    def capture_frame(self) -> None:
+        """
+        Deliver what the cameras see now, so the next query is answered about it.
+        """
+
+    @abstractmethod
+    def stop_perceiving(self) -> None:
+        """
+        Stop what :meth:`start_perceiving` started; does nothing if it never ran.
+        """

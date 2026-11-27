@@ -1,12 +1,11 @@
 """
-Tests for :meth:`semantic_digital_twin.adapters.multi_sim.MujocoCamera.mounted_on`.
+BTests for :meth:`semantic_digital_twin.adapters.multi_sim.MujocoCamera.mount`.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from unittest.mock import Mock
 
 import numpy
 import pytest
@@ -22,7 +21,6 @@ from semantic_digital_twin.datastructures.camera_resolution import CameraResolut
 from semantic_digital_twin.datastructures.field_of_view import FieldOfView
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.robots.robot_parts import Camera, RobotCamera
-from semantic_digital_twin.robots.hsrb import HSRBHeadRGBDCamera
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
     BodySpecification,
 )
@@ -34,7 +32,7 @@ from ...pytest_environment import runs_in_continuous_integration
 # %% a camera looking at a box
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CameraFacingABox:
     """
     A camera one meter above the world origin, looking along world x at a cube that
@@ -92,15 +90,12 @@ def camera_facing_a_box(camera_resolution: CameraResolution) -> CameraFacingABox
 
 
 @pytest.fixture
-def camera_simulation(
-    camera_facing_a_box: CameraFacingABox, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[MujocoSim]:
+def camera_simulation(camera_facing_a_box: CameraFacingABox) -> Iterator[MujocoSim]:
     """
     A running simulation of the camera facing the cube.
     """
-    monkeypatch.setenv("MUJOCO_GL", "egl")
     camera = camera_facing_a_box.camera
-    camera.root.add_simulator_property(MujocoCamera.mounted_on(camera))
+    MujocoCamera.mount(camera=camera)
     simulation = MujocoSim(world=camera.root._world, headless=True)
     simulation.start_stepped_simulation()
     simulation.step_simulation(timedelta(milliseconds=10))
@@ -108,25 +103,41 @@ def camera_simulation(
     simulation.stop_simulation()
 
 
-# %% what the mounted camera renders
+# %% where the camera is mounted
 
 
 @pytest.mark.parametrize("camera_resolution", [CameraResolution(width=160, height=120)])
-def test_mount_hsr_head_camera(camera_facing_a_box: CameraFacingABox) -> None:
+def test_mount_attaches_the_camera_to_the_optical_frame(
+    camera_facing_a_box: CameraFacingABox,
+) -> None:
     """
-    The HSR head camera is selected and attached to its optical frame.
+    The camera is attached to the optical frame of the semantic camera, and nowhere
+    else.
     """
-    world = Mock(spec=World)
     camera = camera_facing_a_box.camera
-    world.get_semantic_annotations_by_type.return_value = [camera]
 
-    mounted_camera = MujocoCamera.mount_hsr_head(world)
+    mujoco_camera = MujocoCamera.mount(camera=camera)
 
-    world.get_semantic_annotations_by_type.assert_called_once_with(HSRBHeadRGBDCamera)
-    assert mounted_camera is camera
-    assert camera.root.simulator_additional_properties == [
-        MujocoCamera.mounted_on(camera)
-    ]
+    assert mujoco_camera.body is camera.root
+    assert camera.root.simulator_additional_properties == [mujoco_camera]
+
+
+@pytest.mark.parametrize("camera_resolution", [CameraResolution(width=160, height=120)])
+def test_mounted_camera_is_named_after_the_optical_frame(
+    camera_facing_a_box: CameraFacingABox,
+) -> None:
+    """
+    The simulation renders the camera under the name of the optical frame, which is how
+    the images of the semantic camera are asked for.
+    """
+    camera = camera_facing_a_box.camera
+
+    mujoco_camera = MujocoCamera.mount(camera=camera)
+
+    assert mujoco_camera.name == camera.root.name.name
+
+
+# %% what the mounted camera renders
 
 
 @pytest.mark.skipif(

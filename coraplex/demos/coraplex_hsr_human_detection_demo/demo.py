@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy
 
 from coraplex.demonstrations import RobotDemonstration
-from coraplex.perception import CameraFrameCapture, RoboKudoQuery, RoboKudoQueryTask
+from coraplex.perception import RoboKudoQuery, RoboKudoQueryTask
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor, PlanExecutor
 from coraplex.robot_plans.actions.core.navigation import FaceAtAction
@@ -28,15 +28,16 @@ from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
+from cramph.threaded_nodes import FunctionCall
+from krrood.patterns.called_positionally import called_positionally
 from krrood.patterns.path_enumeration import PathEnumeration
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
-from robokudo.analysis_engine_process import AnalysisEngineProcess
-from robokudo.descriptors.camera_configs.config_hsr_ros2 import HsrRos2CameraConfig
-from robokudo.io.simulated_camera import SimulatedCameraPublisher
-from semantic_digital_twin.adapters.multi_sim import MujocoCamera, MujocoSim
+from robokudo.io.simulated_camera import RoboKudoSimulatedPerception
+from robokudo.scripts.query_test_client import PrettyResultPrinter
+from robokudo_msgs.action import Query
 from semantic_digital_twin.adapters.package_resolver import SearchPathFileResolver
 from semantic_digital_twin.adapters.urdf import URDFParser
-from semantic_digital_twin.robots.hsrb import HSRB, HSRBHeadRGBDCamera
+from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import Human
 from semantic_digital_twin.specifications.kinematic_structure_entities import (
@@ -83,11 +84,11 @@ class SceneBody(StrEnum):
 # %% the demonstration
 
 
-@dataclass
+@dataclass(kw_only=True)
 class HumanDetectionDemonstration(RobotDemonstration):
     """
-    The HSR parks its arm and turns towards a person to its left before asking its analysis
-    engine a query.
+    The HSR parks its arm and turns towards a person to its left before asking its
+    simulated perception a query.
     """
 
     used_robot: type[AbstractRobot] = HSRB
@@ -121,28 +122,13 @@ class HumanDetectionDemonstration(RobotDemonstration):
     How far to the robot's left the human stands, in meters.
     """
 
-    analysis_engine: AnalysisEngineProcess | None = None
-    """
-    The RoboKudo pipeline, or None to run the motion without perception.
-    """
-
     query: RoboKudoQuery = field(
-        default_factory=lambda: RoboKudoQuery(object_type="human")
+        default_factory=lambda: RoboKudoQuery.from_semantic_annotation(
+            semantic_annotation=Human
+        )
     )
     """
-    What the plan asks :attr:`analysis_engine` after facing the human.
-    """
-
-    camera_configuration: HsrRos2CameraConfig = field(
-        default_factory=HsrRos2CameraConfig
-    )
-    """
-    The topics and frames the head camera is published on, those of the real HSR.
-    """
-
-    camera_publisher: SimulatedCameraPublisher | None = field(init=False, default=None)
-    """
-    Publishes the head camera while :attr:`analysis_engine` runs.
+    What the plan asks :attr:`simulated_perception` after facing the human.
     """
 
     def scene_specification(self) -> WorldSpecification:
@@ -151,9 +137,11 @@ class HumanDetectionDemonstration(RobotDemonstration):
     def robot_specification(self) -> RobotSpecification:
         return RobotSpecification(self.used_robot)
 
+    @called_positionally
     def is_scene_populated(self, world: World) -> bool:
         return world.is_kinematic_structure_entity_in_world_by_name(SceneBody.HUMAN)
 
+    @called_positionally
     def populate_scene(self, world: World) -> None:
         """
         Stand the human :attr:`human_distance` to the left of where the robot starts,
@@ -182,70 +170,43 @@ class HumanDetectionDemonstration(RobotDemonstration):
                 Human(root=world.get_body_by_name(SceneBody.HUMAN))
             )
 
-    def build_simulation(self, world: World) -> MujocoSim:
-        """
-        Differs from
-        :meth:`~coraplex.demonstrations.RobotDemonstration.build_simulation` in mounting
-        a MuJoCo camera at the head's RGB-D camera first.
-
-        :param world: The world containing the robot and its head camera.
-        :return: The simulation of the world with its mounted camera.
-        """
-        MujocoCamera.mount_hsr_head(world)
-        return super().build_simulation(world)
-
-    def start_simulation(self, world: World) -> None:
-        """
-        Differs from
-        :meth:`~coraplex.demonstrations.RobotDemonstration.start_simulation` in then
-        publishing the head camera and starting :attr:`analysis_engine`, if any.
-
-        :param world: The world containing the robot and its head camera.
-        """
-        super().start_simulation(world)
-        if self.analysis_engine is None:
-            return
-        [camera] = world.get_semantic_annotations_by_type(HSRBHeadRGBDCamera)
-        self.camera_publisher = SimulatedCameraPublisher(
-            camera=camera,
-            simulation=self.simulation,
-            node=self.ros_node,
-            topics=self.camera_configuration,
-            frames=self.camera_configuration,
-        )
-        self.analysis_engine.start()
-
+    @called_positionally
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
-        extensions: list[ContextExtension] = [
-            RobotAccess(world.get_semantic_annotations_by_type(self.used_robot)[0])
+        return [
+            RobotAccess(
+                robot=world.get_semantic_annotations_by_type(self.used_robot)[0]
+            )
         ]
-        if self.camera_publisher is not None:
-            extensions.append(CameraFrameCapture(self.camera_publisher.publish))
-        return extensions
 
+    @called_positionally
     def build_statechart(self, context: StatechartContext) -> Statechart:
-        """
-        Park the arm and face the human before asking the analysis engine.
-
-        :param context: The plan's world and available resources.
-        :return: The statechart for the demonstration.
-        """
-        robot = context.require_extension(RobotAccess).robot
+        robot = context.require_extension(extension_type=RobotAccess).robot
         human = context.world.get_body_by_name(SceneBody.HUMAN)
         steps: list[StatechartNode] = [
             ParkArmsAction(arms=robot.all_arms),
-            FaceAtAction(target=Pose.from_xyz_rpy(reference_frame=human)),
+            FaceAtAction(look_target=Pose.from_xyz_rpy(reference_frame=human)),
         ]
-        if self.analysis_engine is not None:
-            steps.append(RoboKudoQueryTask(query=self.query))
+        if self.simulated_perception is not None:
+            query_task = RoboKudoQueryTask(query=self.query)
+            steps.append(query_task)
+            steps.append(
+                FunctionCall(
+                    function=lambda: print(
+                        "Formatted Result:\n"
+                        + PrettyResultPrinter().pretty_print_result(
+                            Query.Result(res=query_task.answer)
+                        )
+                    )
+                )
+            )
         statechart = Statechart(context=context)
-        statechart.add_node(Sequence(nodes=steps))
+        statechart.add_node(node=Sequence(nodes=steps))
         return statechart
 
     def tear_down(self) -> None:
         """
-        Extend :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down` by waiting
-        for the viewer to close and stopping the analysis engine.
+        Extend :meth:`~coraplex.demonstrations.RobotDemonstration.tear_down` by first
+        waiting for the viewer to close.
         """
         viewer_window = (
             None
@@ -257,8 +218,6 @@ class HumanDetectionDemonstration(RobotDemonstration):
             weakref.finalize(viewer_window, viewer_window_destroyed.set)
             del viewer_window
             viewer_window_destroyed.wait()
-        if self.camera_publisher is not None:
-            self.analysis_engine.stop()
         super().tear_down()
 
 
@@ -272,11 +231,7 @@ def main(headless: bool = False, perceives: bool = True) -> World:
     """
     return HumanDetectionDemonstration(
         headless=headless,
-        analysis_engine=(
-            AnalysisEngineProcess(analysis_engine="human_detection")
-            if perceives
-            else None
-        ),
+        simulated_perception=RoboKudoSimulatedPerception() if perceives else None,
     ).run()
 
 

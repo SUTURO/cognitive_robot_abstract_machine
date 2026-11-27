@@ -14,20 +14,18 @@ from cramph.executor import StatechartExecutor
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
 from giskardpy.motion_control import MotionControl
-from giskardpy.motion_statechart.goals.base_pose_goals import (
+from giskardpy.motion_statechart.tasks.drive_tasks import (
     MobileBasePoseGoal,
     DifferentialDriveBaseGoal,
     HolonomicBaseGoal,
     StraightLineBaseGoal,
-)
-from giskardpy.motion_statechart.exceptions import RobotWithoutMobileBaseError
-from giskardpy.motion_statechart.graph_node import EndMotion
-from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
-from giskardpy.motion_statechart.tasks.drive_tasks import (
     BaseOrientation,
     BasePosition,
     DrivenBaseRotation,
 )
+from giskardpy.motion_statechart.exceptions import RobotWithoutMobileBaseError
+from giskardpy.motion_statechart.graph_node import EndMotion
+from giskardpy.motion_statechart.monitors.overwrite_state_monitors import SetOdometry
 from semantic_digital_twin.robots.minimal_robot import MinimalRobot
 from semantic_digital_twin.robots.pr2 import PR2
 from semantic_digital_twin.robots.robot_parts import MobileBase
@@ -52,7 +50,9 @@ def test_a_holonomic_base_goal_moves_the_root_of_the_robot(
     robot = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
     target = _target(pr2_world_copy)
 
-    goal = HolonomicBaseGoal.moving_base_of(robot, target, threshold=0.05)
+    goal = HolonomicBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.05
+    )
 
     assert goal.mobile_base is robot.mobile_base
     assert goal.goal_pose is target
@@ -65,7 +65,9 @@ def test_a_differential_drive_goal_drives_the_drive_of_the_robot(
     robot = stretch_world_copy.get_semantic_annotations_by_type(Stretch)[0]
     target = _target(stretch_world_copy)
 
-    goal = DifferentialDriveBaseGoal.moving_base_of(robot, target, threshold=0.05)
+    goal = DifferentialDriveBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.05
+    )
 
     assert goal.mobile_base is robot.mobile_base
     assert goal.goal_pose is target
@@ -78,10 +80,15 @@ def test_a_differential_drive_goal_drives_the_drive_of_the_robot(
 def test_a_drive_goal_cannot_move_a_robot_without_a_mobile_base(
     self_collision_bot_world: World, goal_type: type[MobileBasePoseGoal]
 ) -> None:
+    """
+    No drive goal can be made for a robot without a mobile base.
+    """
     robot = self_collision_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
 
     with pytest.raises(RobotWithoutMobileBaseError) as raised:
-        goal_type.moving_base_of(robot, _target(self_collision_bot_world), 0.05)
+        goal_type.moving_base_of(
+            robot=robot, goal_pose=_target(self_collision_bot_world), threshold=0.05
+        )
 
     assert raised.value.robot is robot
 
@@ -92,7 +99,7 @@ def test_setting_the_odometry_writes_the_connection_above_the_robot(
     robot = pr2_world_copy.get_semantic_annotations_by_type(PR2)[0]
     target = _target(pr2_world_copy)
 
-    goal = SetOdometry.moving_base_of(robot, target, threshold=0.05)
+    goal = SetOdometry.moving_base_of(robot=robot, goal_pose=target, threshold=0.05)
 
     assert goal.odom_connection is robot.root.parent_connection
     np.testing.assert_allclose(goal.base_pose.to_np(), target.to_np())
@@ -110,8 +117,8 @@ def _compiled(world: World, goal: StatechartNode) -> StatechartExecutor:
         context=StatechartContext(world=world), extensions=[MotionControl()]
     )
     statechart = Statechart(context=executor.context)
-    statechart.add_node(goal)
-    statechart.add_node(EndMotion.when_true(goal))
+    statechart.add_node(node=goal)
+    statechart.add_node(node=EndMotion.when_true(node=goal))
     executor.compile(statechart=statechart)
     return executor
 
@@ -131,7 +138,9 @@ def test_a_holonomic_base_goal_constrains_only_x_y_and_yaw(
     cylinder_bot_world: World,
 ) -> None:
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
-    goal = HolonomicBaseGoal.moving_base_of(robot, _target(cylinder_bot_world), 0.01)
+    goal = HolonomicBaseGoal.moving_base_of(
+        robot=robot, goal_pose=_target(cylinder_bot_world), threshold=0.01
+    )
 
     _compiled(cylinder_bot_world, goal)
 
@@ -170,7 +179,9 @@ def test_a_holonomic_base_goal_reaches_the_pose_on_the_floor_below_its_target(
         yaw=2.0,
         reference_frame=cylinder_bot_world.root,
     )
-    goal = HolonomicBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = HolonomicBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
 
     executor.tick_until_end()
@@ -200,10 +211,10 @@ def _peak_yaw_per_tick_towards(
     """
     base = world.get_semantic_annotations_by_type(MinimalRobot)[0].root
     turn = BaseOrientation(
-        base=base,
+        driven_body=base,
         goal_pose=Pose.from_xyz_rpy(yaw=yaw, reference_frame=world.root),
         parent_T_goal_reference_frame=HomogeneousTransformationMatrix(),
-        cruise_velocity=cruise_velocity,
+        cruise_angular_velocity=cruise_velocity,
     )
     executor = _compiled(world, turn)
 
@@ -242,7 +253,7 @@ def test_a_base_turns_as_fast_towards_a_far_away_yaw_as_towards_a_close_one(
 
 
 def _base_poses_until_end(
-    executor: StatechartExecutor, robot: MinimalRobot, tick_limit: int = 1_000
+    *, executor: StatechartExecutor, robot: MinimalRobot, tick_limit: int = 1_000
 ) -> list[Pose]:
     """
     :param tick_limit: How many ticks the statechart may take to end.
@@ -265,9 +276,15 @@ def _base_poses_until_end(
 def test_a_straight_line_base_goal_reaches_its_target(
     cylinder_bot_world: World,
 ) -> None:
+    """
+    A straight-line base goal ends with the base at the target's position and
+    orientation.
+    """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
 
     executor.tick_until_end()
@@ -289,14 +306,16 @@ def test_a_straight_line_base_goal_faces_the_way_the_base_moves(
     """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     start = robot.root.global_pose
     direction_to_target = np.arctan2(
         float(target.y - start.y), float(target.x - start.x)
     )
 
-    poses = _base_poses_until_end(executor, robot)
+    poses = _base_poses_until_end(executor=executor, robot=robot)
 
     yaws_while_driving = [
         float(pose.yaw)
@@ -316,13 +335,15 @@ def test_a_straight_line_base_goal_stays_on_the_line_to_its_target(
     """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = _target(cylinder_bot_world)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     start = robot.root.global_pose
     line = np.array([float(target.x - start.x), float(target.y - start.y)])
     line /= np.linalg.norm(line)
 
-    poses = _base_poses_until_end(executor, robot)
+    poses = _base_poses_until_end(executor=executor, robot=robot)
 
     distances_from_line = [
         abs(line[0] * float(pose.y - start.y) - line[1] * float(pose.x - start.x))
@@ -334,9 +355,15 @@ def test_a_straight_line_base_goal_stays_on_the_line_to_its_target(
 def test_a_straight_line_base_goal_returns_to_the_line_after_being_pushed_off_it(
     cylinder_bot_world: World,
 ) -> None:
+    """
+    A base pushed off the straight line to its goal returns to the line and drives the
+    rest of the way along it.
+    """
     robot = cylinder_bot_world.get_semantic_annotations_by_type(MinimalRobot)[0]
     target = Pose.from_xyz_rpy(2, 0, 0, reference_frame=cylinder_bot_world.root)
-    goal = StraightLineBaseGoal.moving_base_of(robot, target, 0.01)
+    goal = StraightLineBaseGoal.moving_base_of(
+        robot=robot, goal_pose=target, threshold=0.01
+    )
     executor = _compiled(cylinder_bot_world, goal)
     for _ in range(1_000):
         executor.tick()
@@ -348,7 +375,7 @@ def test_a_straight_line_base_goal_returns_to_the_line_after_being_pushed_off_it
         float(pushed_pose.x), 0.2, 0, reference_frame=drive.parent
     )
 
-    poses = _base_poses_until_end(executor, robot)
+    poses = _base_poses_until_end(executor=executor, robot=robot)
 
     poses_past_the_push = [pose for pose in poses if float(pose.x) > 1.5]
     assert poses_past_the_push

@@ -1,8 +1,9 @@
-"""Perception sources and statechart tasks for detecting objects in a world."""
+"""
+Perception for robot plans: the queries a plan asks, the detections answering them, and
+the interfaces and statechart task that perceive through the world or RoboKudo.
+"""
 
 from __future__ import annotations
-
-# %% imports
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -11,32 +12,50 @@ from enum import StrEnum
 
 import numpy as np
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 from cramph.node import EndedByOwner, FailsOnObservingFalse, SucceedsOnObservingTrue
 from cramph.context import ContextExtension
-from cramph.data_types import ObservationStateValues
+from cramph.data_types import ObservationStateValue
 from cramph.node import StatechartNode
 from giskardpy.motion_statechart.ros_context import RosContextExtension
 from krrood.adapters.json_serializer import SubclassJSONSerializer, from_json, to_json
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from rosidl_runtime_py.utilities import get_action, get_message
+from rosidl_runtime_py.utilities import get_message
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
 from semantic_digital_twin.reasoning.robot_predicates import VisibleTo
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
-from semantic_digital_twin.semantic_annotations.mixins import IsPerceivable
+from semantic_digital_twin.semantic_annotations.mixins import (
+    HasSeatPlaces,
+    IsPerceivable,
+)
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
+    RotationMatrix,
 )
 from krrood_spatial_math.spatial_types import Pose, Point3
 from semantic_digital_twin.world import World
-from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
+from semantic_digital_twin.world_description.geometry import (
+    Scale,
+    VolumetricBoundingBox,
+)
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Chair,
+    Human,
+)
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    BodySpecification,
+    RegionSpecification,
+)
+from semantic_digital_twin.specifications.semantic_annotations import (
+    SemanticAnnotationWithRootSpecification,
+)
 from semantic_digital_twin.world_description.world_entity import (
     SemanticAnnotation,
     Body,
-    KinematicStructureEntity,
+    Region,
 )
 from typing_extensions import Any, Callable, Self, TYPE_CHECKING
 
@@ -49,7 +68,7 @@ from coraplex.exceptions import (
 )
 
 if TYPE_CHECKING:
-    from robokudo_msgs.action import Query
+    from geometry_msgs.msg import PoseStamped
     from robokudo_msgs.msg import ObjectDesignator
 
 ROBOKUDO_QUERY_ACTION_NAME = "robokudo/query"
@@ -62,9 +81,6 @@ Name of the action RoboKudo answers perception queries on.
 
 class RoboKudoMessageType(StrEnum):
     """ROS interface names of the RoboKudo query action."""
-
-    QUERY = "robokudo_msgs/action/Query"
-    """The action that answers a perception query."""
 
     OBJECT_DESIGNATOR = "robokudo_msgs/msg/ObjectDesignator"
     """The object description carried in a query."""
@@ -144,18 +160,18 @@ class PerceptionQuery(SubclassJSONSerializer):
         return result
 
     @classmethod
-    def _from_json(cls, data: dict[str, Any], **kwargs) -> Self:
-        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(kwargs)
+    def _from_json(cls, *, data: dict[str, Any], **kwargs) -> Self:
+        tracker = WorldEntityWithIDKwargsTracker.from_kwargs(from_json_kwargs=kwargs)
         return cls(
             semantic_annotation=from_json(data["semantic_annotation"], **kwargs),
             region=from_json(data["region"], **kwargs),
-            robot=tracker.get(from_json(data["robot_id"])),
+            robot=tracker.get(key=from_json(data["robot_id"])),
             world=kwargs["world"],
             trust_detected_orientation=data.get("trust_detected_orientation", True),
         )
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RoboKudoQuery:
     """
     A question to a RoboKudo pipeline, in the terms of the object designator its query
@@ -186,6 +202,30 @@ class RoboKudoQuery:
     """
     Where to look, such as the name of a room. Empty means anywhere.
     """
+
+    @classmethod
+    def from_semantic_annotation(
+        cls, *, semantic_annotation: type[SemanticAnnotation]
+    ) -> Self:
+        """
+        :param semantic_annotation: The kind of thing to look for, such as a human.
+        :return: The query for things of that kind, whose :attr:`object_type` is the
+            name of ``semantic_annotation`` in lower case.
+        """
+        return cls(object_type=semantic_annotation.__name__.lower())
+
+    def to_object_designator(self) -> ObjectDesignator:
+        """
+        :return: The object designator the query action of a pipeline takes for this
+            query.
+        """
+        return get_message(RoboKudoMessageType.OBJECT_DESIGNATOR)(
+            type=self.object_type,
+            attribute=self.attributes,
+            color=self.colors,
+            description=self.descriptions,
+            location=self.location,
+        )
 
 
 # %% detections
@@ -298,76 +338,6 @@ class Detection:
         return candidates
 
 
-@dataclass
-class PerceivedObject:
-    """
-    One object a RoboKudo pipeline reported, under the type the pipeline gave it.
-    """
-
-    object_type: str
-    """
-    The type the pipeline reported, such as ``human`` or the name of a semantic
-    annotation; empty for a pipeline that localizes without recognizing.
-    """
-
-    pose: Pose
-    """
-    Where the pipeline saw the object, in the frame it reported.
-    """
-
-    @classmethod
-    def from_designator(
-        cls,
-        designator: ObjectDesignator,
-        world: World,
-        world_frame: PerceptionWorldFrame | None = None,
-    ) -> Self:
-        """
-        :param designator: An object designator the pipeline reported with at least one
-            pose.
-        :param world: The world holding the frame of the reported pose.
-        :param world_frame: The entity of ``world`` the pipeline's world frame stands
-            for, if ``world`` calls it differently.
-        :return: The object at the first pose the designator holds.
-        """
-        return cls(
-            object_type=designator.type,
-            pose=cls.reported_pose(designator, world, world_frame),
-        )
-
-    @staticmethod
-    def reported_pose(
-        designator: ObjectDesignator,
-        world: World,
-        world_frame: PerceptionWorldFrame | None = None,
-    ) -> Pose:
-        """
-        :param designator: An object designator the pipeline reported with at least one
-            pose.
-        :param world: The world holding the frame of the reported pose.
-        :param world_frame: The entity of ``world`` the pipeline's world frame stands
-            for, if ``world`` calls it differently.
-        :return: The first pose the designator holds, in its frame in ``world``.
-        """
-        pose_stamped = designator.pose[0]
-        frame_id = pose_stamped.header.frame_id
-        reference_frame = (
-            world_frame.entity
-            if world_frame is not None and world_frame.reported_name == frame_id
-            else world.get_kinematic_structure_entity_by_name(frame_id)
-        )
-        return Pose.from_xyz_quaternion(
-            pose_stamped.pose.position.x,
-            pose_stamped.pose.position.y,
-            pose_stamped.pose.position.z,
-            pose_stamped.pose.orientation.x,
-            pose_stamped.pose.orientation.y,
-            pose_stamped.pose.orientation.z,
-            pose_stamped.pose.orientation.w,
-            reference_frame=reference_frame,
-        )
-
-
 # %% perception sources
 
 
@@ -450,9 +420,9 @@ class WorldPerception(PerceptionInterface):
 
 
 @dataclass
-class RoboKudoPerception(PerceptionInterface):
+class RoboKudoQuerying:
     """
-    Source that asks a running RoboKudo pipeline over its query action.
+    Asking a running RoboKudo pipeline over its query action.
     """
 
     ros_node: Node
@@ -470,41 +440,60 @@ class RoboKudoPerception(PerceptionInterface):
     How long to wait for the action server before giving up.
     """
 
-    def look_for(self, query: PerceptionQuery) -> list[Detection]:
-        result = self.answer(
-            RoboKudoQuery(object_type=query.semantic_annotation.__name__.lower())
-        )
-        return [
-            self._to_detection(designator, query)
-            for designator in result.res
-            if designator.pose and self._can_be_requested_object(designator, query)
-        ]
-
-    def answer(self, query: RoboKudoQuery) -> Query.Result:
+    def ask(self, requested: ObjectDesignator) -> list[ObjectDesignator]:
         """
-        Ask the pipeline a query and wait for its answer.
-
-        :param query: What to ask.
-        :return: Everything the pipeline reported.
-        :raises PerceptionSourceUnavailable: If no pipeline serves :attr:`action_name`
-            within :attr:`server_timeout`.
+        :param requested: What the pipeline is asked for.
+        :return: The object designators the pipeline answered with.
+        :raises PerceptionSourceUnavailable: If no pipeline serves the query action.
         """
-        action_type = get_action(RoboKudoMessageType.QUERY)
-        object_designator_type = get_message(RoboKudoMessageType.OBJECT_DESIGNATOR)
-        client = ActionClient(self.ros_node, action_type, self.action_name)
+        from robokudo_msgs.action import Query
+
+        client = ActionClient(self.ros_node, Query, self.action_name)
         if not client.wait_for_server(timeout_sec=self.server_timeout.total_seconds()):
             raise PerceptionSourceUnavailable(self.action_name)
+        return list(client.send_goal(Query.Goal(obj=requested)).result.res)
 
-        goal = action_type.Goal(
-            obj=object_designator_type(
-                type=query.object_type,
-                attribute=query.attributes,
-                color=query.colors,
-                description=query.descriptions,
-                location=query.location,
-            )
+    @staticmethod
+    def pose_in(world: World, pose_stamped: PoseStamped) -> Pose:
+        """
+        :param world: The world holding the frame the pose is stamped with.
+        :param pose_stamped: A pose the pipeline reported.
+        :return: The reported pose, relative to its frame in ``world``.
+        """
+        return Pose.from_xyz_quaternion(
+            pose_stamped.pose.position.x,
+            pose_stamped.pose.position.y,
+            pose_stamped.pose.position.z,
+            pose_stamped.pose.orientation.x,
+            pose_stamped.pose.orientation.y,
+            pose_stamped.pose.orientation.z,
+            pose_stamped.pose.orientation.w,
+            reference_frame=world.get_kinematic_structure_entity_by_name(
+                pose_stamped.header.frame_id
+            ),
         )
-        return client.send_goal(goal).result
+
+
+@dataclass
+class RoboKudoPerception(RoboKudoQuerying, PerceptionInterface):
+    """
+    Source that asks a running RoboKudo pipeline over its query action.
+    """
+
+    def look_for(self, query: PerceptionQuery) -> list[Detection]:
+        from robokudo_msgs.msg import ObjectDesignator
+
+        designators = self.ask(
+            ObjectDesignator(type=query.semantic_annotation.__name__.lower())
+        )
+        return [
+            Detection(
+                semantic_annotation=query.semantic_annotation,
+                pose=self.pose_in(query.world, designator.pose[0]),
+            )
+            for designator in designators
+            if designator.pose and self._can_be_requested_object(designator, query)
+        ]
 
     @staticmethod
     def _can_be_requested_object(
@@ -515,7 +504,8 @@ class RoboKudoPerception(PerceptionInterface):
 
         A pipeline that only localizes reports no class label, and every object it found
         is then a candidate. One that classifies lets the objects that were not asked
-        for be discarded here.
+        for be discarded here; the detection is then identified as the queried
+        annotation.
 
         :param designator: The designator the pipeline reported.
         :param query: The query it was answering.
@@ -528,49 +518,144 @@ class RoboKudoPerception(PerceptionInterface):
             == query.semantic_annotation.__name__.lower()
         )
 
-    def _to_detection(
-        self, designator: ObjectDesignator, query: PerceptionQuery
-    ) -> Detection:
-        """
-        Convert one RoboKudo object designator into a detection.
 
-        The detection is identified as the queried annotation: a pipeline that classifies
-        has already been narrowed to it by :meth:`_can_be_requested_object`, and one that
-        only localizes answered where the queried object is.
+# %% seats
 
-        :param designator: The designator RoboKudo reported.
-        :param query: The query it was answering, supplying the annotation and the frame.
-        :return: The detection carrying the queried annotation and the reported pose.
+
+class SeatQueryTerm(StrEnum):
+    """
+    The words a seat query and its answer are written in.
+    """
+
+    SEAT = "seat"
+    """
+    What a seat query asks for.
+    """
+
+    FREE = "free"
+    """
+    The attribute of a seat no one sits on.
+    """
+
+    OCCUPIED = "occupied"
+    """
+    The attribute of a seat someone sits on.
+    """
+
+
+@dataclass
+class SeatReport:
+    """
+    One seat a perception source saw, and whether someone sits on it.
+    """
+
+    pose: Pose
+    """
+    Where the source saw the seat.
+    """
+
+    occupied: bool
+    """
+    Whether the source saw someone sitting on the seat.
+    """
+
+    seat_place: Region | None = None
+    """
+    The seat place of the world the seat is, None for a seat the world does not know.
+    """
+
+
+class SeatPerception(ABC):
+    """
+    A source of the seats in view and of whether someone sits on them.
+    """
+
+    @abstractmethod
+    def report_seats(self, robot: AbstractRobot) -> list[SeatReport]:
         """
-        return Detection(
-            semantic_annotation=query.semantic_annotation,
-            pose=PerceivedObject.reported_pose(designator, query.world),
-        )
+        :param robot: The robot whose camera looks.
+        :return: One report per seat in view of the robot's camera.
+        """
+
+
+@dataclass
+class WorldSeatPerception(SeatPerception):
+    """
+    Source that reads the seats straight out of the world model.
+
+    Reports every seat place of the furniture the robot's camera sees, occupied when a
+    :class:`~semantic_digital_twin.semantic_annotations.semantic_annotations.Human` the
+    camera sees is in it.
+    """
+
+    def report_seats(self, robot: AbstractRobot) -> list[SeatReport]:
+        camera = robot.get_default_camera()
+        reports = []
+        for furniture in robot._world.get_semantic_annotations_by_type(HasSeatPlaces):
+            if not any(
+                VisibleTo(entity=body, camera=camera)() for body in furniture.bodies
+            ):
+                continue
+            reports.extend(
+                SeatReport(
+                    pose=seat_place.global_pose,
+                    occupied=any(
+                        VisibleTo(entity=person.root, camera=camera)()
+                        for person in Human.get_instances_in_region(seat_place)
+                    ),
+                    seat_place=seat_place,
+                )
+                for seat_place in furniture.seat_places
+            )
+        return reports
+
+
+@dataclass
+class RoboKudoSeatPerception(RoboKudoQuerying, SeatPerception):
+    """
+    Source that asks a running RoboKudo pipeline for the seats in view.
+
+    The pipeline identifies a seat place of the world by its name as the designator's
+    ``uid`` and reports whether a seat is free among its attributes.
+    """
+
+    def report_seats(self, robot: AbstractRobot) -> list[SeatReport]:
+        from robokudo_msgs.msg import ObjectDesignator
+
+        world = robot._world
+        return [
+            SeatReport(
+                pose=self.pose_in(world, designator.pose[0]),
+                occupied=SeatQueryTerm.OCCUPIED in designator.attribute,
+                seat_place=(
+                    world.get_kinematic_structure_entity_by_name(designator.uid)
+                    if designator.uid
+                    else None
+                ),
+            )
+            for designator in self.ask(ObjectDesignator(type=SeatQueryTerm.SEAT))
+            if designator.pose
+        ]
 
 
 # %% perceiving inside the motion chart
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
-class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
+class WorldWritingPerceptionTask(
+    EndedByOwner, FailsOnObservingFalse, StatechartNode, ABC
+):
     """
-    Statechart node that answers a perception query and writes what it saw into the
+    Statechart node that asks a perception source and writes what it saw into the
     world.
 
     The node moves nothing, so it adds no motion constraints and its owner decides when
     it succeeded, like a task of a motion. The query is answered on the node's first tick,
-    so the whole detection takes one tick however long the source needs to reply, and the
-    node then observes ``TRUE`` so the surrounding sequence continues. A source that saw
-    nothing makes it observe ``FALSE``, which fails it, so a surrounding
-    :class:`~cramph.composites.TryInOrder` can go and look somewhere else.
+    so the whole perception takes one tick however long the source needs to reply, and
+    the node then keeps the observation that answer gave.
 
     .. warning:: That tick blocks until the source replies, which on the real robot holds
         up the control loop for as long as the pipeline takes to answer.
-    """
-
-    query: PerceptionQuery
-    """
-    What to look for and where.
     """
 
     answered_by: PerceptionSource
@@ -582,16 +667,60 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
     plan is executed.
     """
 
-    perception_source: PerceptionInterface | None = field(init=False, default=None)
-    """
-    The source answering the query, resolved during :meth:`set_up`.
-    """
-
-    _observation: ObservationStateValues | None = field(
+    _observation: ObservationStateValue | None = field(
         init=False, default=None, repr=False
     )
     """
     The observation this node keeps once the query has been answered, None before that.
+    """
+
+    @classproperty
+    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
+        return super().required_context_extensions + (RosContextExtension,)
+
+    @property
+    def ros_node(self) -> Node:
+        """
+        :return: The node a perception source outside this process is reached through.
+        """
+        return self.context.require_extension(
+            extension_type=RosContextExtension
+        ).ros_node
+
+    def on_start(self) -> None:
+        self._observation = None
+
+    def on_tick(self) -> ObservationStateValue | None:
+        if self._observation is None:
+            self._observation = self.answer_query()
+        return self._observation
+
+    @abstractmethod
+    def answer_query(self) -> ObservationStateValue:
+        """
+        Ask the perception source and write what it saw into the world.
+
+        :return: The observation the node keeps from then on.
+        """
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class PerceptionTask(WorldWritingPerceptionTask):
+    """
+    Perception that moves the one object the query asks for to where it was seen.
+
+    A source that saw nothing makes the node observe ``FALSE``, which fails it, so a
+    surrounding :class:`~cramph.composites.TryInOrder` can go and look somewhere else.
+    """
+
+    query: PerceptionQuery
+    """
+    What to look for and where.
+    """
+
+    perception_source: PerceptionInterface | None = field(init=False, default=None)
+    """
+    The source answering the query, resolved during :meth:`set_up`.
     """
 
     accept_first_if_multiple: bool = False
@@ -602,66 +731,148 @@ class PerceptionTask(EndedByOwner, FailsOnObservingFalse, StatechartNode):
     :class:`~coraplex.exceptions.UnidentifiedDetections` instead of being chosen between.
     """
 
-    @classproperty
-    def required_context_extensions(cls) -> tuple[type[ContextExtension], ...]:
-        return super().required_context_extensions + (RosContextExtension,)
-
     def set_up(self) -> None:
         super().set_up()
         self.perception_source = PerceptionInterface.for_source(
-            self.answered_by,
-            self.context.require_extension(RosContextExtension).ros_node,
+            self.answered_by, self.ros_node
         )
 
-    def on_start(self) -> None:
-        self._observation = None
-
-    def on_tick(self) -> ObservationStateValues | None:
-        if self._observation is None:
-            self._observation = self._answer_query()
-        return self._observation
-
-    def _answer_query(self) -> ObservationStateValues:
+    def answer_query(self) -> ObservationStateValue:
         """
-        Answer the query and write what was seen into the world.
-
         :return: True once the object was seen, False when the source saw nothing.
         """
         detection = self.perception_source.detect(
             self.query, self.accept_first_if_multiple
         )
         if detection is None:
-            return ObservationStateValues.FALSE
+            return ObservationStateValue.FALSE
         detection.apply_to(
             self.query.world, trust_orientation=self.query.trust_detected_orientation
         )
-        return ObservationStateValues.TRUE
+        return ObservationStateValue.TRUE
 
 
-@dataclass
+@dataclass(eq=False, repr=False, kw_only=True)
+class SeatPerceptionTask(WorldWritingPerceptionTask):
+    """
+    Perception that makes the people on the seats in view the ones the source saw there.
+
+    A seat the world does not know is a chair: the one of the world whose seat place is
+    within :attr:`chair_matching_distance`, otherwise a new one is added. The people on a
+    seat seen free are removed, and a person is seated on a seat seen occupied that holds
+    no one.
+    """
+
+    robot: AbstractRobot
+    """
+    The robot whose camera looks.
+    """
+
+    chair_seat_place_size: Scale = field(default_factory=lambda: Scale(0.5, 0.5, 0.5))
+    """
+    The extents of the seat place of a chair added to the world, in meters.
+    """
+
+    chair_matching_distance: float = 0.5
+    """
+    Distance in meters from a seat place of a chair below which a seat without a seat
+    place is that chair.
+    """
+
+    seat_perception: SeatPerception | None = field(init=False, default=None)
+    """
+    The source reporting the seats, resolved during :meth:`set_up`.
+    """
+
+    def set_up(self) -> None:
+        super().set_up()
+        match self.answered_by:
+            case PerceptionSource.WORLD_MODEL:
+                self.seat_perception = WorldSeatPerception()
+            case PerceptionSource.ROBOKUDO:
+                self.seat_perception = RoboKudoSeatPerception(ros_node=self.ros_node)
+
+    def answer_query(self) -> ObservationStateValue:
+        """
+        :return: True, since seeing no seat is an answer too.
+        """
+        world = self.robot._world
+        reports = self.seat_perception.report_seats(self.robot)
+        seat_places = []
+        for report in reports:
+            if report.seat_place is not None:
+                seat_places.append(report.seat_place)
+                continue
+            world_T_seat = world.transform(report.pose, world.root).homogeneous_matrix
+            distances = {
+                seat_place: np.linalg.norm(
+                    seat_place.global_transform.position.to_np()[:3]
+                    - world_T_seat.position.to_np()[:3]
+                )
+                for chair in world.get_semantic_annotations_by_type(Chair)
+                for seat_place in chair.seat_places
+            }
+            closest = min(distances, key=distances.get, default=None)
+            if (
+                closest is not None
+                and distances[closest] < self.chair_matching_distance
+            ):
+                seat_places.append(closest)
+                continue
+            name = (
+                f"detected_chair_{len(world.get_semantic_annotations_by_type(Chair))}"
+            )
+            seat_place_name = f"{name}_seat_place"
+            chair = SemanticAnnotationWithRootSpecification(
+                name=name,
+                semantic_annotation_type=Chair,
+                root_specification=BodySpecification(
+                    name=name,
+                    child_specifications=[
+                        RegionSpecification.box(
+                            seat_place_name, self.chair_seat_place_size
+                        )
+                    ],
+                ),
+            ).spawn(world, parent_T_self=world_T_seat)
+            seat_place = world.get_kinematic_structure_entity_by_name(seat_place_name)
+            with world.modify_world():
+                chair.add_seat_place(seat_place)
+            seat_places.append(seat_place)
+        occupants = {
+            seat_place: Human.get_instances_in_region(seat_place)
+            for seat_place in seat_places
+        }
+        people_who_left = [
+            occupant
+            for report, seat_place in zip(reports, seat_places)
+            if not report.occupied
+            for occupant in occupants[seat_place]
+        ]
+        newly_occupied_seat_places = {
+            seat_place: seat_place.global_transform
+            for report, seat_place in zip(reports, seat_places)
+            if report.occupied and not occupants[seat_place]
+        }
+        with world.modify_world():
+            for occupant in people_who_left:
+                world.remove_semantic_annotation(occupant)
+                world.remove_connection(occupant.root.parent_connection)
+                world.remove_kinematic_structure_entity(occupant.root)
+            for seat_place, world_T_seat_place in newly_occupied_seat_places.items():
+                name = f"{seat_place.name.name}_occupant"
+                Human.get_annotation_specification(name, BodySpecification(name)).spawn(
+                    world, parent_T_self=world_T_seat_place
+                )
+        return ObservationStateValue.TRUE
+
+
+@dataclass(kw_only=True)
 class CameraFrameCapture(ContextExtension):
     """Provide a camera frame for a perception query."""
 
     capture_frame: Callable[[], None]
     """Publish the camera frame for the next query."""
-
-
-@dataclass
-class PerceptionWorldFrame(ContextExtension):
-    """
-    The entity of the plan's world that the world frame of a perception pipeline
-    stands for, where the world calls it differently.
-    """
-
-    reported_name: str
-    """
-    The name of the frame the pipeline reports poses in.
-    """
-
-    entity: KinematicStructureEntity
-    """
-    The entity of the plan's world that frame stands for.
-    """
 
 
 @dataclass(eq=False, repr=False, kw_only=True)
@@ -679,15 +890,9 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
     What to ask the pipeline.
     """
 
-    answer: Query.Result | None = field(init=False, default=None)
+    answer: list[ObjectDesignator] | None = field(init=False, default=None)
     """
-    Everything the pipeline reported, None before it answered.
-    """
-
-    perceived_objects: list[PerceivedObject] = field(init=False, default_factory=list)
-    """
-    The objects of :attr:`answer` the pipeline reported a pose for, empty before it
-    answered.
+    The objects the pipeline reported, None before it answered.
     """
 
     @classproperty
@@ -701,35 +906,22 @@ class RoboKudoQueryTask(SucceedsOnObservingTrue, FailsOnObservingFalse, Statecha
     def on_start(self) -> None:
         """Clear the previous answer when :meth:`~cramph.node.StatechartNode.on_start` runs."""
         self.answer = None
-        self.perceived_objects = []
 
-    def on_tick(self) -> ObservationStateValues:
+    def on_tick(self) -> ObservationStateValue:
         """Ask the query once and block for its answer on :meth:`~cramph.node.StatechartNode.on_tick`.
 
         :return: The observation indicating whether the answer contains results.
         """
         if self.answer is None:
-            self._ask_query()
-        if self.answer.res:
-            return ObservationStateValues.TRUE
-        return ObservationStateValues.FALSE
-
-    def _ask_query(self) -> None:
-        """
-        Capture a camera frame if the context can, ask :attr:`query` and keep the
-        answer in :attr:`answer` and :attr:`perceived_objects`.
-        """
-        camera = self.context.extensions.get(CameraFrameCapture)
-        if camera is not None:
-            camera.capture_frame()
-        ros_node = self.context.require_extension(RosContextExtension).ros_node
-        self.answer = RoboKudoPerception(ros_node=ros_node).answer(self.query)
-        self.perceived_objects = [
-            PerceivedObject.from_designator(
-                designator,
-                self.context.world,
-                self.context.extensions.get(PerceptionWorldFrame),
+            camera = self.context.extensions.get(CameraFrameCapture)
+            if camera is not None:
+                camera.capture_frame()
+            ros_node = self.context.require_extension(
+                extension_type=RosContextExtension
+            ).ros_node
+            self.answer = RoboKudoQuerying(ros_node=ros_node).ask(
+                requested=self.query.to_object_designator()
             )
-            for designator in self.answer.res
-            if designator.pose
-        ]
+        if self.answer:
+            return ObservationStateValue.TRUE
+        return ObservationStateValue.FALSE

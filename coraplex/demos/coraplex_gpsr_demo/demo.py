@@ -36,17 +36,17 @@ from coraplex.plans.executors import (
     RealRobotPlanExecutor,
 )
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
-from coraplex.simulated_perception import SimulatedHsrHeadCameraPerception
 from cramph.composites import Sequence
 from cramph.context import ContextExtension, StatechartContext
 from cramph.executor import ExecutorExtension
 from giskardpy.motion_control import MotionControl
 from cramph.statechart import Statechart
 from krrood.patterns.path_enumeration import PathEnumeration
-from robokudo.analysis_engine_process import AnalysisEngineProcess
+from robokudo.analysis_engine_process import AnalysisEngineModule, AnalysisEngineProcess
+from robokudo.io.simulated_camera import RoboKudoSimulatedPerception
+from typing_extensions import Any, Self
 from semantic_digital_twin.adapters.multi_sim import (
     ContactCategories,
-    MujocoCamera,
     MujocoGeom,
     MujocoSim,
     MujocoSynchronizer,
@@ -197,6 +197,25 @@ class PhysicallySimulatedGraspingPlanExecutor(PhysicallySimulatedPlanExecutor):
         return extensions
 
 
+# %% Perception
+
+
+@dataclass(kw_only=True)
+class SharedRoboKudoSimulatedPerception(RoboKudoSimulatedPerception):
+    """
+    A :class:`~robokudo.io.simulated_camera.RoboKudoSimulatedPerception` that every copy
+    of the plan's context shares, so a statement trial on a copy of the world captures
+    frames through the running camera and analysis engine.
+    """
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        """
+        :return: This perception itself: its running analysis engine, camera publisher
+            and simulation cannot be copied.
+        """
+        return self
+
+
 # %% Demonstration
 
 
@@ -251,20 +270,19 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
     analysis_engine: AnalysisEngineProcess | None = None
     """The RoboKudo pipeline the plan asks to detect people, or ``None`` to find people
-    without perception."""
+    without perception. A physically simulated run perceives through
+    :attr:`simulated_perception`, which looks through the simulated head camera."""
 
     query: RoboKudoQuery = field(
         default_factory=lambda: RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     )
     """What the plan asks :attr:`analysis_engine` once the robot faces the person."""
 
-    started_perception: (
-        SimulatedHsrHeadCameraPerception | AnalysisEngineProcess | None
-    ) = field(init=False, default=None)
+    started_perception: AnalysisEngineProcess | None = field(init=False, default=None)
     """
-    What runs :attr:`analysis_engine` during a run: the simulated head camera in a
-    physically simulated run, the engine alone on the real camera otherwise, and
-    ``None`` outside a run or without perception.
+    :attr:`analysis_engine` while it runs on its own, looking through the real head
+    camera; ``None`` outside such a run, in a physically simulated run or without
+    perception.
     """
 
     robot_body_contact_category: ContactCategories = ContactCategories(
@@ -278,6 +296,16 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
     instruction: str = field(kw_only=True)
     """The instruction the human spoke, recorded via the NLP pipeline."""
+
+    def __post_init__(self) -> None:
+        if (
+            self.analysis_engine is not None
+            and self.simulated_perception is None
+            and issubclass(self.executor_type, PhysicallySimulatedPlanExecutor)
+        ):
+            self.simulated_perception = SharedRoboKudoSimulatedPerception(
+                analysis_engine=self.analysis_engine
+            )
 
     def scene_specification(self) -> WorldSpecification:
         """
@@ -363,9 +391,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
     def build_simulation(self, world: World) -> MujocoSim:
         """Differs from :meth:`RobotDemonstration.build_simulation` in contacts
         that let the gripper hold a carton, and in copying the physics into the
-        world once per tick, see :class:`OncePerCallSyncedMujocoSim`, with a
-        camera mounted at the head's RGB-D camera."""
-        MujocoCamera.mount_hsr_head(world)
+        world once per tick, see :class:`OncePerCallSyncedMujocoSim`."""
         return OncePerCallSyncedMujocoSim(
             world=world,
             headless=self.headless,
@@ -384,26 +410,20 @@ class GeneratedCommandDemonstration(RobotDemonstration):
 
     def start_simulation(self, world: World) -> None:
         """Differs from :meth:`RobotDemonstration.start_simulation` in then
-        starting :attr:`analysis_engine`, if any, as :attr:`started_perception`."""
+        starting :attr:`analysis_engine` as :attr:`started_perception` if no
+        :attr:`simulated_perception` runs it."""
         super().start_simulation(world)
-        if self.analysis_engine is None:
+        if self.analysis_engine is None or self.simulated_perception is not None:
             return
-        if self.simulation is None:
-            self.analysis_engine.start()
-            self.started_perception = self.analysis_engine
-            return
-        simulated_perception = SimulatedHsrHeadCameraPerception(self.analysis_engine)
-        simulated_perception.start(world, self.simulation, self.ros_node)
-        self.started_perception = simulated_perception
+        self.analysis_engine.start()
+        self.started_perception = self.analysis_engine
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         [robot] = world.get_semantic_annotations_by_type(self.used_robot)
-        extensions: list[ContextExtension] = [RobotAccess(robot)]
+        extensions: list[ContextExtension] = [RobotAccess(robot=robot)]
         if self.analysis_engine is None:
             return extensions
-        if isinstance(self.started_perception, SimulatedHsrHeadCameraPerception):
-            extensions.extend(self.started_perception.build_context_extensions())
-        extensions.append(PersonDetection(self.query))
+        extensions.append(PersonDetection(query=self.query))
         return extensions
 
     def tear_down(self) -> None:
@@ -453,7 +473,7 @@ class GeneratedCommandDemonstration(RobotDemonstration):
         room_visits = RoomVisitPlanner().transform_plan_by_rooms(commands)
         statechart = Statechart(context=context)
         statechart.add_node(
-            Sequence(
+            node=Sequence(
                 nodes=[
                     action
                     for room_visit in room_visits
@@ -669,7 +689,9 @@ def main(
             else PhysicallySimulatedGraspingPlanExecutor
         ),
         analysis_engine=(
-            AnalysisEngineProcess(analysis_engine="human_detection", shows_views=False)
+            AnalysisEngineProcess(
+                analysis_engine=AnalysisEngineModule.HUMAN_DETECTION, shows_views=False
+            )
             if perceives
             else None
         ),

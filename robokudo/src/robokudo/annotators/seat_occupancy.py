@@ -20,7 +20,12 @@ from typing_extensions import TYPE_CHECKING
 
 from robokudo.annotators.core import BaseAnnotator
 from robokudo.annotators.gpsr.sitting import HumanPosture
-from robokudo.annotators.seat_detection import SeatDetection, SeatRegion
+from robokudo.annotators.seat_detection import (
+    SeatDetection,
+    SeatFurniture,
+    SeatRegion,
+    WorldSeatRegion,
+)
 from robokudo.cas import CAS, CASViews
 from robokudo.types.annotation import PositionAnnotation
 from robokudo.types.human import ActivityAnnotation
@@ -84,9 +89,9 @@ class SeatOccupancyAnnotator(BaseAnnotator):
     :class:`~robokudo.types.scene.OccupiedAnnotation`.
 
     The seats are the single seats, such as chairs, and the
-    :class:`~robokudo.annotators.seat_detection.SeatRegion` in the CAS. A seat region
-    closer to a single seat than :attr:`Descriptor.Parameters.minimum_seat_spacing` is
-    the same place and left out. Seats and humans are located by their
+    :class:`~robokudo.annotators.seat_detection.SeatRegion` in the CAS; of seats closer
+    than :attr:`Descriptor.Parameters.minimum_seat_spacing`, only one is kept, see
+    :meth:`seats`. Seats and humans are located by their
     :class:`~robokudo.types.annotation.PositionAnnotation` in the camera frame; those
     without one are left out. A seat is occupied when an occupant is close to it; see
     :meth:`is_occupant`. The visualization image marks every annotated seat as
@@ -122,8 +127,8 @@ class SeatOccupancyAnnotator(BaseAnnotator):
                 """
                 self.minimum_seat_spacing: float = 0.5
                 """
-                Distance in meters between the positions of a seat region and a single
-                seat below which they are the same place.
+                Distance in meters between the positions of two seats below which they
+                are the same place.
                 """
                 self.unclear_posture_occupies: bool = False
                 """
@@ -191,28 +196,50 @@ class SeatOccupancyAnnotator(BaseAnnotator):
 
     def seats(self) -> list[Seat]:
         """
-        :return: The located single seats and the located seat regions that no single
-            seat lies on.
+        :return: The located seats, each place once: the world seat regions, the single
+            seats on no world seat region and the other seat regions on neither.
         """
         parameters: SeatOccupancyAnnotator.Descriptor.Parameters = (
             self.descriptor.parameters
         )
-        single_seats = self.located(
-            parameters.seat_detection.single_seats(self.get_cas())
+        seat_regions = self.get_cas().filter_annotations_by_type(SeatRegion)
+        world_seat_regions = self.located(
+            [region for region in seat_regions if isinstance(region, WorldSeatRegion)]
         )
-        seat_regions = self.located(
-            self.get_cas().filter_annotations_by_type(SeatRegion)
+        single_seats = self.apart_from(
+            self.located(parameters.seat_detection.single_seats(self.get_cas())),
+            world_seat_regions,
         )
-        separate_seat_regions = [
-            seat_region
-            for seat_region in seat_regions
+        other_seat_regions = self.apart_from(
+            self.located(
+                [
+                    region
+                    for region in seat_regions
+                    if not isinstance(region, WorldSeatRegion)
+                ]
+            ),
+            world_seat_regions + single_seats,
+        )
+        return world_seat_regions + single_seats + other_seat_regions
+
+    def apart_from(self, seats: list[Seat], taken_seats: list[Seat]) -> list[Seat]:
+        """
+        :param seats: The seats to keep or leave out.
+        :param taken_seats: The seats whose places are taken already.
+        :return: The seats at least
+            :attr:`Descriptor.Parameters.minimum_seat_spacing` away from every taken
+            seat, in the same order.
+        """
+        minimum_seat_spacing = self.descriptor.parameters.minimum_seat_spacing
+        return [
+            seat
+            for seat in seats
             if all(
-                np.linalg.norm(seat_region.position - single_seat.position)
-                >= parameters.minimum_seat_spacing
-                for single_seat in single_seats
+                np.linalg.norm(seat.position - taken_seat.position)
+                >= minimum_seat_spacing
+                for taken_seat in taken_seats
             )
         ]
-        return single_seats + separate_seat_regions
 
     def located(self, hypotheses: list[AnalyzableAnnotation]) -> list[Seat]:
         """
@@ -273,22 +300,6 @@ class SeatOccupancyAnnotator(BaseAnnotator):
 # %% answer vocabulary
 
 
-class SeatFurniture(StrEnum):
-    """
-    The furniture a seat belongs to, as reported in :attr:`ObjectDesignator.type`.
-    """
-
-    CHAIR = "chair"
-    """
-    A seat for a single person.
-    """
-
-    SOFA = "sofa"
-    """
-    One seat region of a piece of furniture for several persons.
-    """
-
-
 class SeatState(StrEnum):
     """
     Whether a seat is free, as reported in :attr:`ObjectDesignator.attribute`.
@@ -312,8 +323,10 @@ class SeatQueryAnswerAnnotator(BaseAnnotator):
     """
     Answers the current query with one object designator for every seat annotated
     with an :class:`~robokudo.types.scene.OccupiedAnnotation`, holding its
-    :class:`SeatFurniture`, its :class:`SeatState` and its world frame position. The text
-    result states the number of free seats.
+    :class:`SeatFurniture`, its :class:`SeatState` and its world frame position, and as
+    :attr:`ObjectDesignator.uid` the name of the seat place of a
+    :class:`~robokudo.annotators.seat_detection.WorldSeatRegion`. The text result states
+    the number of free seats.
     """
 
     def __init__(self, name: str = "SeatQueryAnswerAnnotator") -> None:
@@ -357,7 +370,8 @@ class SeatQueryAnswerAnnotator(BaseAnnotator):
         """
         occupied = CAS.filter_by_type(OccupiedAnnotation, seat.annotations)[0].occupied
         object_designator = ObjectDesignator(
-            type=SeatFurniture.SOFA
+            uid=seat.seat_place_name if isinstance(seat, WorldSeatRegion) else "",
+            type=seat.furniture
             if isinstance(seat, SeatRegion)
             else SeatFurniture.CHAIR,
             attribute=[SeatState.OCCUPIED if occupied else SeatState.FREE],

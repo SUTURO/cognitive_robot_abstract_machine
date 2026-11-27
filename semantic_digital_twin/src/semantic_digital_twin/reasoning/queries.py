@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from krrood.inheritance_path_length import (inheritance_distance)
+from krrood.inheritance_path_length import inheritance_distance
 
 from krrood.entity_query_language.factories import not_, set_of, type_
 import math
@@ -19,7 +19,9 @@ from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
     Supports,
     PlaceIsOccupied,
-    compute_euclidean_planar_distance, OverFloorPlan, GrowingCircleSearch,
+    compute_euclidean_planar_distance,
+    OverFloorPlan,
+    GrowingCircleSearch,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasSupportingSurface,
@@ -83,7 +85,7 @@ def get_next_object_using_planar_distance(
         semantic_annotations_on_surfaces([supporting_surface], main_body._world)
     )
     return entity(supported_semantic_annotations).ordered_by(
-        compute_euclidean_planar_distance(
+        variable=compute_euclidean_planar_distance(
             body1=supported_semantic_annotations.bodies[0],
             body2=main_body,
             ignore_dimension=ignore_dimension,
@@ -116,7 +118,7 @@ def goal_surface_of_object(
     supporting_surface = variable(HasSupportingSurface, supporting_surfaces)
     supporting_body = supporting_surface.bodies[0]
     non_supporting_table = entity(supporting_surface).where(
-        not_(Supports(supporting_body))
+        not_(Supports(supporting_body=supporting_body))
     )
 
     # Query annotations on the surfaces of the tables
@@ -132,9 +134,9 @@ def goal_surface_of_object(
         .where(
             (distance := inheritance_distance(object_of_interest, type_(obj)))
             <= threshold,
-            SupportedBy(obj.bodies[0], supporting_body),
+            SupportedBy(supported=obj.bodies[0], supporting=supporting_body),
         )
-        .ordered_by(distance)
+        .ordered_by(variable=distance)
     )
     return next(
         query[supporting_surface].evaluate(),
@@ -162,7 +164,7 @@ def filter_annotations_by_color(
 
     matching_body = entity(body).where(
         body.visual != None,
-        length(body.visual.shapes) > 0,
+        length(iterable=body.visual.shapes) > 0,
         body.visual.shapes[0].color == color,
     )
     semantic_annotation = variable(HasRootBody, world.semantic_annotations)
@@ -226,7 +228,7 @@ def sort_annotations_by_volume(
             return 0.0
 
     return entity(annotaion_var).ordered_by(
-        get_volume(annotaion_var), descending=not order
+        variable=get_volume(annotaion_var), descending=not order
     )
 
 
@@ -369,9 +371,20 @@ def _nearest_free_robot_center(
         for body in floor.bodies
     ]
     robot_center = variable(Pose, list(search))
-    conditions = [] if room is None else [OverFloorPlan(robot_center, room.floor.root)]
+    conditions = (
+        []
+        if room is None
+        else [OverFloorPlan(pose=robot_center, floor=room.floor.root)]
+    )
     conditions.append(
-        not_(PlaceIsOccupied(robot_box, robot_center, world, floor_bodies))
+        not_(
+            PlaceIsOccupied(
+                box=robot_box,
+                pose=robot_center,
+                world=world,
+                allowed_bodies=floor_bodies,
+            )
+        )
     )
     query = an(entity(robot_center).where(*conditions))
     return next(query.evaluate(), None)
@@ -392,7 +405,7 @@ def find_objects_in_room(
     [room] = world.get_semantic_annotations_by_type(room_type)
     annotation = variable(object_type, world.semantic_annotations)
     query = entity(annotation).where(
-        OverFloorPlan(annotation.root.global_pose, room.floor.root)
+        OverFloorPlan(pose=annotation.root.global_pose, floor=room.floor.root)
     )
     return list(query.evaluate())
 
@@ -407,7 +420,9 @@ def find_objects_room(semantic_annotation: HasRootBody) -> Room | None:
     room = variable(Room, semantic_annotation._world.semantic_annotations)
     query = an(
         entity(room).where(
-            OverFloorPlan(semantic_annotation.root.global_pose, room.floor.root)
+            OverFloorPlan(
+                pose=semantic_annotation.root.global_pose, floor=room.floor.root
+            )
         )
     )
     return next(query.evaluate(), None)

@@ -13,7 +13,7 @@ import inspect
 import json
 import threading
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pytest
@@ -35,7 +35,7 @@ from coraplex.exceptions import (
     PerceptionSourceUnavailable,
     UnidentifiedDetections,
 )
-from coraplex.perception import PerceptionTask
+from coraplex.perception import PerceptionTask, SeatPerceptionTask, SeatQueryTerm
 from coraplex.perception import (
     ROBOKUDO_QUERY_ACTION_NAME,
     Detection,
@@ -44,16 +44,14 @@ from coraplex.perception import (
     CameraFrameCapture,
     RoboKudoPerception,
     RoboKudoQuery,
-    PerceivedObject,
-    PerceptionWorldFrame,
     RoboKudoQueryTask,
     WorldPerception,
 )
-from coraplex.robot_plans.actions.core.misc import DetectAction
+from coraplex.robot_plans.actions.core.misc import DetectAction, DetectSeatsAction
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
 from cramph.composites import TryInOrder
 from cramph.context import StatechartContext
-from cramph.data_types import LifeCycleValues, ObservationStateValues
+from cramph.data_types import LifeCycleValue, ObservationStateValue
 from cramph.exceptions import NodesMissingContextExtensionsError
 from cramph.node import StatechartNode
 from cramph.statechart import Statechart
@@ -68,13 +66,28 @@ from krrood.adapters.json_serializer import from_json, to_json
 from semantic_digital_twin.adapters.world_entity_kwargs_tracker import (
     WorldEntityWithIDKwargsTracker,
 )
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Bowl, Milk
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Bowl,
+    Chair,
+    Human,
+    Milk,
+)
 from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Point3
 from krrood_spatial_math.spatial_types import Pose
+from semantic_digital_twin.specifications.kinematic_structure_entities import (
+    BodySpecification,
+    RegionSpecification,
+)
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.geometry import Scale
+from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
+from semantic_digital_twin.world_description.world_entity import Region
 from .conftest import motion_nodes_in_physics_of, motion_nodes_of
 from ..plan_running import robot_executor, statechart_of
 from ..plan_running import run_plan
+from ..semantic_digital_twin_test.test_predefined_maps.test_kitchen_sofa_seats import (
+    replayed,
+)
 
 PERCEIVED_MILK_POSITION = (2.6, 2.2, 1.05)
 """
@@ -452,7 +465,7 @@ def test_detection_corrects_a_grasp_planned_before_it(pr2_apartment_context):
     )
 
     plan = PickUpAction(
-        grasp=milk.grasp_candidates()[0],
+        grasp_candidate=milk.grasp_candidates()[0],
         arm=view.right_arm,
     )
     targets = [
@@ -503,9 +516,19 @@ class ReportedObject:
     Label to report it under; empty for a pipeline that localizes without recognizing.
     """
 
-    position: tuple[float, float, float] | None
+    position: tuple[float, float, float]
     """
-    Where to report it; ``None`` for an object reported without a pose.
+    Where to report it.
+    """
+
+    uid: str = ""
+    """
+    The identifier to report it under; empty for an object the pipeline does not know.
+    """
+
+    attribute: list[str] = field(default_factory=list)
+    """
+    The attributes to report it with, such as whether a seat is free.
     """
 
 
@@ -521,16 +544,11 @@ class RecordedQueryServer:
     """
 
     def __init__(
-        self,
-        node_name: str,
-        action_name: str,
-        reports: list[ReportedObject],
-        frame_id: str = "map",
+        self, node_name: str, action_name: str, reports: list[ReportedObject]
     ) -> None:
         from robokudo_msgs.action import Query
 
         self.reports = reports
-        self.frame_id = frame_id
         self.received_types = []
         self.received_designators = []
         self.node = rclpy.create_node(node_name)
@@ -554,10 +572,7 @@ class RecordedQueryServer:
 
         designators = []
         for report in self.reports:
-            if report.position is None:
-                designators.append(ObjectDesignator(type=report.class_label))
-                continue
-            pose_stamped = PoseStamped(header=Header(frame_id=self.frame_id))
+            pose_stamped = PoseStamped(header=Header(frame_id="map"))
             (
                 pose_stamped.pose.position.x,
                 pose_stamped.pose.position.y,
@@ -565,7 +580,12 @@ class RecordedQueryServer:
             ) = report.position
             pose_stamped.pose.orientation.w = 1.0
             designators.append(
-                ObjectDesignator(type=report.class_label, pose=[pose_stamped])
+                ObjectDesignator(
+                    uid=report.uid,
+                    type=report.class_label,
+                    attribute=report.attribute,
+                    pose=[pose_stamped],
+                )
             )
         return Query.Result(res=designators)
 
@@ -599,14 +619,11 @@ def query_server_reporting(rclpy_node):
     pytest.importorskip("robokudo_msgs")
     started = []
 
-    def start(
-        reports: list[ReportedObject], **server_options: str
-    ) -> RecordedQueryServer:
+    def start(reports: list[ReportedObject]) -> RecordedQueryServer:
         server = RecordedQueryServer(
             node_name="robokudo_stand_in",
             action_name="robokudo/query",
             reports=reports,
-            **server_options,
         )
         started.append(server)
         return server
@@ -778,10 +795,10 @@ def build_perception_task(
     :return: The statechart holding the task, in the context it was built with.
     """
     context = StatechartContext(world=world)
-    MotionControl().extend_context(context)
-    context.add_extension(RosContextExtension(ros_node))
+    MotionControl().extend_context(context=context)
+    context.add_extension(extension=RosContextExtension(ros_node=ros_node))
     statechart = Statechart(context=context)
-    statechart.add_node(task)
+    statechart.add_node(node=task)
     task.build()
     return statechart
 
@@ -793,7 +810,7 @@ def run_perception_task(task: StatechartNode) -> None:
     :param task: The built task to run.
     """
     task.on_start()
-    assert task.on_tick() == ObservationStateValues.TRUE
+    assert task.on_tick() == ObservationStateValue.TRUE
 
 
 def test_perception_task_is_a_plain_statechart_node(
@@ -818,7 +835,11 @@ def test_perception_task_needs_ros_access(
     query = PerceptionQuery(Milk, whole_scene_region, view, world)
     statechart = Statechart(context=StatechartContext(world=world))
     statechart.add_node(
-        task := PerceptionTask(query=query, answered_by=PerceptionSource.WORLD_MODEL)
+        node=(
+            task := PerceptionTask(
+                query=query, answered_by=PerceptionSource.WORLD_MODEL
+            )
+        )
     )
 
     with pytest.raises(NodesMissingContextExtensionsError) as raised:
@@ -864,7 +885,7 @@ def test_a_source_that_sees_nothing_leaves_the_task_observing_false(
 
     task.on_start()
 
-    assert task.on_tick() == ObservationStateValues.FALSE
+    assert task.on_tick() == ObservationStateValue.FALSE
     np.testing.assert_allclose(milk_body.global_pose.to_np(), spawned_pose, atol=1e-9)
 
 
@@ -921,7 +942,7 @@ def test_perception_task_answers_its_query_only_once(
     build_perception_task(task, world, rclpy_node)
 
     run_perception_task(task)
-    assert task.on_tick() == ObservationStateValues.TRUE
+    assert task.on_tick() == ObservationStateValue.TRUE
 
     assert robokudo_query_server.received_types == ["milk"]
 
@@ -1032,12 +1053,14 @@ def test_perception_task_survives_a_chart_round_trip(
     query = PerceptionQuery(Milk, whole_scene_region, view, world)
     chart = Statechart(context=StatechartContext(world=world))
     chart.add_node(
-        task := PerceptionTask(query=query, answered_by=PerceptionSource.ROBOKUDO)
+        node=(
+            task := PerceptionTask(query=query, answered_by=PerceptionSource.ROBOKUDO)
+        )
     )
-    chart.add_node(EndMotion.when_true(task))
+    chart.add_node(node=EndMotion.when_true(node=task))
 
     restored_chart = Statechart.from_json(
-        json.loads(json.dumps(chart.to_json())),
+        data=json.loads(json.dumps(chart.to_json())),
         context=StatechartContext(world=receiving_world),
         **receiving_world_kwargs(receiving_world),
     )
@@ -1066,13 +1089,14 @@ def test_detection_in_a_chart_corrects_a_reach_planned_before_it(
     query = PerceptionQuery(Milk, whole_scene_region, view, world)
     detection = PerceptionTask(query=query, answered_by=PerceptionSource.ROBOKUDO)
     reach = CartesianPosition(
-        root_link=world.root,
-        tip_link=view.right_arm.end_effector.tool_frame,
+        kinematic_chain=KinematicChain(
+            root=world.root, tip=view.right_arm.end_effector.tool_frame
+        ),
         goal_point=Point3(reference_frame=milk_body),
         name="MoveTCP",
     )
     statechart = build_perception_task(detection, world, rclpy_node)
-    statechart.add_node(reach)
+    statechart.add_node(node=reach)
     reach.build()
 
     run_perception_task(detection)
@@ -1089,22 +1113,23 @@ def test_detection_in_a_chart_corrects_a_reach_planned_before_it(
 
 
 def test_robokudo_messages_are_only_required_for_an_actual_query(
-    rclpy_node: Node, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    A missing RoboKudo message type prevents queries, not source construction.
+    A missing RoboKudo message type prevents asking a query, not writing one.
     """
 
-    def missing_action_type(identifier: str) -> type:
+    def missing_message_type(identifier: str) -> type:
+        """
+        Fail like a lookup of a message type whose package is not installed.
+        """
         raise ModuleNotFoundError(identifier)
 
-    monkeypatch.setattr(
-        perception_module, "get_action", missing_action_type, raising=False
-    )
-    source = RoboKudoPerception(ros_node=rclpy_node)
+    monkeypatch.setattr(perception_module, "get_message", missing_message_type)
+    query = RoboKudoQuery(object_type="human")
 
     with pytest.raises(ModuleNotFoundError):
-        source.answer(RoboKudoQuery(object_type="human"))
+        query.to_object_designator()
 
 
 @pytest.fixture
@@ -1155,137 +1180,9 @@ def test_robokudo_query_task_keeps_the_answer(
 
     run_perception_task(task)
 
-    assert [designator.type for designator in task.answer.res] == [
+    assert [designator.type for designator in task.answer] == [
         report.class_label for report in robokudo_query_server.reports
     ]
-
-
-@pytest.fixture
-def query_for_every_object() -> RoboKudoQuery:
-    """
-    A query for everything the pipeline detects, as the GPSR object pipeline reads it;
-    ``"object"`` is robokudo's ``QueryType.OBJECT``, which robokudo_msgs alone lacks.
-    """
-    return RoboKudoQuery(object_type="object")
-
-
-def test_robokudo_query_task_reports_every_object_with_its_type_and_pose(
-    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
-):
-    """
-    A plan that looks around needs each object the pipeline reported, by its type and
-    where it was seen.
-    """
-    world, view, extensions = pr2_apartment_context
-    server = query_server_reporting(
-        [
-            ReportedObject("Milk", PERCEIVED_MILK_POSITION),
-            ReportedObject("Cup", (1.0, 2.0, 0.8)),
-        ]
-    )
-    task = RoboKudoQueryTask(query=query_for_every_object)
-    build_perception_task(task, world, rclpy_node)
-
-    run_perception_task(task)
-
-    assert [
-        perceived_object.object_type for perceived_object in task.perceived_objects
-    ] == [report.class_label for report in server.reports]
-    for perceived_object, report in zip(task.perceived_objects, server.reports):
-        np.testing.assert_allclose(
-            world.transform(perceived_object.pose, world.root)
-            .position.to_np()
-            .flatten()[:3],
-            report.position,
-            atol=1e-9,
-        )
-
-
-def test_robokudo_query_task_leaves_out_objects_reported_without_a_pose(
-    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
-):
-    """
-    An object without a pose cannot be located, so it is not one of the perceived
-    objects, while the raw answer still holds it.
-    """
-    world, view, extensions = pr2_apartment_context
-    located = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
-    server = query_server_reporting([located, ReportedObject("Cup", None)])
-    task = RoboKudoQueryTask(query=query_for_every_object)
-    build_perception_task(task, world, rclpy_node)
-
-    run_perception_task(task)
-
-    assert [
-        perceived_object.object_type for perceived_object in task.perceived_objects
-    ] == [located.class_label]
-    assert len(task.answer.res) == len(server.reports)
-
-
-def test_robokudo_query_task_forgets_the_perceived_objects_when_restarted(
-    pr2_apartment_context, rclpy_node, robokudo_query_server, query_for_every_object
-):
-    """
-    A restarted task asks again, so what it perceived before no longer holds.
-    """
-    world, view, extensions = pr2_apartment_context
-    task = RoboKudoQueryTask(query=query_for_every_object)
-    build_perception_task(task, world, rclpy_node)
-    run_perception_task(task)
-    assert task.perceived_objects
-
-    task.on_start()
-
-    assert task.perceived_objects == []
-
-
-def test_robokudo_query_task_places_objects_reported_in_the_pipelines_world_frame(
-    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
-):
-    """
-    A simulated camera is published relative to a world frame the simulated world calls
-    differently, so the context names the entity that frame stands for.
-    """
-    world, view, extensions = pr2_apartment_context
-    world_frame = PerceptionWorldFrame(reported_name="sensor_world", entity=world.root)
-    report = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
-    query_server_reporting([report], frame_id=world_frame.reported_name)
-    task = RoboKudoQueryTask(query=query_for_every_object)
-    chart = build_perception_task(task, world, rclpy_node)
-    chart.context.add_extension(world_frame)
-
-    run_perception_task(task)
-
-    [perceived_object] = task.perceived_objects
-    assert perceived_object.pose.reference_frame is world_frame.entity
-    np.testing.assert_allclose(
-        perceived_object.pose.position.to_np().flatten()[:3],
-        report.position,
-        atol=1e-9,
-    )
-
-
-def test_robokudo_query_task_looks_up_a_frame_the_world_frame_does_not_name(
-    pr2_apartment_context, rclpy_node, query_server_reporting, query_for_every_object
-) -> None:
-    """
-    A pose reported in a frame other than the pipeline's world frame is placed in the
-    world's entity of that name.
-    """
-    world, view, extensions = pr2_apartment_context
-    world_frame = PerceptionWorldFrame(
-        reported_name="sensor_world", entity=view.root
-    )
-    report = ReportedObject("Milk", PERCEIVED_MILK_POSITION)
-    query_server_reporting([report], frame_id=world.root.name.name)
-    task = RoboKudoQueryTask(query=query_for_every_object)
-    chart = build_perception_task(task, world, rclpy_node)
-    chart.context.add_extension(world_frame)
-
-    run_perception_task(task)
-
-    [perceived_object] = task.perceived_objects
-    assert perceived_object.pose.reference_frame is world.root
 
 
 def test_query_requests_one_frame_before_sending(
@@ -1300,9 +1197,14 @@ def test_query_requests_one_frame_before_sending(
     observed_queries = []
 
     def capture_frame() -> None:
+        """
+        Record how many queries arrived before the frame was requested.
+        """
         observed_queries.append(len(robokudo_query_server.received_designators))
 
-    chart.context.add_extension(CameraFrameCapture(capture_frame))
+    chart.context.add_extension(
+        extension=CameraFrameCapture(capture_frame=capture_frame)
+    )
     run_perception_task(task)
     task.on_tick()
 
@@ -1324,7 +1226,7 @@ def test_robokudo_query_task_fails_when_the_pipeline_reports_nothing(
 
     task.on_start()
 
-    assert task.on_tick() == ObservationStateValues.FALSE
+    assert task.on_tick() == ObservationStateValue.FALSE
 
 
 def test_robokudo_query_task_survives_a_json_round_trip(
@@ -1366,8 +1268,8 @@ def test_a_detection_that_sees_nothing_lets_the_next_alternative_run(
 
     run_plan(plan, extensions)
 
-    assert not_seen.life_cycle_state == LifeCycleValues.FAILED
-    assert seen.life_cycle_state == LifeCycleValues.SUCCEEDED
+    assert not_seen.life_cycle_state == LifeCycleValue.FAILED
+    assert seen.life_cycle_state == LifeCycleValue.SUCCEEDED
 
 
 def test_a_detection_looks_only_inside_the_box_it_is_given(
@@ -1387,7 +1289,7 @@ def test_a_detection_looks_only_inside_the_box_it_is_given(
     with pytest.raises(MotionDidNotFinish):
         run_plan(detection, extensions)
 
-    assert detection.life_cycle_state == LifeCycleValues.FAILED
+    assert detection.life_cycle_state == LifeCycleValue.FAILED
 
 
 def test_a_detection_without_a_box_looks_as_far_to_every_side_of_the_robot(
@@ -1424,3 +1326,216 @@ def test_a_detection_needs_an_object_type_or_a_box(pr2_apartment_context) -> Non
 
     with pytest.raises(DetectionTargetMissing):
         motion_nodes_of(DetectAction(technique=DetectionTechnique.TYPES), extensions)
+
+
+# %% seats and the people on them
+
+
+@pytest.fixture
+def reported_region(pr2_apartment_context) -> Region:
+    """
+    A named seat place around the position the stand-in pipeline reports its objects at.
+    """
+    world, _, _ = pr2_apartment_context
+    return RegionSpecification.box(
+        "reported_region",
+        Scale(0.5, 0.5, 0.5),
+        parent_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+            *PERCEIVED_MILK_POSITION
+        ),
+    ).spawn(world)
+
+
+def seat_report(occupied: bool, seat_place: Region | None = None) -> ReportedObject:
+    """
+    :param occupied: Whether the pipeline saw someone sitting on the seat.
+    :param seat_place: The seat place of the world the pipeline identified the seat as,
+        None for a seat it detected on its own.
+    :return: A seat the stand-in pipeline reports at :data:`PERCEIVED_MILK_POSITION`.
+    """
+    return ReportedObject(
+        "",
+        PERCEIVED_MILK_POSITION,
+        uid="" if seat_place is None else seat_place.name.name,
+        attribute=[SeatQueryTerm.OCCUPIED if occupied else SeatQueryTerm.FREE],
+    )
+
+
+def run_seat_task(world: World, view, ros_node: Node) -> SeatPerceptionTask:
+    """
+    Build and run a seat task asking RoboKudo for the seats in view of ``view``.
+
+    :return: The task that ran.
+    """
+    task = SeatPerceptionTask(robot=view, answered_by=PerceptionSource.ROBOKUDO)
+    build_perception_task(task, world, ros_node)
+    run_perception_task(task)
+    return task
+
+
+def test_a_person_seen_on_a_seat_place_is_seated_there(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=True, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [occupant] = Human.get_instances_in_region(reported_region)
+    np.testing.assert_allclose(
+        occupant.root.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_a_seat_place_seen_free_loses_the_person_it_held(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    """
+    A person who left a seat since it was last looked at must not keep it occupied.
+    """
+    world, view, extensions = pr2_apartment_context
+    Human.get_annotation_specification(
+        "earlier_occupant", BodySpecification("earlier_occupant")
+    ).spawn(world, parent=reported_region)
+    query_server_reporting([seat_report(occupied=False, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert Human.get_instances_in_region(reported_region) == []
+
+
+def test_a_person_on_a_seat_place_seen_occupied_stays(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    """
+    The person the world already holds on a seat seen occupied is kept, rather than
+    replaced by a newly seated one.
+    """
+    world, view, extensions = pr2_apartment_context
+    sitter = Human.get_annotation_specification(
+        "sitter", BodySpecification("sitter")
+    ).spawn(world, parent=reported_region)
+    query_server_reporting([seat_report(occupied=True, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert Human.get_instances_in_region(reported_region) == [sitter]
+
+
+def test_people_off_the_reported_seats_are_left_alone(
+    pr2_apartment_context, reported_region, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    elsewhere = Human.get_annotation_specification(
+        "elsewhere", BodySpecification("elsewhere")
+    ).spawn(world)
+    query_server_reporting([seat_report(occupied=False, seat_place=reported_region)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert world.get_semantic_annotations_by_type(Human) == [elsewhere]
+
+
+def test_a_detected_chair_is_added_with_a_seat_place_where_it_was_seen(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    [seat_place] = chair.seat_places
+    np.testing.assert_allclose(
+        seat_place.global_pose.position.to_np().flatten()[:3],
+        PERCEIVED_MILK_POSITION,
+        atol=1e-9,
+    )
+
+
+def test_a_detected_chair_reaches_a_copy_of_the_world_with_its_seat_place(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    Other processes, such as the perception pipeline, find a chair added to the world
+    together with its seat place.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    copy = replayed(world)
+    assert [
+        seat_place.name
+        for seat_place in copy.get_semantic_annotation_by_id(chair.id).seat_places
+    ] == [seat_place.name for seat_place in chair.seat_places]
+
+
+def test_a_person_seen_on_a_detected_chair_is_seated_on_it(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=True)])
+
+    run_seat_task(world, view, rclpy_node)
+
+    [chair] = world.get_semantic_annotations_by_type(Chair)
+    [seat_place] = chair.seat_places
+    assert len(Human.get_instances_in_region(seat_place)) == 1
+
+
+def test_a_chair_seen_again_is_not_added_twice(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    """
+    A chair reported where a chair of the world already has its seat place is that
+    chair, so scanning a room twice does not double its chairs.
+    """
+    world, view, extensions = pr2_apartment_context
+    query_server_reporting([seat_report(occupied=False)])
+
+    run_seat_task(world, view, rclpy_node)
+    run_seat_task(world, view, rclpy_node)
+
+    assert len(world.get_semantic_annotations_by_type(Chair)) == 1
+
+
+def test_the_seat_query_asks_for_seats(
+    pr2_apartment_context, rclpy_node, query_server_reporting
+):
+    world, view, extensions = pr2_apartment_context
+    server = query_server_reporting([])
+
+    run_seat_task(world, view, rclpy_node)
+
+    assert server.received_types == [SeatQueryTerm.SEAT]
+
+
+def test_seat_task_survives_a_json_round_trip(pr2_apartment_context):
+    world, view, extensions = pr2_apartment_context
+    receiving_world = deepcopy(world)
+    task = SeatPerceptionTask(robot=view, answered_by=PerceptionSource.ROBOKUDO)
+
+    restored = from_json(to_json(task), **receiving_world_kwargs(receiving_world))
+
+    assert type(restored) is SeatPerceptionTask
+    assert restored.answered_by == PerceptionSource.ROBOKUDO
+    assert restored.robot is receiving_world.get_world_entity_with_id_by_id(view.id)
+
+
+def test_detect_seats_action_asks_robokudo_on_the_real_robot(
+    pr2_apartment_context, reported_region
+) -> None:
+    world, view, extensions = pr2_apartment_context
+    plan = DetectSeatsAction(
+        look_targets=[Pose.from_xyz_rpy(reference_frame=reported_region)]
+    )
+    executor = robot_executor(extensions)
+    executor.prepare(statechart_of(executor, plan))
+
+    tasks = [node for node in plan.descendants if isinstance(node, SeatPerceptionTask)]
+    assert [task.answered_by for task in tasks] == [PerceptionSource.ROBOKUDO]

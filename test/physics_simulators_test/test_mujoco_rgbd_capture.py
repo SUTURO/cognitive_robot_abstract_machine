@@ -35,7 +35,7 @@ def test_color_and_depth_use_one_scene(monkeypatch: pytest.MonkeyPatch) -> None:
         mujoco_simulator.mujoco, "Renderer", MagicMock(return_value=renderer)
     )
 
-    frame = simulator.capture_rgbd("camera", 2, 3).result
+    frame = simulator.capture_rgbd(camera_name="camera", height=2, width=3).result
 
     assert frame.color is color
     assert frame.depth is depth

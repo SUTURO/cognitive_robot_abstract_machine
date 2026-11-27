@@ -1,3 +1,7 @@
+"""
+Exceptions raised by plans and demonstrations.
+"""
+
 from __future__ import annotations
 
 from abc import ABC
@@ -8,6 +12,9 @@ from krrood.exceptions import DataclassException
 from coraplex.plans.failures import PlanFailure
 
 if TYPE_CHECKING:
+    from datetime import timedelta
+
+    from coraplex.plans.executors import PlanExecutor
     from coraplex.robot_plans.actions.base import Action
     from coraplex.robot_plans.generated_commands import ActionType, PayloadKey
     from coraplex.robot_plans.task_definitions import Command
@@ -15,9 +22,9 @@ if TYPE_CHECKING:
     from krrood_spatial_math.spatial_types import Pose
     from semantic_digital_twin.robots.robot_parts import AbstractRobot, Arm, EndEffector
     from semantic_digital_twin.semantic_annotations.mixins import (
-        HasGraspCandidates,
         HasRootBody,
         HasSupportingSurface,
+        IsGraspable,
     )
     from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
     from semantic_digital_twin.world_description.world_entity import (
@@ -215,7 +222,7 @@ class MissingToolFrame(DataclassException):
         return "ensure the arm's end effector defines a tool frame."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class MotionDidNotFinish(PlanFailure):
     """
     Raised when a plan ended without succeeding.
@@ -236,25 +243,6 @@ class MotionDidNotFinish(PlanFailure):
 
     def suggest_correction(self) -> str:
         return ""
-
-
-@dataclass
-class ObjectIsNotHeld(DataclassException):
-    """
-    Raised when a place is asked for an object that no arm holds and no pick-up before
-    it is going to take.
-    """
-
-    object_designator: HasGraspCandidates
-    """
-    The object that was to be placed.
-    """
-
-    def error_message(self) -> str:
-        return f"no arm holds {self.object_designator.name} to place it."
-
-    def suggest_correction(self) -> str:
-        return "place the object after a pick-up of it."
 
 
 @dataclass
@@ -363,54 +351,28 @@ class PerceptionSourceUnavailable(PerceptionException):
         return "start the perception pipeline before running the plan."
 
 
-@dataclass
-class SimulatedPerceptionNotStarted(PerceptionException):
+@dataclass(kw_only=True)
+class PerceptionWithoutPhysicalSimulation(PerceptionException):
     """
-    Raised when a plan is to perceive through a simulated camera that is not published.
-    """
-
-    def error_message(self) -> str:
-        return "The simulated camera is not published."
-
-    def suggest_correction(self) -> str:
-        return "start the simulated perception before building the plan's context."
-
-
-@dataclass
-class SimulatedPerceptionAlreadyStarted(PerceptionException):
-    """
-    Raised when a simulated perception is started again while it runs.
+    Raised when a demonstration is to perceive through simulated cameras in a run
+    without physics, where no camera is rendered.
     """
 
-    def error_message(self) -> str:
-        return "The simulated perception already runs."
-
-    def suggest_correction(self) -> str:
-        return "stop the simulated perception before starting it again."
-
-
-@dataclass
-class NoSingleHsrHeadCamera(PerceptionException):
+    executor_type: type[PlanExecutor]
     """
-    Raised when a world does not hold exactly one head camera of an HSR to perceive
-    through.
-    """
-
-    number_of_cameras: int
-    """
-    How many head cameras of an HSR the world holds.
+    The executor the run was set up with.
     """
 
     def error_message(self) -> str:
         return (
-            f"The world holds {self.number_of_cameras} head cameras of an HSR "
-            "instead of one."
+            f"A run of {self.executor_type.__name__} renders no camera to perceive "
+            f"through."
         )
 
     def suggest_correction(self) -> str:
         return (
-            "put exactly one HSR into the scene through RobotSpecification(HSRB), "
-            "which gives it its head camera."
+            "run the demonstration with a PhysicallySimulatedPlanExecutor, or leave its "
+            "simulated perception unset."
         )
 
 
@@ -509,6 +471,59 @@ class NoRoomVisitOrderFound(DataclassException):
 
     def suggest_correction(self) -> str:
         return "Give every step at least one allowed room, or raise the time limit."
+
+
+# %% driving with Pumas
+
+
+@dataclass
+class NavigationGoalNotHeard(DataclassException):
+    """
+    Nothing listens for navigation goals, so the Pumas navigation is not running.
+    """
+
+    topic: str
+    """
+    The topic the goal would have been published on.
+    """
+
+    def error_message(self) -> str:
+        return f"Nothing subscribes to {self.topic}."
+
+    def suggest_correction(self) -> str:
+        return (
+            "Start the Pumas navigation (~/start_pumas_live.sh) and run the demo in the "
+            "environment of ~/ros_clean_env.sh, so both use the same RMW."
+        )
+
+
+@dataclass
+class NavigationTimedOut(DataclassException):
+    """
+    The base did not reach the goal it was sent to in time.
+    """
+
+    goal: Pose
+    """
+    Where the base was sent to, in the map frame.
+    """
+
+    timeout: timedelta
+    """
+    How long the base was given.
+    """
+
+    def error_message(self) -> str:
+        return (
+            f"The base did not reach ({float(self.goal.x):.2f}, {float(self.goal.y):.2f}) within "
+            f"{self.timeout.total_seconds()} s."
+        )
+
+    def suggest_correction(self) -> str:
+        return (
+            "Check that the path is free (the safety limiter stops for anything closer "
+            "than 0.6 m), that AMCL is localized and that the robot clock is synced."
+        )
 
 
 # %% mapping generated commands: actions
@@ -781,7 +796,7 @@ class NoGraspFitsGripper(DataclassException):
     Raised when every grasp an object offers is wider than the gripper opens.
     """
 
-    graspable: HasGraspCandidates
+    graspable: IsGraspable
     """
     The object none of whose grasps fits.
     """

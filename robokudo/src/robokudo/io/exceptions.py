@@ -6,9 +6,15 @@ from __future__ import annotations
 
 # %% Imports
 from dataclasses import dataclass, field
+
+from typing_extensions import TYPE_CHECKING
+
 from robokudo.exceptions import InvalidCameraObservation, RoboKudoError
 from robokudo.types.image import ImageRotation
 from semantic_digital_twin.datastructures.camera_model import CameraDistortionModel
+
+if TYPE_CHECKING:
+    from semantic_digital_twin.robots.robot_parts import Camera
 
 
 # %% Image rotation
@@ -195,6 +201,24 @@ class CameraAnnotationAmbiguous(RoboKudoError):
 
     def suggest_correction(self) -> str:
         return "configure the name of the camera that should provide perception data."
+
+
+@dataclass(kw_only=True)
+class CameraTypeNotInWorld(RoboKudoError):
+    """
+    Raised when a world holds no camera of the type a simulated perception sees through.
+    """
+
+    camera_type: type[Camera]
+    """
+    The kind of camera that was looked for.
+    """
+
+    def error_message(self) -> str:
+        return f"The world holds no camera of type {self.camera_type.__name__}."
+
+    def suggest_correction(self) -> str:
+        return "choose the type of a camera that the robot in the world has."
 
 
 @dataclass

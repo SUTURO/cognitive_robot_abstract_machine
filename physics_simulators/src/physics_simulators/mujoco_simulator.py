@@ -5,6 +5,7 @@
 # %% imports
 
 import os
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, InitVar
 from enum import StrEnum
@@ -56,7 +57,7 @@ class MujocoEnvironmentVariable(StrEnum):
 
 
 # %% captured camera frame
-@dataclass
+@dataclass(kw_only=True)
 class RGBDFrame:
     """Camera images and optical pose captured from the same simulation state."""
 
@@ -115,6 +116,17 @@ class MujocoSimulator(BaseSimulator):
     file_path: InitVar[str] = ""
     """
     Path to the XML file of the scene (for initialization)
+    """
+
+    viewer_close_timeout: float = 5.0
+    """
+    How long :meth:`stop` waits for the viewer to release its window, in seconds.
+    """
+
+    viewer_close_poll_interval: float = 0.01
+    """
+    How often :meth:`stop` checks whether the viewer has released its window, in
+    seconds.
     """
 
     _model_lock: RLock = field(
@@ -182,6 +194,21 @@ class MujocoSimulator(BaseSimulator):
             self._renderer = mujoco.viewer.launch_passive(self._mj_model, self._mj_data)
         else:
             self._renderer = SimulatorRenderer()
+
+    def stop(self):
+        """
+        Stop the simulator as :meth:`BaseSimulator.stop` does, and then wait up to
+        :attr:`viewer_close_timeout` for the viewer to release its window.
+
+        .. note:: The viewer releases its window on a thread of its own after it is
+            told to close; a process ending before that crashes.
+        """
+        super().stop()
+        if not isinstance(self._renderer, mujoco.viewer.Handle):
+            return
+        deadline = time.monotonic() + self.viewer_close_timeout
+        while self._renderer._sim() is not None and time.monotonic() < deadline:
+            time.sleep(self.viewer_close_poll_interval)
 
     def step_callback(self):
         def _do_step():
@@ -1624,7 +1651,7 @@ class MujocoSimulator(BaseSimulator):
 
     @BaseSimulator.simulator_callback
     def capture_rgbd(
-        self, camera_name: str, height: int, width: int
+        self, *, camera_name: str, height: int, width: int
     ) -> SimulatorCallbackResult:
         """Capture color and depth for one camera at the same simulation state.
 

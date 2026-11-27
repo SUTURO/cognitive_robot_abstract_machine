@@ -14,9 +14,29 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
 
-from krrood.ormatic.utils import classproperty
+from krrood.patterns.classproperty import classproperty
 
 from robokudo.exceptions import AnalysisEngineDidNotStart
+
+# %% Analysis engines to choose from
+
+
+class AnalysisEngineModule(StrEnum):
+    """
+    The modules of the analysis engines in RoboKudo that answer queries about what the
+    head camera of a robot sees.
+    """
+
+    HUMAN_DETECTION = "human_detection"
+    """
+    Detects humans and tells their posture.
+    """
+
+    GPSR = "gpsr.gpsr_implementation"
+    """
+    Answers the queries of the General Purpose Service Robot task.
+    """
+
 
 # %% The process
 
@@ -58,7 +78,7 @@ class MainScriptOption(StrEnum):
     """
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AnalysisEngineProcess:
     """
     An analysis engine in a separate process whose output is forwarded to this process.
@@ -78,6 +98,12 @@ class AnalysisEngineProcess:
     shows_views: bool = True
     """
     Whether RoboKudo opens its windows showing what the analysis engine sees and found.
+    """
+
+    startup_timeout: timedelta = timedelta(minutes=2)
+    """
+    How long :meth:`start` waits for the analysis engine to run. An analysis engine that
+    downloads its models on its first start needs longer.
     """
 
     _process: subprocess.Popen | None = field(init=False, default=None)
@@ -109,14 +135,14 @@ class AnalysisEngineProcess:
         """
         return "Running AE named"
 
-    def start(self, timeout: timedelta = timedelta(minutes=2)) -> None:
+    def start(self) -> None:
         """
-        Start the analysis engine and wait until it runs.
+        Start the analysis engine and wait until it runs, at most
+        :attr:`startup_timeout`.
 
         A query sent before then is never answered, since RoboKudo accepts it before the
         analysis engine can take it.
 
-        :param timeout: How long to wait.
         :raises AnalysisEngineDidNotStart: If it does not run in time.
         """
         self._process = subprocess.Popen(
@@ -136,11 +162,11 @@ class AnalysisEngineProcess:
             text=True,
         )
         threading.Thread(target=self._forward_output, daemon=True).start()
-        if not self._running.wait(timeout.total_seconds()):
+        if not self._running.wait(self.startup_timeout.total_seconds()):
             self.stop()
             raise AnalysisEngineDidNotStart(
                 analysis_engine=self.analysis_engine,
-                timeout_seconds=timeout.total_seconds(),
+                timeout_seconds=self.startup_timeout.total_seconds(),
             )
 
     def _forward_output(self) -> None:
@@ -156,6 +182,9 @@ class AnalysisEngineProcess:
     def stop(self) -> None:
         """
         Stop the analysis engine the way Ctrl+C does, and wait until its process ended.
+        Does nothing if the process did not start or has already ended.
         """
+        if self._process is None or self._process.poll() is not None:
+            return
         self._process.send_signal(signal.SIGINT)
         self._process.wait()

@@ -56,7 +56,11 @@ from coraplex.robot_plans.actions.core.navigation import (
 from coraplex.robot_plans.actions.core.talking import TalkingAction
 from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
-from krrood_spatial_math.spatial_types import HomogeneousTransformationMatrix, Pose
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Pose,
+    Pose2D,
+)
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
@@ -113,7 +117,7 @@ def pr2_context(
     The context of a plan of the PR2 in the apartment, with the milk on the table.
     """
     world, robot, extensions = apartment_world_pr2_copy_with_context
-    return StatechartContext.with_extensions(world, extensions)
+    return StatechartContext.with_extensions(world=world, extensions=extensions)
 
 
 @pytest.fixture
@@ -168,12 +172,12 @@ class FixedStandingCandidates:
     The pose the robot is to reach.
     """
 
-    candidates: list[Pose]
+    candidates: list[Pose2D]
     """
     The poses the robot could stand at, best first.
     """
 
-    def __iter__(self) -> Iterator[Pose]:
+    def __iter__(self) -> Iterator[Pose2D]:
         return iter(self.candidates)
 
 
@@ -238,8 +242,8 @@ def test_navigation_drives_to_a_free_standing_pose_at_each_location(
     drives = command.plans[0].actions[1:]
     for drive in drives:
         expected_target = FreeSpaceFinder(context.world).standing_pose(drive.location)
-        target = drive.action._kwargs_["target"]
-        assert numpy.allclose(target.to_np(), expected_target.to_np())
+        target = drive.action._kwargs_["planar_goal_pose"]
+        assert numpy.allclose(target.to_np(), Pose2D.from_pose(expected_target).to_np())
 
 
 def test_finding_an_object_drives_to_the_object(
@@ -254,7 +258,8 @@ def test_finding_an_object_drives_to_the_object(
     assert isinstance(finding.action, NavigateAction)
     assert finding.object_annotation is apple
     assert numpy.allclose(
-        finding.action.target_location.to_np(), apple.root.global_pose.to_np()
+        finding.action.planar_goal_pose.to_np(),
+        Pose2D.from_pose(apple.root.global_pose).to_np(),
     )
 
 
@@ -550,9 +555,9 @@ def test_approaching_a_manipulation_keeps_its_standing_pose(
     """
     world, robot, extensions = apartment_world_pr2_copy_with_context
     statechart = Statechart(
-        context=StatechartContext.with_extensions(world, extensions)
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
     )
-    standing_pose = Pose.from_xyz_rpy(x=1.0, y=0.5, reference_frame=world.root)
+    standing_pose = Pose2D.from_xy_yaw(x=1.0, y=0.5, reference_frame=world.root)
     standing_pose_before = standing_pose.to_np().copy()
     manipulation = ManipulationAtStandingPoseAction(
         standing_pose=standing_pose,
@@ -561,7 +566,7 @@ def test_approaching_a_manipulation_keeps_its_standing_pose(
         ),
         manipulation=TalkingAction(speaking_text="placing"),
     )
-    statechart.add_node(manipulation)
+    statechart.add_node(node=manipulation)
     manipulation.create_steps()
     assert numpy.allclose(standing_pose.to_np(), standing_pose_before)
 
@@ -577,9 +582,9 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
     """
     world, robot, extensions = apartment_world_pr2_copy_with_context
     statechart = Statechart(
-        context=StatechartContext.with_extensions(world, extensions)
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
     )
-    standing_pose = Pose.from_xyz_rpy(x=1.0, y=0.5, reference_frame=world.root)
+    standing_pose = Pose2D.from_xy_yaw(x=1.0, y=0.5, reference_frame=world.root)
     performed = TalkingAction(speaking_text="placing")
     manipulation = ManipulationAtStandingPoseAction(
         standing_pose=standing_pose,
@@ -588,9 +593,9 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
         ),
         manipulation=performed,
     )
-    statechart.add_node(manipulation)
+    statechart.add_node(node=manipulation)
     drive, allowing_collisions = manipulation.create_steps()
-    approach = drive._kwargs_["target"]
+    approach = drive._kwargs_["planar_goal_pose"]
     assert drive._type_ is PathPlanningNavigateAction
     assert float(approach.x) == pytest.approx(
         float(standing_pose.x) - robot.mobile_base.base_radius
@@ -611,9 +616,9 @@ def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
     """
     world, robot, extensions = apartment_world_pr2_copy_with_context
     statechart = Statechart(
-        context=StatechartContext.with_extensions(world, extensions)
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
     )
-    standing_pose = Pose.from_xyz_rpy(x=1.0, y=0.5, reference_frame=world.root)
+    standing_pose = Pose2D.from_xy_yaw(x=1.0, y=0.5, reference_frame=world.root)
     manipulation = ManipulationAtStandingPoseAction(
         standing_pose=standing_pose,
         manipulated_location=Pose.from_xyz_rpy(
@@ -621,9 +626,11 @@ def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
         ),
         manipulation=TalkingAction(speaking_text="placing"),
     )
-    statechart.add_node(manipulation)
+    statechart.add_node(node=manipulation)
     drive, _ = manipulation.create_steps()
-    assert numpy.allclose(drive._kwargs_["target"].to_np(), standing_pose.to_np())
+    assert numpy.allclose(
+        drive._kwargs_["planar_goal_pose"].to_np(), standing_pose.to_np()
+    )
 
 
 # %% Picking up and placing at a reachable standing pose
@@ -684,10 +691,11 @@ def test_standing_pose_is_the_first_candidate_over_a_floor(
     Of the standing poses offered, the first one over a floor is chosen.
     """
     root = context.world.root
-    over_no_floor = Pose.from_xyz_rpy(x=-20.0, y=-20.0, reference_frame=root)
-    over_kitchen_floor = Pose.from_xyz_rpy(x=2.0, y=1.0, reference_frame=root)
+    over_no_floor = Pose2D.from_xy_yaw(x=-20.0, y=-20.0, reference_frame=root)
+    over_kitchen_floor = Pose2D.from_xy_yaw(x=2.0, y=1.0, reference_frame=root)
     candidates = FixedStandingCandidates(
-        target_pose=over_kitchen_floor, candidates=[over_no_floor, over_kitchen_floor]
+        target_pose=over_kitchen_floor.pose,
+        candidates=[over_no_floor, over_kitchen_floor],
     )
     assert (
         ManipulationPlanner(context).standing_pose_on_floor(candidates)
@@ -702,9 +710,9 @@ def test_standing_pose_without_a_candidate_over_a_floor_raises(
     A target the robot reaches only from poses over no floor cannot be reached.
     """
     root = context.world.root
-    over_no_floor = Pose.from_xyz_rpy(x=-20.0, y=-20.0, reference_frame=root)
+    over_no_floor = Pose2D.from_xy_yaw(x=-20.0, y=-20.0, reference_frame=root)
     candidates = FixedStandingCandidates(
-        target_pose=over_no_floor, candidates=[over_no_floor]
+        target_pose=over_no_floor.pose, candidates=[over_no_floor]
     )
     with pytest.raises(NoStandingPoseOnFloor):
         ManipulationPlanner(context).standing_pose_on_floor(candidates)
@@ -844,7 +852,7 @@ def test_finding_a_person_drives_in_front_of_them_and_faces_them(
     person = visitor_context.world.get_semantic_annotation_by_name("visitor")
     statechart = Statechart(context=visitor_context)
     finding = FindPersonAction(person=person)
-    statechart.add_node(finding)
+    statechart.add_node(node=finding)
     drive, facing = finding.create_steps()
     expected_target = visitor_context.world.transform(
         Pose.from_xyz_rpy(
@@ -853,7 +861,10 @@ def test_finding_a_person_drives_in_front_of_them_and_faces_them(
         visitor_context.world.root,
     )
     assert drive._type_ is PathPlanningNavigateAction
-    assert numpy.allclose(drive._kwargs_["target"].to_np(), expected_target.to_np())
+    assert numpy.allclose(
+        drive._kwargs_["planar_goal_pose"].to_np(),
+        Pose2D.from_pose(expected_target).to_np(),
+    )
     assert isinstance(facing, FaceAtAction)
 
 
@@ -867,7 +878,7 @@ def test_finding_a_person_with_a_detection_asks_the_perception(
     detection = RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     statechart = Statechart(context=visitor_context)
     finding = FindPersonAction(person=person, detection=detection)
-    statechart.add_node(finding)
+    statechart.add_node(node=finding)
     *_, asking = finding.create_steps()
     assert isinstance(asking, RoboKudoQueryTask)
     assert asking.query is detection

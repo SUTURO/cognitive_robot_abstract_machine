@@ -53,7 +53,7 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.query.match import Match
-from krrood_spatial_math.spatial_types import Pose, Vector3
+from krrood_spatial_math.spatial_types import Pose, Pose2D, Vector3
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
@@ -64,7 +64,7 @@ from semantic_digital_twin.reasoning.queries import (
     find_objects_room,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
-    HasGraspCandidates,
+    IsGraspable,
     HasRootBody,
     HasSupportingSurface,
 )
@@ -172,9 +172,11 @@ class FindPersonAction(SequentialAction):
         )
         steps: list[StatechartNode | Match] = [
             a(PathPlanningNavigateAction)(
-                target=self.world.transform(viewing_pose, self.world.root)
+                planar_goal_pose=Pose2D.from_pose(
+                    self.world.transform(viewing_pose, self.world.root)
+                )
             ),
-            FaceAtAction(target=Pose(reference_frame=self.person.root)),
+            FaceAtAction(look_target=Pose(reference_frame=self.person.root)),
         ]
         if self.detection is not None:
             steps.append(RoboKudoQueryTask(query=self.detection))
@@ -215,7 +217,7 @@ class ManipulationAtStandingPoseAction(SequentialAction):
         keeps the base.
     """
 
-    standing_pose: Pose
+    standing_pose: Pose2D
     """
     Where the robot's base stands while it performs :attr:`manipulation`.
     """
@@ -236,7 +238,7 @@ class ManipulationAtStandingPoseAction(SequentialAction):
         # A standing pose right at the manipulated location leaves no direction to
         # step back in; the step back then has no length and the robot drives there.
         root = self.world.root
-        world_T_standing = self.world.transform(self.standing_pose, root)
+        world_T_standing = self.world.transform(self.standing_pose.pose, root)
         world_P_standing = world_T_standing.position
         world_P_manipulated = self.world.transform(
             self.manipulated_location, root
@@ -249,12 +251,14 @@ class ManipulationAtStandingPoseAction(SequentialAction):
         )
         world_V_step_back.scale(self.robot.mobile_base.base_radius)
         world_T_approach = Pose(
-            world_P_standing + world_V_step_back,
-            world_T_standing.orientation,
+            position=world_P_standing + world_V_step_back,
+            orientation=world_T_standing.orientation,
             reference_frame=root,
         )
         return [
-            a(PathPlanningNavigateAction)(target=world_T_approach),
+            a(PathPlanningNavigateAction)(
+                planar_goal_pose=Pose2D.from_pose(world_T_approach)
+            ),
             CollisionAllowingAction(performed_action=self.manipulation),
         ]
 
@@ -450,11 +454,11 @@ class ManipulationPlanner:
         """
         :return: The arm the robot manipulates with: its first one.
         """
-        return self.context.require_extension(RobotAccess).robot.all_arms[0]
+        return self.context.require_extension(
+            extension_type=RobotAccess
+        ).robot.all_arms[0]
 
-    def pick_up(
-        self, graspable: HasGraspCandidates
-    ) -> ManipulationAtStandingPoseAction:
+    def pick_up(self, graspable: IsGraspable) -> ManipulationAtStandingPoseAction:
         """
         :param graspable: The object to pick up.
         :return: A pick-up that drives to the first standing pose the reachability
@@ -472,7 +476,7 @@ class ManipulationPlanner:
             )
         )
         grasps_closest_first = GraspsByCloseness(
-            graspable, standing_pose, number_of_grasps=None
+            graspable=graspable, standing_position=standing_pose, number_of_grasps=None
         )()
         fitting_grasp = next(
             (
@@ -489,12 +493,12 @@ class ManipulationPlanner:
             standing_pose=standing_pose,
             manipulated_location=Pose(reference_frame=graspable.root),
             manipulation=MoveAndPickUpAction.from_standing_position(
-                standing_pose, fitting_grasp, arm
+                standing_position=standing_pose, grasp=fitting_grasp, arm=arm
             ),
         )
 
     def place(
-        self, held_object: HasGraspCandidates, target_location: Pose
+        self, held_object: IsGraspable, target_location: Pose
     ) -> ManipulationAtStandingPoseAction:
         """
         :param held_object: The object to put down, held by :attr:`arm`.
@@ -513,11 +517,14 @@ class ManipulationPlanner:
             standing_pose=standing_pose,
             manipulated_location=target_location,
             manipulation=MoveAndPlaceAction.from_standing_position(
-                standing_pose, target_location, held_object, arm
+                standing_position=standing_pose,
+                graspable=held_object,
+                goal_pose=target_location,
+                arm=arm,
             ),
         )
 
-    def standing_pose_on_floor(self, location: ReachabilityLocation) -> Pose:
+    def standing_pose_on_floor(self, location: ReachabilityLocation) -> Pose2D:
         """
         :param location: Where the robot can stand to reach its target.
         :return: The first candidate of ``location`` that lies over a floor.
@@ -526,7 +533,8 @@ class ManipulationPlanner:
         floors = self.context.world.get_semantic_annotations_by_type(Floor)
         for candidate in location:
             if any(
-                OverFloorPlan(pose=candidate, floor=floor.root)() for floor in floors
+                OverFloorPlan(pose=candidate.pose, floor=floor.root)()
+                for floor in floors
             ):
                 return candidate
         raise NoStandingPoseOnFloor(target_pose=location.target_pose)
@@ -568,7 +576,9 @@ class ActionMapper:
                 action=ActionType.NAVIGATE, argument=PayloadKey.LOCATION
             )
         return a(PathPlanningNavigateAction)(
-            target=FreeSpaceFinder(self.context.world).standing_pose(location)
+            planar_goal_pose=Pose2D.from_pose(
+                FreeSpaceFinder(self.context.world).standing_pose(location)
+            )
         )
 
     def create_pick_up(
@@ -617,10 +627,12 @@ class ActionMapper:
         # TODO: FIND currently only a placeholder, only works with objects already in the SemDT, find action has
         #  to be implemented first to completely implement this feature
         if named_object is not None:
-            return NavigateAction(target_location=named_object.root.global_pose)
+            return NavigateAction(
+                planar_goal_pose=Pose2D.from_pose(named_object.root.global_pose)
+            )
         if person is None:
             raise NothingToFind()
-        person_detection = self.context.get_extension(PersonDetection)
+        person_detection = self.context.get_extension(extension_type=PersonDetection)
         return FindPersonAction(
             person=person,
             detection=None if person_detection is None else person_detection.query,
@@ -629,7 +641,7 @@ class ActionMapper:
     @staticmethod
     def carried_object(
         action_type: ActionType, named_object: HasRootBody | None
-    ) -> HasGraspCandidates:
+    ) -> IsGraspable:
         """
         :param action_type: The kind of action that picks up or puts down the object.
         :param named_object: The object the step names, if any.
@@ -639,7 +651,7 @@ class ActionMapper:
         """
         if named_object is None:
             raise MissingActionArgument(action=action_type, argument=PayloadKey.OBJECT)
-        if not isinstance(named_object, HasGraspCandidates):
+        if not isinstance(named_object, IsGraspable):
             raise ObjectNotGraspable(named_object=named_object)
         return named_object
 

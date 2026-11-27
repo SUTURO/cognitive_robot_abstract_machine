@@ -650,7 +650,7 @@ class ParentPipelineMissing(RoboKudoError, RuntimeError):
         return "add the behaviour as a descendant of a Pipeline."
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AnalysisEngineDidNotStart(RoboKudoError, RuntimeError):
     """
     Raised when an analysis engine does not announce that it is running in time.
@@ -674,6 +674,6 @@ class AnalysisEngineDidNotStart(RoboKudoError, RuntimeError):
 
     def suggest_correction(self) -> str:
         return (
-            "check the output of its process for an error, or wait longer for an "
-            "analysis engine that loads large models."
+            "check the output of its process for an error, or raise the startup timeout "
+            "of an analysis engine that downloads or loads large models."
         )
