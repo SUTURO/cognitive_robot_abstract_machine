@@ -34,11 +34,13 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Desk,
     Sink,
     Dishwasher,
+    WashingMachine,
     Cooktop,
     Oven,
     WallPanel,
     KitchenIsland,
 )
+from semantic_digital_twin.adapters.urdf import URDFParser
 from semantic_digital_twin.specifications.connections import (
     PrismaticConnectionSpecification,
     RevoluteConnectionSpecification,
@@ -785,6 +787,22 @@ class KitchenMeasurements:
     """
 
 
+# %% Washing machine
+
+
+class WashingMachineLink(StrEnum):
+    """
+    The links of the Miele washing machine model in the ``iai_objects`` package that
+    carry a semantic annotation.
+    """
+
+    BODY = "washing_machine"
+    DOOR = "washing_machine_door"
+    DOOR_HANDLE = "washing_machine_door_handle"
+    DETERGENT_DRAWER = "washing_machine_detergent_drawer"
+    DETERGENT_DRAWER_HANDLE = "washing_machine_detergent_drawer_handle"
+
+
 # %% Environment construction
 @dataclass
 class KitchenEnvironment(WorldSource):
@@ -803,6 +821,7 @@ class KitchenEnvironment(WorldSource):
 
         self._build_environment_walls(world)
         self._build_environment_furniture(world)
+        self._build_washing_machine(world)
         self._build_environment_rooms(world)
 
         return world
@@ -2286,7 +2305,7 @@ class KitchenEnvironment(WorldSource):
             desk_color = Color.WHITE()
             desk_plate_thickness = 0.03
             desk_pose = HomogeneousTransformationMatrix.from_xyz_rpy(
-                x=0.05, y=1.28, z=desk_height
+                x=0.035, y=1.075, z=desk_height
             )
             desk = Desk.create_with_new_body_in_world(
                 world=world,
@@ -2469,6 +2488,53 @@ class KitchenEnvironment(WorldSource):
                 for shape in leg.root.visual.shapes:
                     shape.color = Color.BEIGE()
                 dining_table.add(leg)
+
+    def _build_washing_machine(self, world: World) -> None:
+        """
+        Stand the washing machine in the living room between the desk and the doorway,
+        its back to the south wall, and annotate its door, detergent drawer and their
+        handles.
+        """
+        washing_machine_world = URDFParser.from_file(
+            "package://iai_objects/urdf/miele_washing_machine.urdf"
+        ).create_world()
+        world.merge_world(
+            washing_machine_world,
+            FixedConnection(
+                parent=world.root,
+                child=washing_machine_world.root,
+                parent_T_connection_expression=HomogeneousTransformationMatrix.from_xyz_rpy(
+                    x=0.09175, y=2.073, yaw=np.pi
+                ),
+            ),
+        )
+        with world.modify_world():
+            washing_machine = WashingMachine(
+                name=PrefixedName(WashingMachineLink.BODY),
+                root=world.get_body_by_name(WashingMachineLink.BODY),
+            )
+            door = Door(
+                name=PrefixedName(WashingMachineLink.DOOR),
+                root=world.get_body_by_name(WashingMachineLink.DOOR),
+                handle=Handle(
+                    name=PrefixedName(WashingMachineLink.DOOR_HANDLE),
+                    root=world.get_body_by_name(WashingMachineLink.DOOR_HANDLE),
+                ),
+            )
+            drawer = Drawer(
+                name=PrefixedName(WashingMachineLink.DETERGENT_DRAWER),
+                root=world.get_body_by_name(WashingMachineLink.DETERGENT_DRAWER),
+                handle=Handle(
+                    name=PrefixedName(WashingMachineLink.DETERGENT_DRAWER_HANDLE),
+                    root=world.get_body_by_name(
+                        WashingMachineLink.DETERGENT_DRAWER_HANDLE
+                    ),
+                ),
+            )
+            for annotation in (washing_machine, door, drawer):
+                world.add_semantic_annotation_recursively(annotation)
+            washing_machine.add(door)
+            washing_machine.add(drawer)
 
     def _build_coffee_table(self, world: World) -> None:
         """
