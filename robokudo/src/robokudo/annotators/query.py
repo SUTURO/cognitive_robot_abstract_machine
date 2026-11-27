@@ -378,7 +378,7 @@ class GenerateQueryResult(BaseAnnotator):
                 skipped_object_hypotheses_count += 1
                 continue
 
-            object_designator = ObjectDesignator()
+            object_designator = ObjectDesignator(uid=annotation.id)
 
             for oh_annotation in annotation.annotations:
                 converter = self.type_converter.get(type(oh_annotation), None)

@@ -929,6 +929,25 @@ def test_gcs_navigation_arrives_at_each_waypoint_facing_the_next_one(
         )
 
 
+def test_gcs_navigation_plans_from_the_given_start(multiple_robot_apartment_context):
+    """
+    A drive given a start, such as the target of the drive before it, plans its path
+    from there rather than from where the robot stands when the plan is built.
+    """
+    world, robot, extensions = multiple_robot_apartment_context
+    start = Pose2D.from_xy_yaw(x=5, y=1, reference_frame=world.root)
+
+    action = PathPlanningNavigateAction(
+        start=start, planar_goal_pose=Pose2D.from_pose(robot.root.global_pose)
+    )
+    attach_to_statechart(action, extensions)
+
+    first_waypoint = world.transform(action._waypoints()[0], world.root)
+    assert (float(first_waypoint.x), float(first_waypoint.y)) == pytest.approx(
+        (float(start.x), float(start.y))
+    )
+
+
 def test_gcs_navigation_plans_on_the_floor_the_robot_stands_on(
     multiple_robot_apartment_context,
 ):
