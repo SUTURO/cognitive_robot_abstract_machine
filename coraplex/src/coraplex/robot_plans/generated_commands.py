@@ -82,6 +82,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
 )
 
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+)
 from semantic_digital_twin.world_description.world_entity import SemanticAnnotation
 
 
@@ -379,7 +382,7 @@ class WorldReferenceResolver:
 # %% Finding free space
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FreeSpaceFinder:
     """
     Finds free spots in a world for the robot to stand on and to put objects down on.
@@ -388,6 +391,12 @@ class FreeSpaceFinder:
     world: World
     """
     The world to find the free spots in.
+    """
+
+    edge_margin: float = 0.05
+    """
+    The gap, in meters, an object put down on a surface keeps between its footprint and
+    the surface's edge.
     """
 
     def standing_pose(self, location: SemanticAnnotation) -> Pose:
@@ -482,13 +491,17 @@ class FreeSpaceFinder:
         :param placed_object: The object to put down.
         :param robot_position: Where the robot is.
         :return: Of the sampled poses where ``placed_object`` fits without touching other
-            objects, the one closest to ``robot_position`` over the floor, so near the
-            edge facing the robot, on the first of ``surfaces`` that has one; ``None`` if
-            none has.
+            objects and keeps :attr:`edge_margin` from the edge, the one closest to
+            ``robot_position`` over the floor, so near the edge facing the robot, on the
+            first of ``surfaces`` that has one; ``None`` if none has.
         """
         for surface in surfaces:
-            free_points = surface.sample_points_from_surface(
-                body_to_sample_for=placed_object
+            free_points = self.points_clear_of_edge(
+                surface=surface,
+                points=surface.sample_points_from_surface(
+                    body_to_sample_for=placed_object
+                ),
+                placed_object=placed_object,
             )
             if not free_points:
                 continue
@@ -502,6 +515,33 @@ class FreeSpaceFinder:
             )
             return Pose(position=closest_point, reference_frame=surface_frame)
         return None
+
+    def points_clear_of_edge(
+        self,
+        *,
+        surface: HasSupportingSurface,
+        points: list[Point3],
+        placed_object: HasRootBody,
+    ) -> list[Point3]:
+        """
+        :param surface: The surface ``points`` lie on.
+        :param points: Where to put the center of ``placed_object`` down on ``surface``.
+        :param placed_object: The object to put down.
+        :return: Those of ``points`` where the footprint of ``placed_object`` keeps
+            :attr:`edge_margin` from the edge of ``surface``.
+        """
+        if not points:
+            return []
+        object_extents = placed_object.root.combined_mesh.extents
+        clearance = object_extents[:2].max() / 2 + self.edge_margin
+        surface_area = BoundingBoxCollection.from_shapes(
+            surface.supporting_surface.area
+        )
+        surface_area.transform_all_shapes_to_own_frame()
+        placeable_area = surface_area.bounding_box().bloat(
+            x_amount=-clearance, y_amount=-clearance, z_amount=object_extents[2]
+        )
+        return [point for point in points if placeable_area.contains(point)]
 
 
 # %% Manipulating at a reachable standing pose
@@ -647,7 +687,7 @@ class ActionMapper:
             )
         return a(PathPlanningNavigateAction)(
             planar_goal_pose=Pose2D.from_pose(
-                FreeSpaceFinder(self.context.world).standing_pose(location)
+                FreeSpaceFinder(world=self.context.world).standing_pose(location)
             )
         )
 
@@ -679,7 +719,7 @@ class ActionMapper:
             raise MissingActionArgument(
                 action=ActionType.PLACE, argument=PayloadKey.LOCATION
             )
-        target_location = FreeSpaceFinder(self.context.world).placing_pose(
+        target_location = FreeSpaceFinder(world=self.context.world).placing_pose(
             location_type=location_type,
             location=location,
             placed_object=held_object,

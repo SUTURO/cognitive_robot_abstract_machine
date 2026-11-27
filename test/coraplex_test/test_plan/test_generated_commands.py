@@ -81,6 +81,9 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Table,
 )
 from semantic_digital_twin.world import World
+from semantic_digital_twin.world_description.shape_collection import (
+    BoundingBoxCollection,
+)
 from semantic_digital_twin.world_description.world_entity import (
     Body,
     SemanticAnnotation,
@@ -262,7 +265,9 @@ def test_navigation_drives_to_a_free_standing_pose_at_each_location(
     command = GeneratedCommand.from_json(payload, "go there", context)
     drives = command.plans[0].actions[1:]
     for drive in drives:
-        expected_target = FreeSpaceFinder(context.world).standing_pose(drive.location)
+        expected_target = FreeSpaceFinder(world=context.world).standing_pose(
+            drive.location
+        )
         target = drive.action._kwargs_["planar_goal_pose"]
         assert numpy.allclose(target.to_np(), Pose2D.from_pose(expected_target).to_np())
 
@@ -398,7 +403,7 @@ def test_standing_next_to_a_location_without_a_body_raises(
     """
     location = SemanticAnnotation(name=PrefixedName("somewhere"))
     with pytest.raises(LocationWithoutBody):
-        FreeSpaceFinder(kitchen_environment_with_rooms).standing_pose(location)
+        FreeSpaceFinder(world=kitchen_environment_with_rooms).standing_pose(location)
 
 
 # %% Finding the person a step names
@@ -820,7 +825,7 @@ def test_free_pose_on_a_table_in_the_room_lies_in_the_room(
     """
     [kitchen_annotation] = context.world.get_semantic_annotations_by_type(Kitchen)
     apple = context.world.get_semantic_annotation_by_name("apple")
-    free_pose = FreeSpaceFinder(context.world).pose_on_table_in_room(
+    free_pose = FreeSpaceFinder(world=context.world).pose_on_table_in_room(
         room_type=Kitchen,
         placed_object=apple,
         robot_position=Point3(reference_frame=context.world.root),
@@ -846,12 +851,49 @@ def test_free_pose_on_a_table_lies_on_the_side_facing_the_robot(
             y=float(table_position.y),
             reference_frame=world.root,
         )
-        free_pose = FreeSpaceFinder(world).pose_on_table_in_room(
+        free_pose = FreeSpaceFinder(world=world).pose_on_table_in_room(
             room_type=Kitchen, placed_object=apple, robot_position=robot_position
         )
         free_x_coordinates.append(float(world.transform(free_pose, world.root).x))
     robot_side_x, opposite_side_x = free_x_coordinates
     assert robot_side_x > opposite_side_x
+
+
+def test_free_pose_on_a_table_keeps_the_object_clear_of_the_edge(
+    context: StatechartContext,
+) -> None:
+    """
+    An object put down on the side of a table facing the robot keeps its footprint the
+    edge margin away from the table's edge, so it does not fall off.
+    """
+    world = context.world
+    apple = world.get_semantic_annotation_by_name("apple")
+    [table, *_] = find_objects_in_room(Table, Kitchen, world)
+    table_position = table.root.global_pose.position
+    robot_position = Point3(
+        x=float(table_position.x) + 5.0,
+        y=float(table_position.y),
+        reference_frame=world.root,
+    )
+    finder = FreeSpaceFinder(world=world)
+
+    free_pose = finder.pose_on_first_free_surface(
+        surfaces=[table], placed_object=apple, robot_position=robot_position
+    )
+
+    surface_area = BoundingBoxCollection.from_shapes(table.supporting_surface.area)
+    surface_area.transform_all_shapes_to_own_frame()
+    surface_box = surface_area.bounding_box()
+    surface_P_free = world.transform(free_pose, table.supporting_surface).position
+    x, y = float(surface_P_free.x), float(surface_P_free.y)
+    distance_to_edge = min(
+        x - surface_box.min_x,
+        surface_box.max_x - x,
+        y - surface_box.min_y,
+        surface_box.max_y - y,
+    )
+    footprint_radius = apple.root.combined_mesh.extents[:2].max() / 2
+    assert distance_to_edge >= footprint_radius + finder.edge_margin
 
 
 def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> None:
@@ -860,7 +902,7 @@ def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> No
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
     with pytest.raises(NoFreeTableInRoom):
-        FreeSpaceFinder(context.world).pose_on_table_in_room(
+        FreeSpaceFinder(world=context.world).pose_on_table_in_room(
             room_type=LivingRoom,
             placed_object=apple,
             robot_position=Point3(reference_frame=context.world.root),
@@ -873,7 +915,7 @@ def test_no_surfaces_offer_no_free_pose(context: StatechartContext) -> None:
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
     assert (
-        FreeSpaceFinder(context.world).pose_on_first_free_surface(
+        FreeSpaceFinder(world=context.world).pose_on_first_free_surface(
             surfaces=[],
             placed_object=apple,
             robot_position=Point3(reference_frame=context.world.root),
