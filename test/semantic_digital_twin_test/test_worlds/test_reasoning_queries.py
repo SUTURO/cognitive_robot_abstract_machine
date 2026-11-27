@@ -1,3 +1,7 @@
+"""
+The queries over the semantic annotations of a world.
+"""
+
 import os
 
 from semantic_digital_twin.adapters.urdf import URDFParser
@@ -11,6 +15,8 @@ from semantic_digital_twin.reasoning.queries import (
     filter_annotations_by_color,
     annotation_class_by_label,
     sort_annotations_by_volume,
+    find_objects_in_room,
+    find_the_room_of_an_object,
 )
 from semantic_digital_twin.reasoning.reasoner import CaseReasoner
 from semantic_digital_twin.reasoning.world_reasoner import WorldReasoner
@@ -293,3 +299,38 @@ def test_world_reasoner_leaves_urdf_doors_and_drawers_on_their_own_joints():
     assert drawers
     for drawer in drawers:
         assert isinstance(drawer.movable_joint, PrismaticConnection)
+
+
+def test_find_objects_in_room():
+    """
+    Tests the `find_objects_in_room` function by verifying that it correctly identifies.
+    """
+    world = KitchenEnvironment().create_world()
+    [sofa] = world.get_semantic_annotations_by_type(Sofa)
+    assert find_objects_in_room(
+        object_type=Sofa, room_type=LivingRoom, world=world
+    ) == [sofa]
+    assert find_objects_in_room(object_type=Sofa, room_type=Kitchen, world=world) == []
+
+
+def test_find_the_room_of_an_object():
+    """
+    Tests the `find_the_room_of_an_object` function by verifying that it correctly
+    identifies.
+    """
+    world = KitchenEnvironment().create_world()
+    sofa = world.get_semantic_annotations_by_type(Sofa)[0]
+    living_room = world.get_semantic_annotations_by_type(LivingRoom)[0]
+
+    assert find_the_room_of_an_object(sofa) == living_room
+
+    with world.modify_world():
+        random_object = Milk.create_with_new_body_in_world(
+            name="random_object",
+            world=world,
+            world_root_T_self=HomogeneousTransformationMatrix.from_xyz_rpy(
+                x=-10.0, y=-10.0
+            ),
+        )
+
+    assert find_the_room_of_an_object(random_object) is None

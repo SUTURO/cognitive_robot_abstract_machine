@@ -191,24 +191,25 @@ def test_a_path_within_one_room_is_that_rooms_own_path(two_rooms: TwoRooms) -> N
 # %% the rooms of the kitchen environment
 
 
-def test_a_path_from_the_kitchen_into_the_office_leads_through_the_living_room() -> (
+def test_a_path_from_the_kitchen_into_the_bathroom_leads_through_the_living_room() -> (
     None
 ):
     """
-    The office borders the kitchen only through the living room, so a path between them
-    passes over the floors of the kitchen, the living room and the office, in turn.
+    The bathroom borders the kitchen only through the living room, so a path between
+    them passes over the floors of the kitchen, the living room and the bathroom, in
+    turn.
     """
     world = KitchenEnvironment().create_world()
-    kitchen, living_room, office = (
+    kitchen, living_room, bathroom = (
         world.get_semantic_annotation_by_name(name).floor
-        for name in ("kitchen", "living_room", "office")
+        for name in ("kitchen", "living_room", "bathroom")
     )
     free_spaces = [
         room_floor.planar_free_space(bloat_obstacles=0.25)
-        for room_floor in (kitchen, living_room, office)
+        for room_floor in (kitchen, living_room, bathroom)
     ]
     joined = AdjoiningFreeSpaces(world=world, free_spaces=free_spaces)
-    office_position = office.root.global_pose
+    bathroom_position = bathroom.root.global_pose
 
     path = joined.path_from_to(
         start=PlaceInFreeSpace(
@@ -218,8 +219,8 @@ def test_a_path_from_the_kitchen_into_the_office_leads_through_the_living_room()
         goal=PlaceInFreeSpace(
             free_space=free_spaces[2],
             position=Point2(
-                float(office_position.x),
-                float(office_position.y),
+                float(bathroom_position.x),
+                float(bathroom_position.y),
                 reference_frame=world.root,
             ),
         ),
@@ -232,5 +233,5 @@ def test_a_path_from_the_kitchen_into_the_office_leads_through_the_living_room()
     assert floors_passed == [
         kitchen.supporting_surface,
         living_room.supporting_surface,
-        office.supporting_surface,
+        bathroom.supporting_surface,
     ]

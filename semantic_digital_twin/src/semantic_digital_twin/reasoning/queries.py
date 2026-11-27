@@ -1,3 +1,7 @@
+"""
+Queries over the semantic annotations of a world.
+"""
+
 from krrood.inheritance_path_length import (
     nearest_common_ancestor,
     inheritance_path_length,
@@ -16,17 +20,20 @@ from krrood.entity_query_language.factories import (
 from krrood.entity_query_language.query.query import Entity
 from krrood.entity_query_language.predicate import symbolic_function, length
 from krrood.utils import recursive_subclasses
+from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 
 from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
     Supports,
     compute_euclidean_planar_distance,
+    OverFloorPlan,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasSupportingSurface,
     IsPerceivable,
     HasRootBody,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Room, Sofa
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -222,3 +229,41 @@ def sort_annotations_by_volume(
     return entity(annotaion_var).ordered_by(
         variable=get_volume(annotaion_var), descending=not order
     )
+
+
+def find_objects_in_room(
+    *, object_type: type[HasRootBody], room_type: type[Room], world: World
+) -> list[HasRootBody]:
+    """
+    Finds every semantic annotation of a type whose root body stands over the floor plan
+    of a room.
+
+    :param object_type: The type of the annotations to find, e.g. :class:`Apple`.
+    :param room_type: The type of the room to search in, e.g. :class:`Kitchen`.
+    :param world: The world holding the room and the annotations.
+    :return: The annotations of the given type inside the room.
+    """
+    [room] = world.get_semantic_annotations_by_type(room_type)
+    annotation = variable(object_type, world.semantic_annotations)
+    query = entity(annotation).where(
+        OverFloorPlan(pose=annotation.root.global_pose, floor=room.floor.root)
+    )
+    return list(query.evaluate())
+
+
+def find_the_room_of_an_object(semantic_annotation: SemanticAnnotation) -> Room | None:
+    """
+    Finds the room whose floor plan the root body of a semantic annotation stands over.
+
+    :param semantic_annotation: The annotation to locate.
+    :return: The room the annotation is in, or None if it is in no room.
+    """
+    room = variable(Room, semantic_annotation._world.semantic_annotations)
+    query = an(
+        entity(room).where(
+            OverFloorPlan(
+                pose=semantic_annotation.root.global_pose, floor=room.floor.root
+            )
+        )
+    )
+    return next(query.evaluate(), None)

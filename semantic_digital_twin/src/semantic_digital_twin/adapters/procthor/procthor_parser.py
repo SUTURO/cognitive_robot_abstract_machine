@@ -1,3 +1,7 @@
+"""
+Worlds parsed from the JSON house descriptions of ProcTHOR.
+"""
+
 import json
 import logging
 import math
@@ -37,6 +41,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bedroom,
     Bathroom,
     LivingRoom,
+    Laundryroom,
 )
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
@@ -507,6 +512,8 @@ class ProcthorRoom:
             room = Kitchen(name=room_name, floor=floor)
         elif "Bathroom" in self.name:
             room = Bathroom(name=room_name, floor=floor)
+        elif "Laundryroom" in self.name:
+            room = Laundryroom(name=room_name, floor=floor)
         else:
             assert_never(self.name)
 
