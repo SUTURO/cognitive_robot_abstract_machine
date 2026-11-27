@@ -1,3 +1,8 @@
+"""
+Executors that perform plans in simulation or on a real robot, and the adaptations they
+make to a plan first.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -23,9 +28,14 @@ from coraplex.plans.failures import (
     MotionWasInfeasible,
     PlanFailure,
 )
-from coraplex.plans.plan_transformation import PlanRewriting, PlanTransformation
+from coraplex.plans.plan_transformation import (
+    PlanRewriting,
+    PlanTransformation,
+    ConfigurationTransformation,
+)
 from coraplex.plans.underspecified import UnderspecifiedChildChooser
 from coraplex.robot_plans.actions.base import Action
+from coraplex.robot_plans.actions.core.navigation import DrivesBase
 from coraplex.robot_plans.plan_transformations import (
     CloseFingersToObjectWidth,
     DetectWithRoboKudo,
@@ -65,6 +75,7 @@ from giskardpy.motion_statechart.monitors.progress_monitors import StillProgress
 from giskardpy.middleware.ros2.giskard_client_executor import GiskardClientExecutor
 from giskardpy.motion_statechart.ros_context import RosNodeAccess
 from giskardpy.qp.exceptions import InfeasibleException
+from giskardpy.motion_statechart.tasks.drive_tasks import StraightLineBaseGoal
 from giskardpy.qp.qp_controller_config import QPControllerConfig
 from krrood.patterns.classproperty import classproperty
 from krrood.symbolic_math.symbolic_math import logic_or
@@ -667,3 +678,36 @@ class RealRobotPlanExecutor(PlanExecutor):
             return
         self._giskard.close()
         self._giskard = None
+
+
+@dataclass(kw_only=True)
+class DriveFacingTheWayToTheGoal(ConfigurationTransformation[DrivesBase]):
+    """
+    Lets the base turn towards each goal, drive there facing forwards and only then turn
+    to the goal's orientation, instead of moving sideways while turning.
+    """
+
+    def is_applicable(self, plan_node: DrivesBase) -> bool:
+        return True
+
+    def apply(self, plan_node: DrivesBase) -> None:
+        plan_node.base_goal_type = StraightLineBaseGoal
+
+
+@dataclass(kw_only=True)
+class ForwardDrivingPlanExecutor(PhysicallySimulatedPlanExecutor):
+    """
+    Performs plans in MuJoCo with a base that drives facing the way it goes:
+    :attr:`plan_adaptations` is extended by :class:`DriveFacingTheWayToTheGoal`.
+    """
+
+    def __post_init__(self) -> None:
+        """
+        Add :class:`DriveFacingTheWayToTheGoal` to :attr:`plan_adaptations` before the
+        executor is set up.
+        """
+        self.plan_adaptations = [
+            *self.plan_adaptations,
+            DriveFacingTheWayToTheGoal(),
+        ]
+        super().__post_init__()
