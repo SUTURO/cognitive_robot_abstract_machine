@@ -1,3 +1,7 @@
+"""
+Errors the core robot actions raise when they are given something they cannot carry out.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -83,12 +87,21 @@ class NavigationGoalOutsideFreeSpace(PlanFailure):
     """
 
     def error_message(self) -> str:
+        """
+        :return: Where the goal lies, in place of the generic message of
+            :meth:`~coraplex.plans.failures.PlanFailure.error_message`.
+        """
         return (
             f"The navigation goal at {self.goal.position} lies outside the free space "
             f"the robot's base can stand in."
         )
 
     def suggest_correction(self) -> str:
+        """
+        :return: How to choose a goal the base can stand at, where
+            :meth:`~coraplex.plans.failures.PlanFailure.suggest_correction` suggests
+            nothing.
+        """
         return (
             "choose a goal farther from furniture and walls, or a smaller obstacle "
             "clearance."
