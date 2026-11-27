@@ -735,3 +735,53 @@ def allclose(array1: np.ndarray, array2: np.ndarray, atol=1e-3) -> bool:
     Symbolic wrapper around `np.allclose`.
     """
     return np.allclose(array1, array2, atol=atol)
+
+
+@dataclass(eq=False)
+class OverFloorPlan(Triple[Pose, TBody]):
+    """
+    Whether a pose lies within the x-y extent of a body's bounding box, regardless of
+    height.
+    """
+
+    pose: Pose
+    """
+    The pose that may lie over the floor plan.
+    """
+
+    floor: TBody
+    """
+    The body whose x-y extent is the floor plan.
+    """
+
+    @property
+    def subject(self) -> Pose:
+        return self.pose
+
+    @property
+    def object(self) -> TBody:
+        return self.floor
+
+    def __call__(self) -> bool:
+        world = self.floor._world
+        floor_plan = self.floor.collision.as_bounding_box_collection_in_frame(
+            world.root
+        ).bounding_box()
+        position = world.transform(self.pose, world.root)
+        return floor_plan.x_interval.contains(
+            float(position.x)
+        ) and floor_plan.y_interval.contains(float(position.y))
+
+    @classmethod
+    def _verbalization_fragment_(cls, fields: RenderedFields) -> VerbalizationFragment:
+        """
+        Reads as *"the pose is over the floor"*.
+
+        :param fields: The rendered fragment for each field, keyed by field name.
+        """
+        return clause(
+            Noun(fields["pose"]),
+            Copula(),
+            Prepositions.OVER,
+            Noun(fields["floor"]),
+        )

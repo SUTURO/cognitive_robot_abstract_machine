@@ -21,12 +21,14 @@ from semantic_digital_twin.reasoning.predicates import (
     SupportedBy,
     Supports,
     compute_euclidean_planar_distance,
+    OverFloorPlan,
 )
 from semantic_digital_twin.semantic_annotations.mixins import (
     HasSupportingSurface,
     IsPerceivable,
     HasRootBody,
 )
+from semantic_digital_twin.semantic_annotations.semantic_annotations import Room
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.geometry import Color
 
@@ -222,3 +224,23 @@ def sort_annotations_by_volume(
     return entity(annotaion_var).ordered_by(
         variable=get_volume(annotaion_var), descending=not order
     )
+
+
+def find_objects_in_room(
+    *, object_type: type[HasRootBody], room_type: type[Room], world: World
+) -> list[HasRootBody]:
+    """
+    Finds every semantic annotation of a type whose root body stands over the floor plan
+    of a room.
+
+    :param object_type: The type of the annotations to find, e.g. :class:`Apple`.
+    :param room_type: The type of the room to search in, e.g. :class:`Kitchen`.
+    :param world: The world holding the room and the annotations.
+    :return: The annotations of the given type inside the room.
+    """
+    [room] = world.get_semantic_annotations_by_type(room_type)
+    annotation = variable(object_type, world.semantic_annotations)
+    query = entity(annotation).where(
+        OverFloorPlan(pose=annotation.root.global_pose, floor=room.floor.root)
+    )
+    return list(query.evaluate())
