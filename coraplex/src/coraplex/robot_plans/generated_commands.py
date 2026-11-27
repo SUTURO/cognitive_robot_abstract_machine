@@ -47,6 +47,8 @@ from coraplex.robot_plans.actions.core.navigation import (
     NavigateAction,
     PathPlanningNavigateAction,
 )
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
+from coraplex.robot_plans.actions.core.placing import YawKeepingPlaceAction
 from coraplex.robot_plans.actions.core.talking import TalkingAction
 from coraplex.robot_plans.task_definitions import Command, Step
 from cramph.context import ContextExtension, StatechartContext
@@ -61,7 +63,11 @@ from krrood_spatial_math.spatial_types import (
     Vector3,
 )
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
-from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
+from semantic_digital_twin.collision_checking.collision_rules import (
+    AllowAllCollisions,
+    AvoidExternalCollisions,
+)
+from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.queries import (
     find_free_space_in_room,
@@ -173,6 +179,12 @@ class FindPersonAction(SequentialAction):
     only drive in front of them.
     """
 
+    obstacle_clearance: float
+    """
+    How much further than its radius the base keeps away from the furniture on the way
+    to the person, in meters.
+    """
+
     def create_steps(self) -> list[StatechartNode | Match]:
         viewing_pose = Pose.from_xyz_rpy(
             x=self.viewing_distance,
@@ -183,7 +195,8 @@ class FindPersonAction(SequentialAction):
             a(PathPlanningNavigateAction)(
                 planar_goal_pose=Pose2D.from_pose(
                     self.world.transform(viewing_pose, self.world.root)
-                )
+                ),
+                obstacle_clearance=self.obstacle_clearance,
             ),
             FaceAtAction(look_target=Pose(reference_frame=self.person.root)),
         ]
@@ -195,21 +208,32 @@ class FindPersonAction(SequentialAction):
 @dataclass(eq=False, repr=False, kw_only=True)
 class CollisionAllowingAction(SequentialAction):
     """
-    Performs an action during which the robot may touch anything; collision avoidance
-    holds again once the action ended.
+    Performs an action during which the robot's arms may touch anything, while the rest
+    of the robot, such as its base, keeps clear of everything outside the robot;
+    collision avoidance holds again for the arms once the action ended.
     """
 
     performed_action: Action
     """
-    The action performed while the robot may touch anything.
+    The action performed while the robot's arms may touch anything.
     """
 
     def create_temporary_collision_rules(self) -> list[CollisionRule]:
         """
         Differs from :meth:`Action.create_temporary_collision_rules` in allowing every
-        collision.
+        collision but those between the robot's bodies besides its arms and the bodies
+        outside the robot.
         """
-        return [AllowAllCollisions()]
+        arm_bodies = {
+            body for arm in self.robot.all_arms for body in arm.bodies_with_collision
+        }
+        return [
+            AllowAllCollisions(),
+            AvoidExternalCollisions(
+                robot=self.robot,
+                body_subset=set(self.robot.bodies_with_collision) - arm_bodies,
+            ),
+        ]
 
     def create_steps(self) -> list[StatechartNode]:
         return [self.performed_action]
@@ -219,9 +243,10 @@ class CollisionAllowingAction(SequentialAction):
 class ManipulationAtStandingPoseAction(SequentialAction):
     """
     Drives around the furniture and walls, avoiding collisions, to one base radius in
-    front of where the robot stands for a manipulation, then performs the manipulation,
-    which drives the last stretch, and backs straight out by :attr:`back_out_distance`.
-    The robot may touch anything from the end of the approach until it has backed out.
+    front of where the robot stands for a manipulation, raises the torso, performs the
+    manipulation, which drives the last stretch, backs straight out by
+    :attr:`back_out_distance`, and parks all arms and lowers the torso. The robot's arms
+    may touch anything from the manipulation until it has backed out; the rest may not.
 
     .. note:: The standing pose may lie closer to the furniture than a planned path
         keeps the base.
@@ -244,6 +269,12 @@ class ManipulationAtStandingPoseAction(SequentialAction):
     with driving there.
     """
 
+    obstacle_clearance: float
+    """
+    How much further than its radius the base keeps away from the furniture on the way
+    to the approach pose, in meters.
+    """
+
     back_out_distance: float = 0.5
     """
     How far, in meters, the robot backs straight out after the manipulation, so that
@@ -252,13 +283,19 @@ class ManipulationAtStandingPoseAction(SequentialAction):
 
     def create_steps(self) -> list[StatechartNode | Match]:
         return [
-            a(PathPlanningNavigateAction)(planar_goal_pose=self.approach_pose()),
+            a(PathPlanningNavigateAction)(
+                planar_goal_pose=self.approach_pose(),
+                obstacle_clearance=self.obstacle_clearance,
+            ),
+            MoveTorsoAction(torso_state=TorsoState.HIGH),
             CollisionAllowingAction(performed_action=self.manipulation),
             CollisionAllowingAction(
                 performed_action=NavigateAction(
                     planar_goal_pose=self.back_out_heading()
                 )
             ),
+            ParkArmsAction(arms=self.robot.all_arms),
+            MoveTorsoAction(torso_state=TorsoState.LOW),
         ]
 
     def approach_pose(self) -> Pose2D:
@@ -491,63 +528,84 @@ class FreeSpaceFinder:
         :param placed_object: The object to put down.
         :param robot_position: Where the robot is.
         :return: Of the sampled poses where ``placed_object`` fits without touching other
-            objects and keeps :attr:`edge_margin` from the edge, the one closest to
-            ``robot_position`` over the floor, so near the edge facing the robot, on the
-            first of ``surfaces`` that has one; ``None`` if none has.
+            objects and keeps :attr:`edge_margin` from the edge, the one closest to the
+            middle of the edge facing ``robot_position``, on the first of ``surfaces``
+            that has one; ``None`` if none has.
         """
         for surface in surfaces:
-            free_points = self.points_clear_of_edge(
-                surface=surface,
-                points=surface.sample_points_from_surface(
-                    body_to_sample_for=placed_object
-                ),
-                placed_object=placed_object,
+            sampled_points = surface.sample_points_from_surface(
+                body_to_sample_for=placed_object
             )
+            if not sampled_points:
+                continue
+            placeable_area = self.placeable_area(
+                surface=surface, placed_object=placed_object
+            )
+            free_points = [
+                point for point in sampled_points if placeable_area.contains(point)
+            ]
             if not free_points:
                 continue
             surface_frame = free_points[0].reference_frame
-            surface_P_robot = self.world.transform(robot_position, surface_frame)
+            surface_P_edge_middle = self.world.transform(
+                self.middle_of_edge_facing(
+                    area=placeable_area, position=robot_position
+                ),
+                surface_frame,
+            )
             closest_point = min(
                 free_points,
                 key=lambda free_point: numpy.linalg.norm(
-                    free_point.to_np()[:2] - surface_P_robot.to_np()[:2]
+                    free_point.to_np()[:2] - surface_P_edge_middle.to_np()[:2]
                 ),
             )
             return Pose(position=closest_point, reference_frame=surface_frame)
         return None
 
-    def points_clear_of_edge(
-        self,
-        *,
-        surface: HasSupportingSurface,
-        points: list[Point3],
-        placed_object: HasRootBody,
-    ) -> list[Point3]:
+    def placeable_area(
+        self, *, surface: HasSupportingSurface, placed_object: HasRootBody
+    ) -> VolumetricBoundingBox:
         """
-        :param surface: The surface ``points`` lie on.
-        :param points: Where to put the center of ``placed_object`` down on ``surface``.
+        :param surface: The surface to put ``placed_object`` down on.
         :param placed_object: The object to put down.
-        :return: Those of ``points`` where the footprint of ``placed_object`` keeps
-            :attr:`edge_margin` from the edge of ``surface``.
+        :return: Where the center of ``placed_object`` may lie on ``surface`` for its
+            footprint to keep :attr:`edge_margin` from the edge, in the surface's frame.
         """
-        if not points:
-            return []
         object_extents = placed_object.root.combined_mesh.extents
         clearance = object_extents[:2].max() / 2 + self.edge_margin
         surface_area = BoundingBoxCollection.from_shapes(
             surface.supporting_surface.area
         )
         surface_area.transform_all_shapes_to_own_frame()
-        placeable_area = surface_area.bounding_box().bloat(
+        return surface_area.bounding_box().bloat(
             x_amount=-clearance, y_amount=-clearance, z_amount=object_extents[2]
         )
-        return [point for point in points if placeable_area.contains(point)]
+
+    def middle_of_edge_facing(
+        self, *, area: VolumetricBoundingBox, position: Point3
+    ) -> Point3:
+        """
+        :param area: An area on a surface, in the surface's frame.
+        :param position: Where the robot is.
+        :return: The middle of the edge of ``area`` that faces ``position``, the one
+            ``position`` lies furthest beyond relative to the size of ``area``.
+        """
+        area_frame = area.origin.reference_frame
+        area_P_position = self.world.transform(position, area_frame)
+        center = area.center
+        x_beyond = (float(area_P_position.x) - float(center.x)) / area.depth
+        y_beyond = (float(area_P_position.y) - float(center.y)) / area.width
+        if abs(x_beyond) >= abs(y_beyond):
+            edge_x = area.max_x if x_beyond > 0 else area.min_x
+            return Point3(x=edge_x, y=center.y, z=center.z, reference_frame=area_frame)
+        edge_y = area.max_y if y_beyond > 0 else area.min_y
+        return Point3(x=center.x, y=edge_y, z=center.z, reference_frame=area_frame)
 
 
 # %% Manipulating at a reachable standing pose
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ManipulationPlanner:
     """
     Plans picking objects up and putting them down from where the robot of a plan can
@@ -557,6 +615,12 @@ class ManipulationPlanner:
     context: StatechartContext
     """
     The context of the plan, whose robot manipulates the objects.
+    """
+
+    obstacle_clearance: float
+    """
+    How much further than its radius the base keeps away from the furniture on the way
+    to an object, in meters.
     """
 
     @property
@@ -571,10 +635,10 @@ class ManipulationPlanner:
     def pick_up(self, graspable: IsGraspable) -> ManipulationAtStandingPoseAction:
         """
         :param graspable: The object to pick up.
-        :return: A pick-up that drives to the first standing pose the reachability
-            costmap offers, and takes the object by the grasp closest to the robot
-            standing there that the gripper opens wide enough for, touching anything
-            while it does.
+        :return: A pick-up that drives to the standing pose closest to the object the
+            reachability costmap offers, and takes the object by the grasp closest to the robot
+            standing there that the gripper opens wide enough for, its arms touching
+            anything while it does.
         :raises NoGraspFitsGripper: If every grasp is wider than the gripper opens.
         """
         arm = self.arm
@@ -583,6 +647,7 @@ class ManipulationPlanner:
                 target_pose=Pose(reference_frame=graspable.root),
                 arm=arm,
                 context=self.context,
+                obstacle_clearance=self.obstacle_clearance,
             )
         )
         grasps_closest_first = GraspsByCloseness(
@@ -605,6 +670,7 @@ class ManipulationPlanner:
             manipulation=MoveAndPickUpAction.from_standing_position(
                 standing_position=standing_pose, grasp=fitting_grasp, arm=arm
             ),
+            obstacle_clearance=self.obstacle_clearance,
         )
 
     def place(
@@ -613,14 +679,17 @@ class ManipulationPlanner:
         """
         :param held_object: The object to put down, held by :attr:`arm`.
         :param target_location: Where to put the object down.
-        :return: A placing that carries the object to the first standing pose the
-            reachability costmap offers for ``target_location`` and puts it down there,
-            touching anything while it does.
+        :return: A placing that carries the object to the standing pose closest to
+            ``target_location`` the reachability costmap offers and puts it down there,
+            turned as it is held, its arms touching anything while it does.
         """
         arm = self.arm
         standing_pose = self.standing_pose_on_floor(
             ReachabilityLocation(
-                target_pose=target_location, arm=arm, context=self.context
+                target_pose=target_location,
+                arm=arm,
+                context=self.context,
+                obstacle_clearance=self.obstacle_clearance,
             )
         )
         return ManipulationAtStandingPoseAction(
@@ -631,29 +700,44 @@ class ManipulationPlanner:
                 graspable=held_object,
                 goal_pose=target_location,
                 arm=arm,
+                place_type=YawKeepingPlaceAction,
             ),
+            obstacle_clearance=self.obstacle_clearance,
         )
 
     def standing_pose_on_floor(self, location: ReachabilityLocation) -> Pose2D:
         """
         :param location: Where the robot can stand to reach its target.
-        :return: The first candidate of ``location`` that lies over a floor.
+        :return: Of the candidates of ``location`` that lie over a floor, the one closest
+            to the target, so the arm reaches straight for it.
         :raises NoStandingPoseOnFloor: If no candidate lies over a floor.
         """
-        floors = self.context.world.get_semantic_annotations_by_type(Floor)
-        for candidate in location:
+        world = self.context.world
+        floors = world.get_semantic_annotations_by_type(Floor)
+        candidates_over_floor = [
+            candidate
+            for candidate in location
             if any(
                 OverFloorPlan(pose=candidate.pose, floor=floor.root)()
                 for floor in floors
-            ):
-                return candidate
-        raise NoStandingPoseOnFloor(target_pose=location.target_pose)
+            )
+        ]
+        if not candidates_over_floor:
+            raise NoStandingPoseOnFloor(target_pose=location.target_pose)
+        world_P_target = world.transform(location.target_pose, world.root).position
+        return min(
+            candidates_over_floor,
+            key=lambda candidate: numpy.linalg.norm(
+                world.transform(candidate.pose, world.root).position.to_np()[:2]
+                - world_P_target.to_np()[:2]
+            ),
+        )
 
 
 # %% Mapping each kind of step to an action
 
 
-@dataclass
+@dataclass(kw_only=True)
 class ActionMapper:
     """
     Creates the action the robot performs for each kind of step of a generated plan.
@@ -662,6 +746,12 @@ class ActionMapper:
     context: StatechartContext
     """
     The context of the plan the actions run in.
+    """
+
+    obstacle_clearance: float = 0.1
+    """
+    How much further than its radius the base keeps away from the furniture while it
+    drives between the steps of the plan, in meters.
     """
 
     def create_saying(self, text: str | None) -> TalkingAction:
@@ -688,7 +778,8 @@ class ActionMapper:
         return a(PathPlanningNavigateAction)(
             planar_goal_pose=Pose2D.from_pose(
                 FreeSpaceFinder(world=self.context.world).standing_pose(location)
-            )
+            ),
+            obstacle_clearance=self.obstacle_clearance,
         )
 
     def create_pick_up(
@@ -699,7 +790,9 @@ class ActionMapper:
         :return: Picking ``named_object`` up from where the robot reaches it.
         """
         graspable = self.carried_object(ActionType.PICK_UP, named_object)
-        return ManipulationPlanner(self.context).pick_up(graspable)
+        return ManipulationPlanner(
+            context=self.context, obstacle_clearance=self.obstacle_clearance
+        ).pick_up(graspable)
 
     def create_placing(
         self,
@@ -727,7 +820,9 @@ class ActionMapper:
                 extension_type=RobotAccess
             ).robot.root.global_pose.position,
         )
-        return ManipulationPlanner(self.context).place(held_object, target_location)
+        return ManipulationPlanner(
+            context=self.context, obstacle_clearance=self.obstacle_clearance
+        ).place(held_object, target_location)
 
     def create_finding(
         self, named_object: HasRootBody | None, person: Human | None
@@ -751,6 +846,7 @@ class ActionMapper:
         return FindPersonAction(
             person=person,
             detection=None if person_detection is None else person_detection.query,
+            obstacle_clearance=self.obstacle_clearance,
         )
 
     @staticmethod
@@ -860,7 +956,7 @@ class PlannedAction:
         )
         text = data.get(PayloadKey.TEXT)
 
-        mapper = ActionMapper(context)
+        mapper = ActionMapper(context=context)
         match action_type:
             case ActionType.SAY:
                 action = mapper.create_saying(text)

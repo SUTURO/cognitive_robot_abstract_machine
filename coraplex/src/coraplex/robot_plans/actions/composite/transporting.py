@@ -173,12 +173,14 @@ class MoveAndPlaceAction(SequentialAction):
         graspable: IsGraspable,
         goal_pose: Pose,
         arm: Arm,
+        place_type: type[PlaceAction] = PlaceAction,
     ) -> Self:
         """
         :param standing_position: Where the robot stands while placing.
         :param graspable: The object to put down.
         :param goal_pose: Where to put the object down.
         :param arm: The arm that holds the object.
+        :param place_type: The kind of place that puts the object down.
         :return: The step placing the object from `standing_position`.
         """
         return cls(
@@ -190,7 +192,7 @@ class MoveAndPlaceAction(SequentialAction):
                 face_at=FaceAtAction(look_target=goal_pose),
                 look_at=LookAtAction(look_target=goal_pose),
             ),
-            place=PlaceAction(arm=arm, graspable=graspable, goal_pose=goal_pose),
+            place=place_type(arm=arm, graspable=graspable, goal_pose=goal_pose),
         )
 
     def create_steps(self) -> list[StatechartNode]:

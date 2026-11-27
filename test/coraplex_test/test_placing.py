@@ -9,7 +9,7 @@ import pytest
 
 from krrood.entity_query_language.factories import a
 from coraplex.robot_plans.actions.core.pick_up import PickUpAction
-from coraplex.robot_plans.actions.core.placing import PlaceAction
+from coraplex.robot_plans.actions.core.placing import PlaceAction, YawKeepingPlaceAction
 from cramph.composites import Sequence
 from giskardpy.motion_statechart.tasks.cartesian_tasks import CartesianPose
 from semantic_digital_twin.grasping.grasp_candidates import GraspCandidate
@@ -100,6 +100,35 @@ def test_a_place_puts_the_held_object_on_the_target_however_it_is_held(
 
     np.testing.assert_allclose(
         placed_milk, target.homogeneous_matrix.to_np(), atol=1e-9
+    )
+
+
+def test_a_yaw_keeping_place_puts_the_object_down_turned_as_it_is_held(
+    pr2_holding_milk,
+):
+    """
+    A yaw keeping place puts the object down at the target's position, upright as the
+    target says, but turned about the vertical axis as the object is held, so the
+    gripper need not turn the object around.
+    """
+    world, robot, milk, extensions = pr2_holding_milk
+    target = Pose.from_xyz_rpy(1.2, 0.4, 0.9, yaw=np.pi / 4, reference_frame=world.root)
+    _, _, held_yaw = milk.root.global_pose.rotation_matrix.rpy
+    place = _start(
+        YawKeepingPlaceAction(arm=robot.left_arm, graspable=milk, goal_pose=target),
+        extensions,
+    )
+
+    end_effector = robot.left_arm.end_effector
+    tool_T_milk = world.transform(milk.root.global_transform, end_effector.tool_frame)
+    descent = _tool_goals_of(place)[1]
+    placed_milk = descent.goal_pose.evaluate() @ tool_T_milk.to_np()
+
+    expected = Pose.from_xyz_rpy(
+        1.2, 0.4, 0.9, yaw=float(held_yaw), reference_frame=world.root
+    )
+    np.testing.assert_allclose(
+        placed_milk, expected.homogeneous_matrix.to_np(), atol=1e-9
     )
 
 

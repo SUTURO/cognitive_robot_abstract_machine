@@ -484,15 +484,18 @@ class OccupancyCostmap(Costmap):
         *,
         resolution: float = 0.02,
         cells: int = 200,
+        obstacle_clearance: float = 0.0,
     ) -> OccupancyCostmap:
         """
         Creates an occupancy costmap around a target, keeping the robot base's radius
-        clear of obstacles.
+        and ``obstacle_clearance`` clear of obstacles.
 
         :param robot: The robot whose base is kept clear of obstacles.
         :param target: The target pose for the occupancy cost map.
         :param resolution: Edge length of a cell, in meters.
         :param cells: Number of cells along each side of the map.
+        :param obstacle_clearance: How much further than its radius the base is kept
+            from obstacles, in meters.
         :returns: The occupancy cost map.
         """
         ground_pose = deepcopy(target)
@@ -503,7 +506,7 @@ class OccupancyCostmap(Costmap):
             width=cells,
             height=cells,
             world=robot._world,
-            distance_to_obstacle=robot.mobile_base.base_radius,
+            distance_to_obstacle=robot.mobile_base.base_radius + obstacle_clearance,
             robot_view=robot,
             origin=ground_pose,
         )

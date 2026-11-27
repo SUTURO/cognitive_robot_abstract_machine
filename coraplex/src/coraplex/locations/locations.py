@@ -115,10 +115,15 @@ class ReachabilityLocation(CostmapLocation):
     How far, in cells, the standing poses spread around the stand-off distance.
     """
 
+    obstacle_clearance: float = field(default=0.0, kw_only=True)
+    """
+    How much further than its radius the base stands from obstacles, in meters.
+    """
+
     def costmap(self) -> Costmap:
         """
-        :return: Standing poses clear of the surroundings, at the arm's reach distance
-            around the target.
+        :return: Standing poses clear of the surroundings by :attr:`obstacle_clearance`,
+            at the arm's reach distance around the target.
         """
         target_pose = self._in_world(self.target_pose)
         occupancy = OccupancyCostmap.default_map(
@@ -126,6 +131,7 @@ class ReachabilityLocation(CostmapLocation):
             target=target_pose,
             resolution=self.map_resolution,
             cells=self.map_cells,
+            obstacle_clearance=self.obstacle_clearance,
         )
         ring = RingCostmap.from_arm_reach_distance(
             arm=self.arm,

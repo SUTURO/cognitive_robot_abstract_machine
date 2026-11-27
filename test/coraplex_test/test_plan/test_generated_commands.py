@@ -30,6 +30,7 @@ from coraplex.exceptions import (
     UnmappedActionType,
 )
 from coraplex.robot_plans.generated_commands import (
+    ActionMapper,
     ActionType,
     CollisionAllowingAction,
     DetectedObjectType,
@@ -53,9 +54,14 @@ from coraplex.robot_plans.actions.core.navigation import (
     NavigateAction,
     PathPlanningNavigateAction,
 )
+from coraplex.robot_plans.actions.core.placing import YawKeepingPlaceAction
+from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from coraplex.robot_plans.actions.core.talking import TalkingAction
+from semantic_digital_twin.datastructures.definitions import TorsoState
 from cramph.context import ContextExtension, StatechartContext
+from cramph.node import StatechartNode
 from cramph.statechart import Statechart
+from krrood.entity_query_language.query.match import Match
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point3,
@@ -64,7 +70,7 @@ from krrood_spatial_math.spatial_types import (
 )
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
-from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
+from semantic_digital_twin.collision_checking.collision_matrix import CollisionMatrix
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
 from semantic_digital_twin.reasoning.queries import find_objects_in_room
@@ -244,6 +250,22 @@ def test_actions_keep_their_order_and_fields(
         kitchen_annotation,
         living_room_annotation,
     ]
+
+
+def test_navigation_keeps_the_obstacle_clearance_from_furniture(
+    payload: dict[str, Any], context: StatechartContext
+) -> None:
+    """
+    Each navigation of a plan keeps the plan's obstacle clearance from the furniture,
+    so the robot does not graze it on the way.
+    """
+    command = GeneratedCommand.from_json(payload, "go there", context)
+    drives = command.plans[0].actions[1:]
+    for drive in drives:
+        assert (
+            drive.action._kwargs_["obstacle_clearance"]
+            == ActionMapper.obstacle_clearance
+        )
 
 
 def test_command_keeps_the_spoken_instruction(
@@ -548,15 +570,72 @@ def test_step_naming_nothing_is_performed_wherever_the_robot_is() -> None:
 # %% Allowing collisions
 
 
-def test_collision_allowing_action_allows_every_collision() -> None:
+@pytest.fixture
+def collision_checks_while_allowing_collisions(
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> set[frozenset[Body]]:
     """
-    While the wrapped action runs, every collision is allowed.
+    The pairs of bodies whose collisions the rules of a collision allowing action check.
     """
+    world, robot, extensions = apartment_world_pr2_copy_with_context
     action = CollisionAllowingAction(
         performed_action=TalkingAction(speaking_text="placing")
     )
-    rules = action.create_temporary_collision_rules()
-    assert [type(rule) for rule in rules] == [AllowAllCollisions]
+    Statechart(
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
+    ).add_node(node=action)
+    collision_matrix = CollisionMatrix()
+    for rule in action.create_temporary_collision_rules():
+        rule.update(world)
+        rule.apply_to_collision_matrix(collision_matrix)
+    return {
+        frozenset((check.body_a, check.body_b))
+        for check in collision_matrix.collision_checks
+    }
+
+
+def test_collision_allowing_action_lets_the_arms_touch_anything(
+    collision_checks_while_allowing_collisions: set[frozenset[Body]],
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    While the wrapped action runs, the arms may touch anything outside the robot.
+    """
+    world, robot, _ = apartment_world_pr2_copy_with_context
+    outside_bodies = set(world.bodies_with_collision) - set(robot.bodies)
+    arm_bodies = {body for arm in robot.all_arms for body in arm.bodies_with_collision}
+    assert not any(
+        frozenset((arm_body, outside_body))
+        in collision_checks_while_allowing_collisions
+        for arm_body in arm_bodies
+        for outside_body in outside_bodies
+    )
+
+
+def test_collision_allowing_action_keeps_the_rest_of_the_robot_clear_of_the_world(
+    collision_checks_while_allowing_collisions: set[frozenset[Body]],
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    While the wrapped action runs, the robot's base and every other part but its arms
+    keep clear of everything outside the robot, so it does not drive into furniture.
+    """
+    world, robot, _ = apartment_world_pr2_copy_with_context
+    outside_bodies = set(world.bodies_with_collision) - set(robot.bodies)
+    arm_bodies = {body for arm in robot.all_arms for body in arm.bodies_with_collision}
+    bodies_besides_arms = set(robot.bodies_with_collision) - arm_bodies
+    assert all(
+        frozenset((robot_body, outside_body))
+        in collision_checks_while_allowing_collisions
+        for robot_body in bodies_besides_arms
+        for outside_body in outside_bodies
+    )
 
 
 def test_collision_allowing_action_performs_the_wrapped_action() -> None:
@@ -591,6 +670,7 @@ def test_approaching_a_manipulation_keeps_its_standing_pose(
             x=2.0, y=0.5, reference_frame=world.root
         ),
         manipulation=TalkingAction(speaking_text="placing"),
+        obstacle_clearance=0.0,
     )
     statechart.add_node(node=manipulation)
     manipulation.create_steps()
@@ -618,9 +698,10 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
             x=2.0, y=0.5, reference_frame=world.root
         ),
         manipulation=performed,
+        obstacle_clearance=0.0,
     )
     statechart.add_node(node=manipulation)
-    drive, allowing_collisions, _ = manipulation.create_steps()
+    drive, _, allowing_collisions, *_ = manipulation.create_steps()
     approach = drive._kwargs_["planar_goal_pose"]
     assert drive._type_ is PathPlanningNavigateAction
     assert float(approach.x) == pytest.approx(
@@ -631,15 +712,41 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
     assert allowing_collisions.performed_action is performed
 
 
-@pytest.fixture
-def back_out_after_manipulation(
+def test_approach_keeps_the_obstacle_clearance_on_the_way(
     apartment_world_pr2_copy_with_context: tuple[
         World, AbstractRobot, list[ContextExtension]
     ],
-) -> CollisionAllowingAction:
+) -> None:
     """
-    The step that ends a manipulation at a standing pose facing sideways to the
-    manipulated location.
+    The drive to the approach pose keeps the manipulation's obstacle clearance from
+    the furniture.
+    """
+    world, robot, extensions = apartment_world_pr2_copy_with_context
+    statechart = Statechart(
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
+    )
+    manipulation = ManipulationAtStandingPoseAction(
+        standing_pose=Pose2D.from_xy_yaw(x=1.0, y=0.5, reference_frame=world.root),
+        manipulated_location=Pose.from_xyz_rpy(
+            x=2.0, y=0.5, reference_frame=world.root
+        ),
+        manipulation=TalkingAction(speaking_text="placing"),
+        obstacle_clearance=0.2,
+    )
+    statechart.add_node(node=manipulation)
+    drive, *_ = manipulation.create_steps()
+    assert drive._kwargs_["obstacle_clearance"] == manipulation.obstacle_clearance
+
+
+@pytest.fixture
+def steps_of_sideways_manipulation(
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> list[StatechartNode | Match]:
+    """
+    The steps of a manipulation at a standing pose facing sideways to the manipulated
+    location.
     """
     world, robot, extensions = apartment_world_pr2_copy_with_context
     statechart = Statechart(
@@ -653,10 +760,54 @@ def back_out_after_manipulation(
             x=2.0, y=0.5, reference_frame=world.root
         ),
         manipulation=TalkingAction(speaking_text="placing"),
+        obstacle_clearance=0.0,
     )
     statechart.add_node(node=manipulation)
-    *_, back_out = manipulation.create_steps()
+    return manipulation.create_steps()
+
+
+@pytest.fixture
+def back_out_after_manipulation(
+    steps_of_sideways_manipulation: list[StatechartNode | Match],
+) -> CollisionAllowingAction:
+    """
+    The step right after a manipulation at a standing pose facing sideways to the
+    manipulated location.
+    """
+    *_, back_out, _, _ = steps_of_sideways_manipulation
     return back_out
+
+
+def test_before_manipulating_the_robot_raises_its_torso(
+    steps_of_sideways_manipulation: list[StatechartNode | Match],
+) -> None:
+    """
+    Once it has approached, the robot raises its torso before it manipulates, so the
+    arm starts out above the surface and does not sweep into its edge.
+    """
+    _, raising, manipulating, *_ = steps_of_sideways_manipulation
+    assert type(raising) is MoveTorsoAction
+    assert raising.torso_state is TorsoState.HIGH
+    assert type(manipulating) is CollisionAllowingAction
+
+
+def test_after_backing_out_the_robot_parks_its_arms_and_lowers_its_torso(
+    steps_of_sideways_manipulation: list[StatechartNode | Match],
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    Once it has backed out, the robot parks all its arms and then lowers its torso, so
+    it drives on folded up.
+    """
+    _, robot, _ = apartment_world_pr2_copy_with_context
+    *_, back_out, parking, lowering = steps_of_sideways_manipulation
+    assert type(back_out) is CollisionAllowingAction
+    assert type(parking) is ParkArmsAction
+    assert parking.arms == robot.all_arms
+    assert type(lowering) is MoveTorsoAction
+    assert lowering.torso_state is TorsoState.LOW
 
 
 def test_after_the_manipulation_the_robot_backs_out_straight_from_where_it_stands(
@@ -721,9 +872,10 @@ def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
             x=1.0, y=0.5, z=0.8, reference_frame=world.root
         ),
         manipulation=TalkingAction(speaking_text="placing"),
+        obstacle_clearance=0.0,
     )
     statechart.add_node(node=manipulation)
-    drive, _, _ = manipulation.create_steps()
+    drive, *_ = manipulation.create_steps()
     assert numpy.allclose(
         drive._kwargs_["planar_goal_pose"].to_np(), standing_pose.to_np()
     )
@@ -740,7 +892,9 @@ def test_picking_up_stands_over_a_floor_and_reaches_for_the_object(
     object up there.
     """
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
-    pick_up = ManipulationPlanner(pr2_context).pick_up(milk)
+    pick_up = ManipulationPlanner(context=pr2_context, obstacle_clearance=0.0).pick_up(
+        milk
+    )
     floors = pr2_context.world.get_semantic_annotations_by_type(Floor)
     assert any(
         OverFloorPlan(pose=pick_up.standing_pose, floor=floor.root)()
@@ -748,6 +902,19 @@ def test_picking_up_stands_over_a_floor_and_reaches_for_the_object(
     )
     assert pick_up.manipulated_location.reference_frame is milk.root
     assert isinstance(pick_up.manipulation, MoveAndPickUpAction)
+
+
+def test_mapped_pick_up_keeps_the_obstacle_clearance_of_the_mapper(
+    pr2_context: StatechartContext,
+) -> None:
+    """
+    Picking up in a plan approaches the object keeping the obstacle clearance the
+    plan's mapper keeps.
+    """
+    [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
+    mapper = ActionMapper(context=pr2_context)
+    pick_up = mapper.create_pick_up(milk)
+    assert pick_up.obstacle_clearance == mapper.obstacle_clearance
 
 
 def test_picking_up_with_a_gripper_too_narrow_for_every_grasp_raises(
@@ -764,7 +931,21 @@ def test_picking_up_with_a_gripper_too_narrow_for_every_grasp_raises(
     monkeypatch.setattr(robot.all_arms[0].end_effector, "separation_when_open", 0.0)
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
     with pytest.raises(NoGraspFitsGripper):
-        ManipulationPlanner(pr2_context).pick_up(milk)
+        ManipulationPlanner(context=pr2_context, obstacle_clearance=0.0).pick_up(milk)
+
+
+def test_placing_keeps_the_yaw_of_the_held_object(
+    pr2_context: StatechartContext,
+) -> None:
+    """
+    Placing puts the object down turned as it is held, so the gripper reaches the
+    target from where the robot stands.
+    """
+    [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
+    placing = ManipulationPlanner(context=pr2_context, obstacle_clearance=0.0).place(
+        milk, milk.root.global_pose
+    )
+    assert type(placing.manipulation.place) is YawKeepingPlaceAction
 
 
 def test_placing_puts_the_held_object_down_at_the_target(
@@ -775,27 +956,33 @@ def test_placing_puts_the_held_object_down_at_the_target(
     """
     [milk] = pr2_context.world.get_semantic_annotations_by_type(Milk)
     target_location = milk.root.global_pose
-    placing = ManipulationPlanner(pr2_context).place(milk, target_location)
+    placing = ManipulationPlanner(context=pr2_context, obstacle_clearance=0.0).place(
+        milk, target_location
+    )
     assert placing.manipulated_location is target_location
     assert isinstance(placing.manipulation, MoveAndPlaceAction)
 
 
-def test_standing_pose_is_the_first_candidate_over_a_floor(
+def test_standing_pose_is_the_candidate_over_a_floor_closest_to_the_target(
     context: StatechartContext,
 ) -> None:
     """
-    Of the standing poses offered, the first one over a floor is chosen.
+    Of the standing poses offered over a floor, the one closest to the target is
+    chosen, so the arm reaches straight for the target.
     """
     root = context.world.root
+    target = Pose.from_xyz_rpy(x=2.0, y=1.0, reference_frame=root)
     over_no_floor = Pose2D.from_xy_yaw(x=-20.0, y=-20.0, reference_frame=root)
-    over_kitchen_floor = Pose2D.from_xy_yaw(x=2.0, y=1.0, reference_frame=root)
+    far = Pose2D.from_xy_yaw(x=2.8, y=1.0, reference_frame=root)
+    near = Pose2D.from_xy_yaw(x=2.5, y=1.0, reference_frame=root)
     candidates = FixedStandingCandidates(
-        target_pose=over_kitchen_floor.pose,
-        candidates=[over_no_floor, over_kitchen_floor],
+        target_pose=target, candidates=[over_no_floor, far, near]
     )
     assert (
-        ManipulationPlanner(context).standing_pose_on_floor(candidates)
-        is over_kitchen_floor
+        ManipulationPlanner(
+            context=context, obstacle_clearance=0.0
+        ).standing_pose_on_floor(candidates)
+        is near
     )
 
 
@@ -811,7 +998,9 @@ def test_standing_pose_without_a_candidate_over_a_floor_raises(
         target_pose=over_no_floor.pose, candidates=[over_no_floor]
     )
     with pytest.raises(NoStandingPoseOnFloor):
-        ManipulationPlanner(context).standing_pose_on_floor(candidates)
+        ManipulationPlanner(
+            context=context, obstacle_clearance=0.0
+        ).standing_pose_on_floor(candidates)
 
 
 # %% Finding a free place to put an object down
@@ -894,6 +1083,35 @@ def test_free_pose_on_a_table_keeps_the_object_clear_of_the_edge(
     )
     footprint_radius = apple.root.combined_mesh.extents[:2].max() / 2
     assert distance_to_edge >= footprint_radius + finder.edge_margin
+
+
+def test_free_pose_on_a_table_lies_near_the_middle_of_the_edge_facing_the_robot(
+    context: StatechartContext,
+) -> None:
+    """
+    An object is put down near the middle of the table's edge facing the robot, even
+    when the robot is off to one side, so the robot can stand straight in front of it.
+    """
+    world = context.world
+    apple = world.get_semantic_annotation_by_name("apple")
+    [table, *_] = find_objects_in_room(Table, Kitchen, world)
+    table_box = table.root.collision.as_bounding_box_collection_in_frame(
+        world.root
+    ).bounding_box()
+    off_to_the_side = Point3(
+        x=table_box.max_x + 5.0, y=table_box.max_y + 1.0, reference_frame=world.root
+    )
+
+    free_pose = FreeSpaceFinder(world=world).pose_on_first_free_surface(
+        surfaces=[table], placed_object=apple, robot_position=off_to_the_side
+    )
+
+    surface_area = BoundingBoxCollection.from_shapes(table.supporting_surface.area)
+    surface_area.transform_all_shapes_to_own_frame()
+    surface_box = surface_area.bounding_box()
+    surface_P_free = world.transform(free_pose, table.supporting_surface).position
+    middle_y = (surface_box.min_y + surface_box.max_y) / 2
+    assert abs(float(surface_P_free.y) - middle_y) < surface_box.width / 4
 
 
 def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> None:
@@ -1025,7 +1243,7 @@ def test_finding_a_person_drives_in_front_of_them_and_faces_them(
     """
     person = visitor_context.world.get_semantic_annotation_by_name("visitor")
     statechart = Statechart(context=visitor_context)
-    finding = FindPersonAction(person=person)
+    finding = FindPersonAction(person=person, obstacle_clearance=0.0)
     statechart.add_node(node=finding)
     drive, facing = finding.create_steps()
     expected_target = visitor_context.world.transform(
@@ -1042,6 +1260,32 @@ def test_finding_a_person_drives_in_front_of_them_and_faces_them(
     assert isinstance(facing, FaceAtAction)
 
 
+def test_finding_a_person_keeps_the_obstacle_clearance_on_the_way(
+    visitor_context: StatechartContext,
+) -> None:
+    """
+    The drive to the person keeps the finding's obstacle clearance from the furniture.
+    """
+    person = visitor_context.world.get_semantic_annotation_by_name("visitor")
+    statechart = Statechart(context=visitor_context)
+    finding = FindPersonAction(person=person, obstacle_clearance=0.2)
+    statechart.add_node(node=finding)
+    drive, *_ = finding.create_steps()
+    assert drive._kwargs_["obstacle_clearance"] == finding.obstacle_clearance
+
+
+def test_mapped_finding_keeps_the_obstacle_clearance_of_the_mapper(
+    visitor_context: StatechartContext,
+) -> None:
+    """
+    Finding a person in a plan keeps the obstacle clearance the plan's mapper keeps.
+    """
+    person = visitor_context.world.get_semantic_annotation_by_name("visitor")
+    mapper = ActionMapper(context=visitor_context)
+    finding = mapper.create_finding(None, person)
+    assert finding.obstacle_clearance == mapper.obstacle_clearance
+
+
 def test_finding_a_person_with_a_detection_asks_the_perception(
     visitor_context: StatechartContext,
 ) -> None:
@@ -1051,7 +1295,9 @@ def test_finding_a_person_with_a_detection_asks_the_perception(
     person = visitor_context.world.get_semantic_annotation_by_name("visitor")
     detection = RoboKudoQuery(object_type=DetectedObjectType.HUMAN)
     statechart = Statechart(context=visitor_context)
-    finding = FindPersonAction(person=person, detection=detection)
+    finding = FindPersonAction(
+        person=person, detection=detection, obstacle_clearance=0.0
+    )
     statechart.add_node(node=finding)
     *_, asking = finding.create_steps()
     assert isinstance(asking, RoboKudoQueryTask)
