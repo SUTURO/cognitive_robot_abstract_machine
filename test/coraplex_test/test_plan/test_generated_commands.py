@@ -58,13 +58,17 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.statechart import Statechart
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
+    Point3,
     Pose,
     Pose2D,
 )
+from coraplex.plans.context_extensions import RobotAccess
 from coraplex.robot_plans.transformation_by_room import RoomVisitPlanner
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.datastructures.prefixed_name import PrefixedName
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
+from semantic_digital_twin.reasoning.queries import find_objects_in_room
+from semantic_digital_twin.robots.hsrb import HSRB
 from semantic_digital_twin.robots.robot_parts import AbstractRobot
 from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Bedroom,
@@ -74,6 +78,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     LivingRoom,
     Milk,
     Room,
+    Table,
 )
 from semantic_digital_twin.world import World
 from semantic_digital_twin.world_description.world_entity import (
@@ -126,6 +131,22 @@ def context(kitchen_environment_with_rooms: World) -> StatechartContext:
     A context whose world has a kitchen and a living room for the steps to name.
     """
     return StatechartContext(world=kitchen_environment_with_rooms)
+
+
+@pytest.fixture
+def context_with_robot(
+    kitchen_environment_with_rooms: World, hsr_world_copy: World
+) -> StatechartContext:
+    """
+    A context whose world has a kitchen and a living room for the steps to name, and
+    the HSR that performs the plan.
+    """
+    world = kitchen_environment_with_rooms
+    world.merge_world(hsr_world_copy)
+    [robot] = world.get_semantic_annotations_by_type(HSRB)
+    return StatechartContext.with_extensions(
+        world=world, extensions=[RobotAccess(robot=robot)]
+    )
 
 
 @pytest.fixture
@@ -317,7 +338,7 @@ def test_placing_without_a_location_names_the_missing_location(
 
 
 def test_placing_in_a_room_needs_no_free_standing_spot(
-    context: StatechartContext, monkeypatch: pytest.MonkeyPatch
+    context_with_robot: StatechartContext, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """
     Placing in a room looks for a table there, even when the room has no free spot for
@@ -333,7 +354,7 @@ def test_placing_in_a_room_needs_no_free_standing_spot(
                 PayloadKey.OBJECT: "apple",
                 PayloadKey.LOCATION: "living room",
             },
-            context,
+            context_with_robot,
         )
 
 
@@ -594,7 +615,7 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
         manipulation=performed,
     )
     statechart.add_node(node=manipulation)
-    drive, allowing_collisions = manipulation.create_steps()
+    drive, allowing_collisions, _ = manipulation.create_steps()
     approach = drive._kwargs_["planar_goal_pose"]
     assert drive._type_ is PathPlanningNavigateAction
     assert float(approach.x) == pytest.approx(
@@ -603,6 +624,76 @@ def test_approach_stands_one_base_radius_back_from_the_standing_pose(
     assert float(approach.y) == pytest.approx(float(standing_pose.y))
     assert isinstance(allowing_collisions, CollisionAllowingAction)
     assert allowing_collisions.performed_action is performed
+
+
+@pytest.fixture
+def back_out_after_manipulation(
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> CollisionAllowingAction:
+    """
+    The step that ends a manipulation at a standing pose facing sideways to the
+    manipulated location.
+    """
+    world, robot, extensions = apartment_world_pr2_copy_with_context
+    statechart = Statechart(
+        context=StatechartContext.with_extensions(world=world, extensions=extensions)
+    )
+    manipulation = ManipulationAtStandingPoseAction(
+        standing_pose=Pose2D.from_xy_yaw(
+            x=1.0, y=0.5, yaw=numpy.pi / 2, reference_frame=world.root
+        ),
+        manipulated_location=Pose.from_xyz_rpy(
+            x=2.0, y=0.5, reference_frame=world.root
+        ),
+        manipulation=TalkingAction(speaking_text="placing"),
+    )
+    statechart.add_node(node=manipulation)
+    *_, back_out = manipulation.create_steps()
+    return back_out
+
+
+def test_after_the_manipulation_the_robot_backs_out_straight_from_where_it_stands(
+    back_out_after_manipulation: CollisionAllowingAction,
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    After the manipulation the robot drives the back-out distance straight back from
+    wherever the manipulation left it, allowing collisions, so it leaves the surface
+    behind.
+    """
+    _, robot, _ = apartment_world_pr2_copy_with_context
+    drive = back_out_after_manipulation.performed_action
+    forward_axis = robot.mobile_base.forward_axis
+    back_out_distance = ManipulationAtStandingPoseAction.back_out_distance
+    assert type(drive) is NavigateAction
+    assert drive.planar_goal_pose.reference_frame is robot.root
+    assert numpy.allclose(
+        [float(drive.planar_goal_pose.x), float(drive.planar_goal_pose.y)],
+        [
+            -back_out_distance * float(forward_axis.x),
+            -back_out_distance * float(forward_axis.y),
+        ],
+    )
+
+
+def test_backing_out_does_not_turn_the_base(
+    back_out_after_manipulation: CollisionAllowingAction,
+    apartment_world_pr2_copy_with_context: tuple[
+        World, AbstractRobot, list[ContextExtension]
+    ],
+) -> None:
+    """
+    The robot backs out without turning, so its arm, still over the surface, does not
+    sweep across what it just manipulated.
+    """
+    _, robot, _ = apartment_world_pr2_copy_with_context
+    drive = back_out_after_manipulation.performed_action
+    goal = robot.mobile_base.pose_facing(heading=drive.planar_goal_pose)
+    assert numpy.allclose(goal.rotation_matrix.to_np()[:3, :3], numpy.eye(3))
 
 
 def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
@@ -627,7 +718,7 @@ def test_standing_at_the_manipulated_location_approaches_the_standing_pose(
         manipulation=TalkingAction(speaking_text="placing"),
     )
     statechart.add_node(node=manipulation)
-    drive, _ = manipulation.create_steps()
+    drive, _, _ = manipulation.create_steps()
     assert numpy.allclose(
         drive._kwargs_["planar_goal_pose"].to_np(), standing_pose.to_np()
     )
@@ -729,8 +820,38 @@ def test_free_pose_on_a_table_in_the_room_lies_in_the_room(
     """
     [kitchen_annotation] = context.world.get_semantic_annotations_by_type(Kitchen)
     apple = context.world.get_semantic_annotation_by_name("apple")
-    free_pose = FreeSpaceFinder(context.world).pose_on_table_in_room(Kitchen, apple)
+    free_pose = FreeSpaceFinder(context.world).pose_on_table_in_room(
+        room_type=Kitchen,
+        placed_object=apple,
+        robot_position=Point3(reference_frame=context.world.root),
+    )
     assert OverFloorPlan(pose=free_pose, floor=kitchen_annotation.floor.root)()
+
+
+def test_free_pose_on_a_table_lies_on_the_side_facing_the_robot(
+    context: StatechartContext,
+) -> None:
+    """
+    An object is put down on the side of the table facing the robot, so the robot
+    reaches it from the table's nearest edge.
+    """
+    world = context.world
+    apple = world.get_semantic_annotation_by_name("apple")
+    [table, *_] = find_objects_in_room(Table, Kitchen, world)
+    table_position = table.root.global_pose.position
+    free_x_coordinates = []
+    for offset in (5.0, -5.0):
+        robot_position = Point3(
+            x=float(table_position.x) + offset,
+            y=float(table_position.y),
+            reference_frame=world.root,
+        )
+        free_pose = FreeSpaceFinder(world).pose_on_table_in_room(
+            room_type=Kitchen, placed_object=apple, robot_position=robot_position
+        )
+        free_x_coordinates.append(float(world.transform(free_pose, world.root).x))
+    robot_side_x, opposite_side_x = free_x_coordinates
+    assert robot_side_x > opposite_side_x
 
 
 def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> None:
@@ -739,7 +860,11 @@ def test_room_without_a_table_has_no_free_pose(context: StatechartContext) -> No
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
     with pytest.raises(NoFreeTableInRoom):
-        FreeSpaceFinder(context.world).pose_on_table_in_room(LivingRoom, apple)
+        FreeSpaceFinder(context.world).pose_on_table_in_room(
+            room_type=LivingRoom,
+            placed_object=apple,
+            robot_position=Point3(reference_frame=context.world.root),
+        )
 
 
 def test_no_surfaces_offer_no_free_pose(context: StatechartContext) -> None:
@@ -747,7 +872,14 @@ def test_no_surfaces_offer_no_free_pose(context: StatechartContext) -> None:
     Without surfaces there is no place to put an object down.
     """
     apple = context.world.get_semantic_annotation_by_name("apple")
-    assert FreeSpaceFinder.pose_on_first_free_surface([], apple) is None
+    assert (
+        FreeSpaceFinder(context.world).pose_on_first_free_surface(
+            surfaces=[],
+            placed_object=apple,
+            robot_position=Point3(reference_frame=context.world.root),
+        )
+        is None
+    )
 
 
 # %% Turning a plan into a command for the room transformation

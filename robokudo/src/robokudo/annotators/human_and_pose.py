@@ -399,7 +399,7 @@ class HumanAndPoseAnnotator(ThreadedAnnotator):
         keeps_full_box = depth_frame is not None and parameters.shrink_as_annotation
 
         hypothesis = HumanHypothesis()
-        hypothesis.id = index
+        hypothesis.id = str(index)
         hypothesis.source = self.name
         hypothesis.roi.roi = box if keeps_full_box else shrunk_box
         hypothesis.annotations.append(

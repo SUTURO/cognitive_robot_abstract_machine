@@ -319,7 +319,7 @@ def test_each_person_is_identified_by_its_detection_index(
     annotator.compute()
 
     hypotheses = annotator.get_cas().filter_annotations_by_type(HumanHypothesis)
-    assert [hypothesis.id for hypothesis in hypotheses] == [0, 1]
+    assert [hypothesis.id for hypothesis in hypotheses] == ["0", "1"]
 
 
 def test_hypothesis_carries_two_dimensional_keypoints_in_pixels(

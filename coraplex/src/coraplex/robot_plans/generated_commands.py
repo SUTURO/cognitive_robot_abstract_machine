@@ -53,7 +53,13 @@ from cramph.context import ContextExtension, StatechartContext
 from cramph.node import StatechartNode
 from krrood.entity_query_language.factories import a
 from krrood.entity_query_language.query.match import Match
-from krrood_spatial_math.spatial_types import Pose, Pose2D, Vector3
+from krrood_spatial_math.spatial_types import (
+    HomogeneousTransformationMatrix,
+    Point3,
+    Pose,
+    Pose2D,
+    Vector3,
+)
 from semantic_digital_twin.collision_checking.collision_matrix import CollisionRule
 from semantic_digital_twin.collision_checking.collision_rules import AllowAllCollisions
 from semantic_digital_twin.reasoning.predicates import OverFloorPlan
@@ -211,7 +217,8 @@ class ManipulationAtStandingPoseAction(SequentialAction):
     """
     Drives around the furniture and walls, avoiding collisions, to one base radius in
     front of where the robot stands for a manipulation, then performs the manipulation,
-    which drives the last stretch and during which the robot may touch anything.
+    which drives the last stretch, and backs straight out by :attr:`back_out_distance`.
+    The robot may touch anything from the end of the approach until it has backed out.
 
     .. note:: The standing pose may lie closer to the furniture than a planned path
         keeps the base.
@@ -234,7 +241,28 @@ class ManipulationAtStandingPoseAction(SequentialAction):
     with driving there.
     """
 
+    back_out_distance: float = 0.5
+    """
+    How far, in meters, the robot backs straight out after the manipulation, so that
+    driving on does not sweep its base or arm into what it just manipulated.
+    """
+
     def create_steps(self) -> list[StatechartNode | Match]:
+        return [
+            a(PathPlanningNavigateAction)(planar_goal_pose=self.approach_pose()),
+            CollisionAllowingAction(performed_action=self.manipulation),
+            CollisionAllowingAction(
+                performed_action=NavigateAction(
+                    planar_goal_pose=self.back_out_heading()
+                )
+            ),
+        ]
+
+    def approach_pose(self) -> Pose2D:
+        """
+        :return: The pose one base radius behind :attr:`standing_pose`, seen from
+            :attr:`manipulated_location`, facing as the standing pose does.
+        """
         # A standing pose right at the manipulated location leaves no direction to
         # step back in; the step back then has no length and the robot drives there.
         root = self.world.root
@@ -250,17 +278,31 @@ class ManipulationAtStandingPoseAction(SequentialAction):
             reference_frame=root,
         )
         world_V_step_back.scale(self.robot.mobile_base.base_radius)
-        world_T_approach = Pose(
-            position=world_P_standing + world_V_step_back,
-            orientation=world_T_standing.orientation,
-            reference_frame=root,
+        return Pose2D.from_pose(
+            Pose(
+                position=world_P_standing + world_V_step_back,
+                orientation=world_T_standing.orientation,
+                reference_frame=root,
+            )
         )
-        return [
-            a(PathPlanningNavigateAction)(
-                planar_goal_pose=Pose2D.from_pose(world_T_approach)
-            ),
-            CollisionAllowingAction(performed_action=self.manipulation),
-        ]
+
+    def back_out_heading(self) -> Pose2D:
+        """
+        :return: The heading :attr:`back_out_distance` straight behind the robot,
+            relative to wherever the manipulation left it, with its front kept facing
+            the way it faces, so the arm moves away from what it manipulated.
+        """
+        mobile_base = self.robot.mobile_base
+        base_P_back_out = Point3(reference_frame=self.robot.root) + (
+            -mobile_base.forward_axis * self.back_out_distance
+        )
+        return Pose2D.from_pose(
+            HomogeneousTransformationMatrix.from_point_rotation_matrix(
+                point=base_P_back_out,
+                rotation_matrix=mobile_base.base_R_front,
+                reference_frame=self.robot.root,
+            ).pose
+        )
 
 
 # %% Resolving what a step names
@@ -370,67 +412,95 @@ class FreeSpaceFinder:
 
     def placing_pose(
         self,
+        *,
         location_type: type[SemanticAnnotation],
         location: SemanticAnnotation,
         placed_object: HasRootBody,
+        robot_position: Point3,
     ) -> Pose:
         """
         :param location_type: The kind of place the step names.
         :param location: The place the step names.
         :param placed_object: The object to put down.
+        :param robot_position: Where the robot is, whose side of a surface the object is
+            put down on.
         :return: Where to put the object down: on a table in a room, on the first free
             surface of the named kind, or else on the spot next to the place.
         :raises NoFreeTableInRoom: If no table in the named room has space.
         :raises NoFreeSurface: If no surface of the named kind has space.
         """
         if isinstance(location, Room):
-            return self.pose_on_table_in_room(location_type, placed_object)
+            return self.pose_on_table_in_room(
+                room_type=location_type,
+                placed_object=placed_object,
+                robot_position=robot_position,
+            )
         if not isinstance(location, HasSupportingSurface):
             return self.standing_pose(location)
         free_pose = self.pose_on_first_free_surface(
-            self.world.get_semantic_annotations_by_type(location_type), placed_object
+            surfaces=self.world.get_semantic_annotations_by_type(location_type),
+            placed_object=placed_object,
+            robot_position=robot_position,
         )
         if free_pose is None:
             raise NoFreeSurface(surface_type=location_type, placed_object=placed_object)
         return free_pose
 
     def pose_on_table_in_room(
-        self, room_type: type[Room], placed_object: HasRootBody
+        self,
+        *,
+        room_type: type[Room],
+        placed_object: HasRootBody,
+        robot_position: Point3,
     ) -> Pose:
         """
         :param room_type: The kind of room to put the object down in.
         :param placed_object: The object to put down.
+        :param robot_position: Where the robot is, see :meth:`pose_on_first_free_surface`.
         :return: A pose on the first table in the room where the object fits, as
             :meth:`pose_on_first_free_surface` samples it.
         :raises NoFreeTableInRoom: If no table in the room has space for the object.
         """
         free_pose = self.pose_on_first_free_surface(
-            find_objects_in_room(Table, room_type, self.world), placed_object
+            surfaces=find_objects_in_room(Table, room_type, self.world),
+            placed_object=placed_object,
+            robot_position=robot_position,
         )
         if free_pose is None:
             raise NoFreeTableInRoom(room_type=room_type, placed_object=placed_object)
         return free_pose
 
-    @staticmethod
     def pose_on_first_free_surface(
-        surfaces: list[HasSupportingSurface], placed_object: HasRootBody
+        self,
+        *,
+        surfaces: list[HasSupportingSurface],
+        placed_object: HasRootBody,
+        robot_position: Point3,
     ) -> Pose | None:
         """
         :param surfaces: The surfaces to put the object down on, in order of preference.
         :param placed_object: The object to put down.
-        :return: The most likely sampled pose where ``placed_object`` fits without
-            touching other objects, on the first of ``surfaces`` that has one; ``None``
-            if none has.
+        :param robot_position: Where the robot is.
+        :return: Of the sampled poses where ``placed_object`` fits without touching other
+            objects, the one closest to ``robot_position`` over the floor, so near the
+            edge facing the robot, on the first of ``surfaces`` that has one; ``None`` if
+            none has.
         """
         for surface in surfaces:
             free_points = surface.sample_points_from_surface(
                 body_to_sample_for=placed_object
             )
-            if free_points:
-                return Pose(
-                    position=free_points[0],
-                    reference_frame=free_points[0].reference_frame,
-                )
+            if not free_points:
+                continue
+            surface_frame = free_points[0].reference_frame
+            surface_P_robot = self.world.transform(robot_position, surface_frame)
+            closest_point = min(
+                free_points,
+                key=lambda free_point: numpy.linalg.norm(
+                    free_point.to_np()[:2] - surface_P_robot.to_np()[:2]
+                ),
+            )
+            return Pose(position=closest_point, reference_frame=surface_frame)
         return None
 
 
@@ -610,7 +680,12 @@ class ActionMapper:
                 action=ActionType.PLACE, argument=PayloadKey.LOCATION
             )
         target_location = FreeSpaceFinder(self.context.world).placing_pose(
-            location_type, location, held_object
+            location_type=location_type,
+            location=location,
+            placed_object=held_object,
+            robot_position=self.context.require_extension(
+                extension_type=RobotAccess
+            ).robot.root.global_pose.position,
         )
         return ManipulationPlanner(self.context).place(held_object, target_location)
 

@@ -151,7 +151,7 @@ class FaceDetector(robokudo.annotators.core.ThreadedAnnotator):
             # TODO This should be a Parameter in the future to allow other human detectors to generate
             #      the first hypothesis or generate two hypotheses and merge them later.
             human_hypothesis = robokudo.types.scene.HumanHypothesis()
-            human_hypothesis.id = face_index
+            human_hypothesis.id = str(face_index)
             human_hypothesis.source = self.name
             face_annotation = robokudo.types.human.FaceAnnotation()
 
