@@ -30,7 +30,10 @@ from coraplex.robot_plans.actions.composite import (
     transporting,
 )
 from coraplex.robot_plans.actions.composite.carrying import CarryAction
-from coraplex.robot_plans.actions.composite.facing import FaceAndLookAtAction
+from coraplex.robot_plans.actions.composite.facing import (
+    FaceAndLookAtAction,
+    NavigateAndLookAtAction,
+)
 from coraplex.robot_plans.actions.composite.tool_based import (
     CuttingAction,
     MixingAction,
@@ -54,6 +57,7 @@ from coraplex.robot_plans.actions.core.navigation import (
     ElevatorNavigation,
     FaceAtAction,
     LookAtAction,
+    LookAtWhileDrivingAction,
     NavigateAction,
     PathPlanningNavigateAction,
 )
@@ -226,6 +230,17 @@ def _face_and_look_at(world: World) -> FaceAndLookAtAction:
     )
 
 
+def _navigate_and_look_at(world: World) -> NavigateAndLookAtAction:
+    """
+    :param world: The world the goal and the target are taken from.
+    :return: Navigating to the shared test pose while looking at it.
+    """
+    return NavigateAndLookAtAction(
+        navigate=_navigate(world),
+        look_at=LookAtWhileDrivingAction(look_target=_pose(world)),
+    )
+
+
 def _pick_up(world: World) -> PickUpAction:
     """
     :param world: The world the milk is taken from.
@@ -386,6 +401,13 @@ def _navigation_and_perception_cases() -> list[ActionRoundTripCase]:
         ),
         ActionRoundTripCase(
             FaceAndLookAtAction, lambda world: [_face_and_look_at(world)]
+        ),
+        ActionRoundTripCase(
+            LookAtWhileDrivingAction,
+            lambda world: [LookAtWhileDrivingAction(look_target=_pose(world))],
+        ),
+        ActionRoundTripCase(
+            NavigateAndLookAtAction, lambda world: [_navigate_and_look_at(world)]
         ),
         ActionRoundTripCase(ElevatorNavigation, _elevator_navigation),
         ActionRoundTripCase(

@@ -43,6 +43,7 @@ from semantic_digital_twin.semantic_annotations.semantic_annotations import (
     Elevator,
     Floor,
 )
+from krrood.symbolic_math.symbolic_math import Scalar
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Point2,
@@ -52,6 +53,9 @@ from krrood_spatial_math.spatial_types import (
 )
 from semantic_digital_twin.world_description.geometry import VolumetricBoundingBox
 from semantic_digital_twin.world_description.kinematic_chain import KinematicChain
+from semantic_digital_twin.world_description.world_entity import (
+    KinematicStructureEntity,
+)
 from semantic_digital_twin.world_description.graph_of_convex_sets.adjoining import (
     AdjoiningFreeSpaces,
     PlaceInFreeSpace,
@@ -103,28 +107,49 @@ class LookAtAction(ParallelAction, HasLookTargetParameter, HasCameraParameter):
     """
 
     def create_steps(self) -> list[StatechartNode]:
-        camera = self.pointed_camera(robot=self.robot)
-        pointing = Pointing(
-            kinematic_chain=KinematicChain(
-                root=self.robot.get_torso().root, tip=camera.root
-            ),
-            goal_point=self._world_P_target(),
-            pointing_axis=camera.viewing_direction,
-        )
-        return [pointing, *self.keep_base_still()]
+        return [
+            self._point_camera(root=self.robot.get_torso().root),
+            *self.keep_base_still(),
+        ]
 
-    def _world_P_target(self) -> Point3:
+    def _point_camera(self, *, root: KinematicStructureEntity) -> Pointing:
         """
-        :return: Where :attr:`look_target` is in the world frame, as an expression of where
-            the body it is given relative to stands while the look runs.
+        :param root: The entity the camera is moved relative to, which has to stand still
+            in the world while the look runs.
+        :return: The task pointing the camera at :attr:`look_target`.
         """
+        camera = self.pointed_camera(robot=self.robot)
         target_frame = self.look_target.reference_frame or self.world.root
         world_T_target_frame = self.world.compose_forward_kinematics_expression(
             self.world.root, target_frame
         )
         world_T_target_frame.reference_frame = self.world.root
         world_T_target_frame.child_frame = target_frame
-        return world_T_target_frame @ self.look_target.position
+        return Pointing(
+            kinematic_chain=KinematicChain(root=root, tip=camera.root),
+            goal_point=world_T_target_frame @ self.look_target.position,
+            pointing_axis=camera.viewing_direction,
+        )
+
+
+@dataclass(eq=False, repr=False, kw_only=True)
+class LookAtWhileDrivingAction(LookAtAction):
+    """
+    Lets the robot look at a position and keep looking at it while its base drives, until
+    its owner ends the look.
+    """
+
+    @property
+    def inherent_success_condition(self) -> Scalar:
+        """
+        Differs from :attr:`ParallelAction.inherent_success_condition` in leaving the
+        end to the owner, since a look that ended would lose the target as the base
+        drives on.
+        """
+        return Scalar.const_false()
+
+    def create_steps(self) -> list[StatechartNode]:
+        return [self._point_camera(root=self.world.root)]
 
 
 @dataclass(eq=False, repr=False, kw_only=True)

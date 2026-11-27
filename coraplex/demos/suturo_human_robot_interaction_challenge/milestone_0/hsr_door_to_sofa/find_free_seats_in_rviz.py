@@ -3,7 +3,7 @@ The door to sofa demo in kinematic simulation, shown in RViz.
 
 Run it from this folder, naming the seat places a person sits on::
 
-    python rviz_demo.py RIGHT
+    python find_free_seats_in_rviz.py RIGHT
 
 Watch it with the fixed frame ``root`` and a ``MarkerArray`` display on
 ``/semworld/viz_marker`` whose durability is transient local. The world after the run
@@ -19,7 +19,11 @@ import threading
 import rclpy
 
 from coraplex.plans.executors import KinematicallySimulatedPlanExecutor
-from demo import main, occupied_seats_from_command_line
+from free_seats_demonstration import (
+    DoorToSofaDemonstration,
+    main,
+    occupied_seats_from_command_line,
+)
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
     VizMarkerPublisher,
@@ -29,8 +33,10 @@ from semantic_digital_twin.adapters.ros.visualization.viz_marker import (
 
 if __name__ == "__main__":
     world = main(
-        executor_type=KinematicallySimulatedPlanExecutor,
-        occupied_seats=occupied_seats_from_command_line(),
+        DoorToSofaDemonstration(
+            executor_type=KinematicallySimulatedPlanExecutor,
+            occupied_seats=occupied_seats_from_command_line(),
+        )
     )
     rclpy.init()
     node = rclpy.create_node("hsr_door_to_sofa_demo_result")

@@ -1,5 +1,5 @@
 """
-The kitchen to sofa demo with the sofa perceived by RoboKudo in a recording of the HSR's
+The door to sofa demo with the sofa perceived by RoboKudo in a recording of the HSR's
 head camera, while the robot itself is simulated.
 """
 
@@ -21,7 +21,7 @@ from coraplex.plans.executors import KinematicallySimulatedPlanExecutor, PlanExe
 from coraplex.plans.plan_transformation import PlanRewriting
 from coraplex.robot_plans.plan_transformations import DetectWithRoboKudo
 from cramph.context import ContextExtension
-from demo import KitchenToSofaDemonstration
+from free_seats_demonstration import OneLookDoorToSofaDemonstration
 from exceptions import RecordingNotPlaying
 from semantic_digital_twin.adapters.ros.tf_publisher import TFPublisher
 from semantic_digital_twin.adapters.ros.world_fetcher import FetchWorldServer
@@ -262,16 +262,16 @@ class CameraRecordingReplay:
 # %% the demonstration
 
 
-@dataclass
-class RecordedKitchenToSofaDemonstration(KitchenToSofaDemonstration):
+@dataclass(kw_only=True)
+class RecordedDoorToSofaDemonstration(OneLookDoorToSofaDemonstration):
     """
-    The kitchen to sofa demonstration with a kinematically simulated robot, whose
+    The door to sofa demonstration with a kinematically simulated robot, whose
     perception RoboKudo answers from :attr:`recording` instead of the world model.
 
     .. warning:: Needs RoboKudo answering seat queries, see the README.
     """
 
-    recording: Path = field(kw_only=True)
+    recording: Path
     """
     The folder of the ``ros2 bag`` recording of the HSR's head camera looking at the
     sofa.
@@ -289,7 +289,7 @@ class RecordedKitchenToSofaDemonstration(KitchenToSofaDemonstration):
 
     def build_scene(self) -> World:
         """
-        As :meth:`KitchenToSofaDemonstration.build_scene`, fixed below a root named like
+        As :meth:`OneLookDoorToSofaDemonstration.build_scene`, fixed below a root named like
         the frame RoboKudo reports poses in, as the real robot's world is.
         """
         world = World.create_with_root_body(str(RecordedFrame.MAP))
@@ -301,7 +301,7 @@ class RecordedKitchenToSofaDemonstration(KitchenToSofaDemonstration):
 
     def acquire_world(self) -> World:
         """
-        As :meth:`KitchenToSofaDemonstration.acquire_world`, and start replaying
+        As :meth:`OneLookDoorToSofaDemonstration.acquire_world`, and start replaying
         :attr:`recording` from the head camera of the robot in the world.
         """
         world = super().acquire_world()
@@ -316,7 +316,7 @@ class RecordedKitchenToSofaDemonstration(KitchenToSofaDemonstration):
 
     def build_context_extensions(self, world: World) -> list[ContextExtension]:
         """
-        As :meth:`KitchenToSofaDemonstration.build_context_extensions`, with the
+        As :meth:`OneLookDoorToSofaDemonstration.build_context_extensions`, with the
         perception answered by RoboKudo.
         """
         return [
@@ -326,7 +326,7 @@ class RecordedKitchenToSofaDemonstration(KitchenToSofaDemonstration):
 
     def tear_down(self) -> None:
         """
-        Stop the replay, then as :meth:`KitchenToSofaDemonstration.tear_down`.
+        Stop the replay, then as :meth:`OneLookDoorToSofaDemonstration.tear_down`.
         """
         if self.replay is not None:
             self.replay.stop()
