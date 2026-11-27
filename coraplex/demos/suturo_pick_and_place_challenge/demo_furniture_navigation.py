@@ -8,16 +8,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-import numpy as np
 from typing_extensions import TYPE_CHECKING
 
 from coraplex.demonstrations import RobotDemonstration
+from coraplex.locations.locations import ReachabilityLocation
 from coraplex.plans.context_extensions import RobotAccess
 from coraplex.plans.executors import PhysicallySimulatedPlanExecutor
-from coraplex.robot_plans.actions.core.navigation import NavigateAction
+from coraplex.robot_plans.actions.core.navigation import PathPlanningNavigateAction
 from coraplex.robot_plans.actions.core.robot_body import MoveTorsoAction, ParkArmsAction
 from cramph.composites import Sequence
 from cramph.statechart import Statechart
+from krrood.entity_query_language.factories import a, variable
 from krrood_spatial_math.spatial_types import (
     HomogeneousTransformationMatrix,
     Pose,
@@ -29,7 +30,10 @@ from semantic_digital_twin.collision_checking.collision_rules import (
 from semantic_digital_twin.datastructures.definitions import TorsoState
 from semantic_digital_twin.predefined_maps.kitchen_environment import KitchenEnvironment
 from semantic_digital_twin.robots.hsrb import HSRB
-from semantic_digital_twin.semantic_annotations.semantic_annotations import Floor
+from semantic_digital_twin.semantic_annotations.semantic_annotations import (
+    Floor,
+    DiningTable,
+)
 from semantic_digital_twin.specifications.robots import RobotSpecification
 from semantic_digital_twin.specifications.worlds import WorldSpecification
 
@@ -83,9 +87,7 @@ class NavigationDemonstration(RobotDemonstration):
     """
 
     robot_start: HomogeneousTransformationMatrix = field(
-        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(
-            x=1.1, y=2.5
-        )
+        default_factory=lambda: HomogeneousTransformationMatrix.from_xyz_rpy(x=0, y=0)
     )
     """
     Where the HSR stands before the plan begins.
@@ -133,9 +135,11 @@ class NavigationDemonstration(RobotDemonstration):
 
     def build_statechart(self, context: StatechartContext) -> Statechart:
         robot = context.require_extension(extension_type=RobotAccess).robot
-        taking_pose = self._standing_pose_facing(
-            target=Pose.from_xyz_rpy(x=1, y=3, reference_frame=context.world.root),
-            approach_from=robot.root.global_pose,
+        [arm] = robot.all_arms
+        [dining_table] = context.world.get_semantic_annotations_by_type(DiningTable)
+        table_pose = Pose.from_xyz_rpy(z=0.05, reference_frame=dining_table.root)
+        standing_poses = ReachabilityLocation(
+            target_pose=table_pose, arm=arm, context=context
         )
         statechart = Statechart(context=context)
         statechart.add_node(
@@ -143,31 +147,14 @@ class NavigationDemonstration(RobotDemonstration):
                 nodes=[
                     MoveTorsoAction(torso_state=TorsoState.LOW),
                     ParkArmsAction(arms=robot.all_arms),
-                    NavigateAction(planar_goal_pose=taking_pose),
+                    a(PathPlanningNavigateAction)(
+                        planar_goal_pose=variable(Pose2D, domain=standing_poses),
+                        obstacle_clearance=0.1,
+                    ),
                 ]
             )
         )
         return statechart
-
-    def _standing_pose_facing(
-        self, *, target: Pose, approach_from: Pose | Pose2D
-    ) -> Pose2D:
-        """
-        :param target: What the robot goes to reach, in the world frame.
-        :param approach_from: Where the robot stands before it goes to `target`, in the
-            world frame.
-        :return: Where the robot's base stands on the floor, one meter off `target`
-            towards `approach_from` and facing `target`.
-        """
-        target_position = target.position.to_np()[:2]
-        offset = target_position - approach_from.position.to_np()[:2]
-        standing_position = target_position - offset / np.linalg.norm(offset)
-        return Pose2D.from_xy_yaw(
-            x=float(standing_position[0]),
-            y=float(standing_position[1]),
-            yaw=float(np.arctan2(offset[1], offset[0])),
-            reference_frame=target.reference_frame,
-        )
 
 
 # %% running the demonstration
